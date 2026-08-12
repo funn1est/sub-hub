@@ -4,6 +4,7 @@ pub(crate) mod vless;
 
 use std::fmt;
 
+use crate::node_name::NodeNameV1;
 use shadowsocks::ShadowsocksNode;
 use vless::VlessNode;
 
@@ -16,9 +17,45 @@ pub(crate) struct ProxyNodeDraft {
     pub(crate) protocol: NodeProtocol,
 }
 
+impl ProxyNodeDraft {
+    pub(crate) fn into_named(self, name: NodeNameV1) -> ProxyNode {
+        ProxyNode {
+            endpoint: self.endpoint,
+            name,
+            protocol: self.protocol,
+        }
+    }
+}
+
 impl fmt::Debug for ProxyNodeDraft {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("ProxyNodeDraft([REDACTED])")
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ProxyNode {
+    endpoint: Endpoint,
+    name: NodeNameV1,
+    protocol: NodeProtocol,
+}
+
+impl ProxyNode {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Named nodes await the approved target adapter slice"
+        )
+    )]
+    pub(crate) const fn name(&self) -> &NodeNameV1 {
+        &self.name
+    }
+}
+
+impl fmt::Debug for ProxyNode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ProxyNode([REDACTED])")
     }
 }
 
@@ -37,8 +74,17 @@ impl fmt::Debug for NodeProtocol {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum NodeNameInput {
     Missing,
     Decoded(String),
+}
+
+impl fmt::Debug for NodeNameInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Missing => formatter.write_str("NodeNameInput::Missing"),
+            Self::Decoded(_) => formatter.write_str("NodeNameInput::Decoded([REDACTED])"),
+        }
+    }
 }

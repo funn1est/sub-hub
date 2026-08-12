@@ -7,9 +7,19 @@ rust-version.workspace = true
 
 [dependencies]
 base64.workspace = true
+unicode-normalization.workspace = true
+unicode-properties.workspace = true
+unicode-segmentation.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+wasm-bindgen-test = "=0.3.77"
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+proptest.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+getrandom = { version = "=0.3.4", features = ["wasm_js"] }
 proptest.workspace = true
 
 [lints]
