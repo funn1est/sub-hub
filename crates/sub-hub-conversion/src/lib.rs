@@ -1,7 +1,9 @@
 mod node;
 
-#[allow(
+#[expect(
     dead_code,
-    reason = "ShareUriV1 is crate-internal until SourceContainerV1 connects it"
+    reason = "Subscription Source parsing awaits approved conversion orchestration"
 )]
+mod subscription_source;
+
 mod share_uri;
