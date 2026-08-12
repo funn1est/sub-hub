@@ -1,0 +1,17 @@
+[package]
+name = "sub-hub-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+http.workspace = true
+sub-hub-conversion = { path = "../sub-hub-conversion" }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

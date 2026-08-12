@@ -1,10 +1,11 @@
+mod direct_subscription;
 mod node;
 
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "Builtin Mihomo conversion awaits the approved HTTP orchestration slice"
+        reason = "Detailed Mihomo diagnostics remain internal to the direct application facade"
     )
 )]
 mod mihomo;
@@ -13,7 +14,7 @@ mod mihomo;
     not(test),
     expect(
         dead_code,
-        reason = "Node naming awaits approved conversion orchestration"
+        reason = "Detailed naming diagnostics remain internal to conversion orchestration"
     )
 )]
 mod node_name;
@@ -25,9 +26,14 @@ pub mod node_name_tests;
     not(test),
     expect(
         dead_code,
-        reason = "Subscription parsing remains behind the pending conversion facade"
+        reason = "Container parsing awaits the remote subscription orchestration slice"
     )
 )]
 mod subscription_source;
 
 mod share_uri;
+
+pub use direct_subscription::{
+    DirectPreparationError, DirectRenderError, MihomoConfig, PreparedDirectSubscriptionV1,
+    prepare_direct_subscription_v1,
+};
