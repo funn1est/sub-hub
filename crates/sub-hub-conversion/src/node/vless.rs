@@ -90,6 +90,10 @@ impl VlessId {
     pub(crate) fn new(value: Uuid) -> Self {
         Self(value)
     }
+
+    pub(crate) const fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
 }
 
 impl fmt::Debug for VlessId {
@@ -201,7 +205,6 @@ impl TlsOptions {
         self.alpn.as_deref()
     }
 
-    #[cfg(test)]
     pub(crate) const fn fingerprint(&self) -> ClientFingerprint {
         self.fingerprint
     }
@@ -261,6 +264,10 @@ impl RealityPublicKey {
     pub(crate) const fn byte_len(&self) -> usize {
         self.0.len()
     }
+
+    pub(crate) const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
 
 impl fmt::Debug for RealityPublicKey {
@@ -279,6 +286,10 @@ impl RealityShortId {
 
     pub(crate) fn byte_len(&self) -> usize {
         self.0.len()
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.0
     }
 }
 

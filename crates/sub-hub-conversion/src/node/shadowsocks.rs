@@ -89,6 +89,10 @@ impl SecretString {
     pub(crate) fn byte_len(&self) -> usize {
         self.0.len()
     }
+
+    pub(crate) fn expose(&self) -> &str {
+        &self.0
+    }
 }
 
 impl fmt::Debug for SecretString {
@@ -107,6 +111,10 @@ impl SecretBytes {
 
     pub(crate) fn byte_len(&self) -> usize {
         self.0.len()
+    }
+
+    pub(crate) fn expose(&self) -> &[u8] {
+        &self.0
     }
 }
 

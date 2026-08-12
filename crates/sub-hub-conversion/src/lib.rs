@@ -4,6 +4,15 @@ mod node;
     not(test),
     expect(
         dead_code,
+        reason = "Builtin Mihomo conversion awaits the approved HTTP orchestration slice"
+    )
+)]
+mod mihomo;
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
         reason = "Node naming awaits approved conversion orchestration"
     )
 )]

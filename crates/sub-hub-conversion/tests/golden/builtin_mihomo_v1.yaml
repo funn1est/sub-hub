@@ -1,0 +1,95 @@
+mode: rule
+proxies:
+- name: PROXY~00001
+  type: vless
+  server: example.com
+  port: 443
+  uuid: 00000000-0000-4000-8000-000000000001
+  udp: true
+  encryption: none
+  network: tcp
+- name: WebSocket
+  type: vless
+  server: ws.example
+  port: 8443
+  uuid: 00000000-0000-4000-8000-000000000002
+  udp: true
+  encryption: none
+  network: ws
+  tls: true
+  servername: edge.example
+  alpn:
+  - h2
+  - http/1.1
+  client-fingerprint: firefox
+  ws-opts:
+    path: /socket
+    headers:
+      Host: cdn.example
+- name: Reality
+  type: vless
+  server: 2001:db8::1
+  port: 9443
+  uuid: 00000000-0000-4000-8000-000000000003
+  udp: true
+  encryption: none
+  network: grpc
+  tls: true
+  servername: reality.example
+  client-fingerprint: safari
+  grpc-opts:
+    grpc-service-name: svc/prod
+  reality-opts:
+    public-key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
+    short-id: 0a1b
+- name: Vision
+  type: vless
+  server: vision.example
+  port: 443
+  uuid: 00000000-0000-4000-8000-000000000004
+  udp: true
+  encryption: none
+  network: tcp
+  flow: xtls-rprx-vision
+  tls: true
+  servername: vision.example
+  client-fingerprint: chrome
+- name: Classic
+  type: ss
+  server: ss.example
+  port: 8388
+  cipher: aes-256-gcm
+  password: p@ss:word
+  udp: true
+- name: PROXY~00002
+  type: ss
+  server: ss2022.example
+  port: 8389
+  cipher: 2022-blake3-aes-128-gcm
+  password: AAECAwQFBgcICQoLDA0ODw==
+  udp: true
+proxy-groups:
+- name: PROXY
+  type: select
+  proxies:
+  - AUTO
+  - PROXY~00001
+  - WebSocket
+  - Reality
+  - Vision
+  - Classic
+  - PROXY~00002
+  - DIRECT
+- name: AUTO
+  type: url-test
+  proxies:
+  - PROXY~00001
+  - WebSocket
+  - Reality
+  - Vision
+  - Classic
+  - PROXY~00002
+  url: https://www.gstatic.com/generate_204
+  interval: 300
+rules:
+- MATCH,PROXY

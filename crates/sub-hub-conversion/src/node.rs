@@ -41,15 +41,16 @@ pub(crate) struct ProxyNode {
 }
 
 impl ProxyNode {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Named nodes await the approved target adapter slice"
-        )
-    )]
+    pub(crate) const fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
+    }
+
     pub(crate) const fn name(&self) -> &NodeNameV1 {
         &self.name
+    }
+
+    pub(crate) const fn protocol(&self) -> &NodeProtocol {
+        &self.protocol
     }
 }
 

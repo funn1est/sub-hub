@@ -7,6 +7,8 @@ rust-version.workspace = true
 
 [dependencies]
 base64.workspace = true
+serde.workspace = true
+serde_yaml_ng.workspace = true
 unicode-normalization.workspace = true
 unicode-properties.workspace = true
 unicode-segmentation.workspace = true

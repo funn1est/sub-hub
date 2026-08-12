@@ -1,0 +1,65 @@
+name: Mihomo validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mihomo-v1-19-27:
+    name: Official Mihomo v1.19.27
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+      SUB_HUB_REQUIRE_MIHOMO: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.85.0
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master 2026-08-05
+        with:
+          toolchain: 1.85.0
+
+      - name: Download and verify Mihomo v1.19.27
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $asset = 'mihomo-windows-amd64-v1.19.27.zip'
+          $expected = '34b4c5bc0c176eebd298f6624aa23ea41985a2c54efb04eb0e9c4542e45190ee'
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          $extract = Join-Path $env:RUNNER_TEMP 'mihomo-v1.19.27'
+          $url = "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/$asset"
+
+          Invoke-WebRequest -Uri $url -OutFile $archive
+
+          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -cne $expected) {
+            throw 'Pinned Mihomo archive checksum mismatch.'
+          }
+
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+
+          $executables = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter '*.exe')
+          if ($executables.Count -ne 1) {
+            throw 'Pinned Mihomo archive layout was unexpected.'
+          }
+
+          Add-Content `
+            -LiteralPath $env:GITHUB_ENV `
+            -Value "SUB_HUB_MIHOMO_BIN=$($executables[0].FullName)" `
+            -Encoding utf8
+
+      - name: Run Rust and official Mihomo acceptance tests
+        shell: pwsh
+        run: cargo test --locked --workspace
