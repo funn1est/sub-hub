@@ -17,7 +17,7 @@ concurrency:
 jobs:
   repository-validation:
     name: Rust and Worker validation
-    runs-on: windows-2022
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
@@ -36,19 +36,15 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Run formatting gate
-        shell: pwsh
         run: cargo fmt --all -- --check
 
       - name: Run Clippy gate
-        shell: pwsh
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Run workspace tests
-        shell: pwsh
         run: cargo test --locked --workspace --all-targets
 
       - name: Check the conversion core for Wasm
-        shell: pwsh
         run: cargo check --locked -p sub-hub-conversion --target wasm32-unknown-unknown
 
       - name: Install Node.js 24
@@ -58,20 +54,16 @@ jobs:
           package-manager-cache: false
 
       - name: Install pinned Worker build tool
-        shell: pwsh
         run: cargo install worker-build --version 0.8.5 --locked
 
       - name: Install pinned Miniflare dependencies
         working-directory: crates/sub-hub-worker
-        shell: pwsh
         run: corepack pnpm install --frozen-lockfile
 
       - name: Build the Cloudflare Worker
         working-directory: crates/sub-hub-worker
-        shell: pwsh
         run: worker-build --release
 
       - name: Run workerd host conformance tests
         working-directory: crates/sub-hub-worker
-        shell: pwsh
         run: corepack pnpm run test:host

@@ -1,1 +1,2 @@
+*.rs text eol=lf
 crates/sub-hub-conversion/tests/golden/*.yaml text eol=lf
