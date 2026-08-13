@@ -81,7 +81,9 @@ cargo test --locked --workspace --all-targets
 cargo check --locked -p sub-hub-conversion --target wasm32-unknown-unknown
 ```
 
-Use `cargo fmt --all` without `--check` to apply formatting locally.
+Use `cargo fmt --all` without `--check` to apply formatting locally. GitHub's `CI` workflow runs
+these repository-wide gates and Worker conformance once per revision; the separate Mihomo workflow
+is limited to its pinned two-version external acceptance matrix.
 
 ## Native deployment boundary
 

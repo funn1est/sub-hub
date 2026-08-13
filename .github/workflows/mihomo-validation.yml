@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   mihomo-validation:
     name: Official Mihomo ${{ matrix.version }}
@@ -39,17 +43,6 @@ jobs:
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master 2026-08-05
         with:
           toolchain: 1.97.1 # Keep in sync with rust-toolchain.toml.
-          components: clippy, rustfmt
-          targets: wasm32-unknown-unknown
-
-      - name: Install pinned Worker build tool
-        shell: pwsh
-        run: cargo install worker-build --version 0.8.5 --locked
-
-      - name: Install pinned Miniflare dependencies
-        working-directory: crates/sub-hub-worker
-        shell: pwsh
-        run: corepack pnpm install --frozen-lockfile
 
       - name: Checkout the pinned ACL4SSR corpus
         shell: pwsh
@@ -105,22 +98,9 @@ jobs:
             -Value "SUB_HUB_MIHOMO_BIN=$($executables[0].FullName)" `
             -Encoding utf8
 
-      - name: Run formatting and Clippy gates
+      - name: Run corpus and official Mihomo acceptance tests
         shell: pwsh
-        run: |
-          cargo fmt --all -- --check
-          cargo clippy --locked --workspace --all-targets -- -D warnings
-
-      - name: Run Rust and official Mihomo acceptance tests
-        shell: pwsh
-        run: cargo test --locked --workspace --all-targets
-
-      - name: Build the Cloudflare Worker
-        working-directory: crates/sub-hub-worker
-        shell: pwsh
-        run: worker-build --release
-
-      - name: Run workerd host conformance tests
-        working-directory: crates/sub-hub-worker
-        shell: pwsh
-        run: corepack pnpm run test:host
+        run: >-
+          cargo test --locked -p sub-hub-conversion
+          --test acl4ssr_corpus
+          --test mihomo_validation
