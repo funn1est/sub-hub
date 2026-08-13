@@ -61,6 +61,28 @@ CI launches that release binary on a loopback port and checks `/version` plus
 one local VLESS to Mihomo conversion. The fixture does not fetch an external
 subscription.
 
+## Rust development
+
+With [rustup](https://rustup.rs/) installed, commands run from this repository
+automatically select Rust 1.97.1 and install the declared `rustfmt` and
+`clippy` components plus the `wasm32-unknown-unknown` target from
+`rust-toolchain.toml`.
+
+`rustfmt.toml` fixes the Rust 2024 style edition and Unix line endings; workspace
+lint policy remains centralized in `Cargo.toml`, while `.cargo/config.toml`
+contains the Wasm test runner and target-specific `getrandom` configuration.
+
+Run the repository-wide Rust gates from the workspace root:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace --all-targets
+cargo check --locked -p sub-hub-conversion --target wasm32-unknown-unknown
+```
+
+Use `cargo fmt --all` without `--check` to apply formatting locally.
+
 ## Native deployment boundary
 
 The native host reads two optional environment variables:
