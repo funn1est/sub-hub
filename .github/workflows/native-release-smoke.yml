@@ -1,0 +1,91 @@
+name: Native release smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-release-smoke:
+    name: Native release process smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.97.1
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master 2026-08-05
+        with:
+          toolchain: 1.97.1
+
+      - name: Build the native release executable
+        run: cargo build --locked --release -p sub-hub-native
+
+      - name: Run the process-level conversion smoke test
+        run: |
+          set -eu
+          port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+          export SUB_HUB_BIND="127.0.0.1:${port}"
+          unset SUB_HUB_SELF_HOSTS
+          ./target/release/sub-hub-native &
+          pid=$!
+          cleanup() {
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          version=""
+          i=0
+          while [ "$i" -lt 100 ]; do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo 'native backend exited before it became ready' >&2
+              exit 1
+            fi
+            if curl -fsS --max-time 1 "http://127.0.0.1:${port}/version" -o version.txt; then
+              version="$(cat version.txt)"
+              if [ "$version" = 'sub-hub v0.1.0 backend' ]; then
+                break
+              fi
+            fi
+            version=""
+            i=$((i + 1))
+            sleep 0.1
+          done
+          if [ "$version" != 'sub-hub v0.1.0 backend' ]; then
+            echo 'native backend did not return the expected version response' >&2
+            exit 1
+          fi
+
+          source='vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha'
+          curl -fsS --max-time 5 --get "http://127.0.0.1:${port}/sub" \
+            --data-urlencode 'target=clash' \
+            --data-urlencode "url=${source}" \
+            -o conversion.yaml
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          yaml = Path("conversion.yaml").read_text(encoding="utf-8")
+          fragments = [
+              "mode: rule\n",
+              "- name: Alpha\n  type: vless\n  server: example.com\n  port: 443\n",
+              "  uuid: 01234567-89ab-cdef-0123-456789abcdef\n",
+              "proxy-groups:\n",
+              "rules:\n- MATCH,PROXY\n",
+          ]
+          if any(fragment not in yaml for fragment in fragments):
+              raise SystemExit("native backend returned unexpected Mihomo output")
+          print("Native release smoke passed: /version and direct VLESS -> Mihomo.")
+          PY
