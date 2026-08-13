@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: Unicode-3.0
+//
+// Derived from Unicode 17.0.0 PropList.txt, DerivedCoreProperties.txt, and
+// emoji/emoji-variation-sequences.txt. See THIRD_PARTY_NOTICES.md for source
+// details, transformations, and the complete Unicode License v3 notice.
+
 pub(super) const fn is_white_space(character: char) -> bool {
     matches!(
         character,

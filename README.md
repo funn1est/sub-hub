@@ -23,7 +23,8 @@ Relevant public references include:
 - [VMessAEAD / VLESS share-link proposal](https://github.com/XTLS/Xray-core/discussions/716)
 
 Any third-party dependencies or incorporated materials remain subject to their
-respective licenses and notices.
+respective licenses and notices. Incorporated-material notices are collected in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## License
 
