@@ -15,6 +15,21 @@ pub struct PreparedSubscriptionV1 {
 }
 
 impl PreparedSubscriptionV1 {
+    /// Consumes the parsed subscription and prepares a strict ACL4SSR v1 config.
+    ///
+    /// The returned value contains an ordered, opaque Rule Set fetch plan. This method performs no
+    /// network I/O.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error when the config is malformed, unsupported, or exceeds a fixed limit.
+    pub fn prepare_acl4ssr_config_v1(
+        self,
+        config: &[u8],
+    ) -> Result<crate::PreparedAcl4SsrV1, crate::Acl4SsrPreparationError> {
+        crate::acl4ssr::prepare(self.parsed, config)
+    }
+
     /// Returns selected/decoded remote bytes aligned with source declaration order.
     ///
     /// Direct occurrences are `None`. Remote sources are `Some(bytes)`, where `bytes` is the raw

@@ -7,8 +7,9 @@ use std::{
 use futures::{StreamExt, stream::FuturesUnordered};
 use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use sub_hub_conversion::{
-    DirectPreparationError, DirectRenderError, SubscriptionPreparationError, SubscriptionSourceV1,
-    prepare_direct_subscription_v1, prepare_subscription_v1,
+    Acl4SsrPreparationError, Acl4SsrRenderError, DirectPreparationError, DirectRenderError,
+    SubscriptionPreparationError, SubscriptionSourceV1, prepare_direct_subscription_v1,
+    prepare_subscription_v1,
 };
 use url::{Host, Url};
 
@@ -20,6 +21,12 @@ pub use public_destination::is_globally_reachable;
 const TEXT_CONTENT_TYPE: HeaderValue = HeaderValue::from_static("text/plain;charset=utf-8");
 const NO_STORE: HeaderValue = HeaderValue::from_static("no-store");
 const MAX_GET_TARGET_BYTES: usize = 8 * 1024;
+const MAX_UNIQUE_REMOTE_RESOURCES: usize = 40;
+const MAX_ACTIVE_RESOURCES: usize = 4;
+const MAX_TOTAL_DECODED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CONFIG_BYTES: usize = 256 * 1024;
+const MAX_RULE_SET_BYTES: usize = 4 * 1024 * 1024;
+const MAX_SUBSCRIPTION_INPUT_BYTES: usize = 2_796_206;
 
 pub struct HttpRequest<'a> {
     method: Method,
@@ -318,6 +325,30 @@ struct LoadedRemote {
     attempts: u8,
 }
 
+#[derive(Clone)]
+struct RemoteResource {
+    kind: ResourceKind,
+    url: Url,
+    max_body_bytes: usize,
+    capture_subscription_user_info: bool,
+}
+
+impl RemoteResource {
+    fn same_identity(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.url.as_str() == other.url.as_str()
+    }
+}
+
+struct BrokerSession<'a, A> {
+    application: &'a Application<A>,
+    inbound_host: &'a str,
+    total_deadline_millis: u64,
+    attempts: AtomicUsize,
+    reserved: Vec<RemoteResource>,
+    accounted: Vec<RemoteResource>,
+    decoded_bytes: usize,
+}
+
 impl LoadedRemote {
     fn into_response(self) -> RemoteResponse {
         let Self {
@@ -337,6 +368,155 @@ impl fmt::Debug for LoadedRemote {
             .field("final_url", &"[REDACTED]")
             .field("attempts", &self.attempts)
             .finish()
+    }
+}
+
+impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
+    fn new(application: &'a Application<A>, inbound_host: &'a str) -> Self {
+        Self {
+            application,
+            inbound_host,
+            total_deadline_millis: application
+                .adapter
+                .monotonic_millis()
+                .saturating_add(30_000),
+            attempts: AtomicUsize::new(0),
+            reserved: Vec::new(),
+            accounted: Vec::new(),
+            decoded_bytes: 0,
+        }
+    }
+
+    fn check_reservation(&self, resources: &[RemoteResource]) -> Result<(), ApplicationError> {
+        for (index, resource) in resources.iter().enumerate() {
+            if self
+                .reserved
+                .iter()
+                .any(|candidate| candidate.same_identity(resource))
+                || resources[..index]
+                    .iter()
+                    .any(|candidate| candidate.same_identity(resource))
+            {
+                return Err(ApplicationError::Internal);
+            }
+        }
+        self.check_reservation_capacity(resources.len())
+    }
+
+    fn check_reservation_capacity(&self, additional_unique: usize) -> Result<(), ApplicationError> {
+        let unique_total = self
+            .reserved
+            .len()
+            .checked_add(additional_unique)
+            .ok_or(ApplicationError::ConversionLimit)?;
+        if unique_total > MAX_UNIQUE_REMOTE_RESOURCES {
+            return Err(ApplicationError::ConversionLimit);
+        }
+        Ok(())
+    }
+
+    fn reserve(&mut self, resources: &[RemoteResource]) -> Result<(), ApplicationError> {
+        self.check_reservation(resources)?;
+        self.reserved.extend_from_slice(resources);
+        Ok(())
+    }
+
+    fn preflight_rule_set_plan(
+        &self,
+        resources: &[RemoteResource],
+    ) -> Result<(), ApplicationError> {
+        self.check_reservation(resources)?;
+        let minimum_attempts = self
+            .attempts
+            .load(Ordering::Relaxed)
+            .checked_add(resources.len())
+            .ok_or(ApplicationError::RemoteFailure)?;
+        if minimum_attempts > 48 {
+            return Err(ApplicationError::RemoteFailure);
+        }
+        Ok(())
+    }
+
+    fn account_decoded(
+        &mut self,
+        resource: &RemoteResource,
+        decoded_bytes: usize,
+    ) -> Result<(), ApplicationError> {
+        if self
+            .accounted
+            .iter()
+            .any(|candidate| candidate.same_identity(resource))
+        {
+            return Ok(());
+        }
+        self.decoded_bytes = self
+            .decoded_bytes
+            .checked_add(decoded_bytes)
+            .filter(|total| *total <= MAX_TOTAL_DECODED_BYTES)
+            .ok_or(ApplicationError::ConversionLimit)?;
+        self.accounted.push(resource.clone());
+        Ok(())
+    }
+
+    fn first_decoded_crossing(
+        &self,
+        resources: &[RemoteResource],
+        body_lengths: &[usize],
+        canonical_occurrences: &[String],
+    ) -> Result<Option<usize>, ApplicationError> {
+        if resources.len() != body_lengths.len() {
+            return Err(ApplicationError::Internal);
+        }
+        let mut decoded_bytes = self.decoded_bytes;
+        let mut counted = vec![false; resources.len()];
+        for (occurrence_index, canonical) in canonical_occurrences.iter().enumerate() {
+            let unique_index = resources
+                .iter()
+                .position(|resource| resource.url.as_str() == canonical)
+                .ok_or(ApplicationError::Internal)?;
+            if counted[unique_index]
+                || self
+                    .accounted
+                    .iter()
+                    .any(|candidate| candidate.same_identity(&resources[unique_index]))
+            {
+                continue;
+            }
+            counted[unique_index] = true;
+            decoded_bytes = decoded_bytes
+                .checked_add(body_lengths[unique_index])
+                .ok_or(ApplicationError::ConversionLimit)?;
+            if decoded_bytes > MAX_TOTAL_DECODED_BYTES {
+                return Ok(Some(occurrence_index));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn load_batch(
+        &mut self,
+        resources: &[RemoteResource],
+    ) -> Result<RemoteLoadBatch, ApplicationError> {
+        self.reserve(resources)?;
+        Ok(self
+            .application
+            .load_remote_resources(
+                resources,
+                self.inbound_host,
+                self.total_deadline_millis,
+                &self.attempts,
+            )
+            .await)
+    }
+
+    async fn load(
+        &mut self,
+        resources: &[RemoteResource],
+    ) -> Result<Vec<LoadedRemote>, ApplicationError> {
+        match self.load_batch(resources).await? {
+            RemoteLoadBatch::Complete(loaded) => Ok(loaded),
+            RemoteLoadBatch::Failed { error, .. } => Err(error),
+        }
     }
 }
 
@@ -386,18 +566,33 @@ impl<A: RemoteAdapter> Application<A> {
                 return error_response(ApplicationError::InvalidRequest);
             }
         };
-        let remote_sources = parsed
+        let needs_remote = parsed
             .sources
             .iter()
-            .filter(|source| query::is_https_source(source))
-            .collect::<Vec<_>>();
-        let inbound_host = if remote_sources.is_empty() {
-            ""
-        } else {
+            .any(|source| query::is_https_source(source))
+            || parsed.config.is_some();
+        let inbound_host = if needs_remote {
             let Some(inbound_host) = inbound_host.filter(|host| is_valid_inbound_host(host)) else {
                 return error_response(ApplicationError::InvalidRequest);
             };
             inbound_host
+        } else {
+            ""
+        };
+        let config_url = match parsed.config.as_deref() {
+            Some(config) => {
+                let Ok(url) = canonical_remote_url(config, &self.self_hosts, inbound_host) else {
+                    return error_response(ApplicationError::InvalidRequest);
+                };
+                if !self
+                    .adapter
+                    .supports_https_port(url.port_or_known_default().unwrap_or(443))
+                {
+                    return error_response(ApplicationError::InvalidRequest);
+                }
+                Some(url)
+            }
+            None => None,
         };
         let mut canonical_sources = Vec::with_capacity(parsed.sources.len());
         let mut unique_urls = Vec::new();
@@ -425,16 +620,25 @@ impl<A: RemoteAdapter> Application<A> {
             }
         }
 
-        let loaded_responses = match self
-            .load_remote_resources(&unique_urls, inbound_host, parsed.append_info)
-            .await
-        {
-            RemoteLoadBatch::Complete(responses) => responses,
-            RemoteLoadBatch::Failed {
+        let subscription_resources = unique_urls
+            .iter()
+            .cloned()
+            .map(|url| RemoteResource {
+                kind: ResourceKind::Subscription,
+                url,
+                max_body_bytes: MAX_SUBSCRIPTION_INPUT_BYTES,
+                capture_subscription_user_info: parsed.append_info,
+            })
+            .collect::<Vec<_>>();
+        let mut broker = BrokerSession::new(self, inbound_host);
+        let loaded_responses = match broker.load_batch(&subscription_resources).await {
+            Ok(RemoteLoadBatch::Complete(responses)) => responses,
+            Err(error) => return error_response(error),
+            Ok(RemoteLoadBatch::Failed {
                 loaded,
                 failed_unique_index,
                 error,
-            } => {
+            }) => {
                 let earlier_error = match preparation_error_before_remote_failure(
                     &parsed.sources,
                     &canonical_sources,
@@ -508,21 +712,30 @@ impl<A: RemoteAdapter> Application<A> {
                 return error_response(ApplicationError::NoValidNodes);
             }
         };
-        let mut aggregate_decoded_bytes = 0_usize;
         for (source_index, decoded) in prepared.remote_decoded_bytes_by_source().iter().enumerate()
         {
             let Some(decoded) = decoded else { continue };
-            let canonical = canonical_sources
+            let Some(canonical) = canonical_sources
                 .get(source_index)
-                .and_then(Option::as_deref);
-            let first_occurrence = canonical_sources
+                .and_then(Option::as_deref)
+            else {
+                return error_response(ApplicationError::Internal);
+            };
+            if canonical_sources
                 .iter()
-                .position(|candidate| candidate.as_deref() == canonical);
-            if first_occurrence == Some(source_index) {
-                aggregate_decoded_bytes = match aggregate_decoded_bytes.checked_add(*decoded) {
-                    Some(total) if total <= 16 * 1024 * 1024 => total,
-                    _ => return error_response(ApplicationError::ConversionLimit),
+                .position(|candidate| candidate.as_deref() == Some(canonical))
+                == Some(source_index)
+            {
+                let Some(unique_index) =
+                    unique_urls.iter().position(|url| url.as_str() == canonical)
+                else {
+                    return error_response(ApplicationError::Internal);
                 };
+                if let Err(error) =
+                    broker.account_decoded(&subscription_resources[unique_index], *decoded)
+                {
+                    return error_response(error);
+                }
             }
         }
         let eligible_metadata =
@@ -536,38 +749,250 @@ impl<A: RemoteAdapter> Application<A> {
             insert_subscription_user_info(&mut response, eligible_metadata);
             return response;
         }
-        match prepared.render_builtin_mihomo_v1() {
+
+        let Some(config_url) = config_url else {
+            return match prepared.render_builtin_mihomo_v1() {
+                Ok(config) => {
+                    let mut response = subscription_response(config.into_bytes());
+                    insert_subscription_user_info(&mut response, eligible_metadata);
+                    response
+                }
+                Err(DirectRenderError::ConversionLimit) => {
+                    error_response(ApplicationError::ConversionLimit)
+                }
+                Err(DirectRenderError::Internal) => error_response(ApplicationError::Internal),
+            };
+        };
+
+        let config_resource = RemoteResource {
+            kind: ResourceKind::Config,
+            url: config_url,
+            max_body_bytes: MAX_CONFIG_BYTES,
+            capture_subscription_user_info: false,
+        };
+        let mut config_responses = match broker.load(std::slice::from_ref(&config_resource)).await {
+            Ok(responses) => responses,
+            Err(error) => return error_response(error),
+        };
+        let Some(config_response) = config_responses.pop() else {
+            return error_response(ApplicationError::Internal);
+        };
+        let config_body = config_response.into_response().body;
+        if let Err(error) = broker.account_decoded(&config_resource, config_body.len()) {
+            return error_response(error);
+        }
+        let prepared = match prepared.prepare_acl4ssr_config_v1(&config_body) {
+            Ok(prepared) => prepared,
+            Err(Acl4SsrPreparationError::InvalidConfig) => {
+                return error_response(ApplicationError::RemoteFailure);
+            }
+            Err(Acl4SsrPreparationError::ConversionLimit) => {
+                return error_response(ApplicationError::ConversionLimit);
+            }
+            Err(Acl4SsrPreparationError::Internal) => {
+                return error_response(ApplicationError::Internal);
+            }
+        };
+
+        let mut canonical_rule_sets = Vec::with_capacity(prepared.rule_set_requests().len());
+        let mut flight_by_occurrence = Vec::with_capacity(prepared.rule_set_requests().len());
+        let mut rule_set_resources = Vec::new();
+        for request in prepared.rule_set_requests() {
+            let Ok(url) = canonical_remote_url(request.url(), &self.self_hosts, inbound_host)
+            else {
+                return error_response(ApplicationError::RemoteFailure);
+            };
+            if !self
+                .adapter
+                .supports_https_port(url.port_or_known_default().unwrap_or(443))
+            {
+                return error_response(ApplicationError::RemoteFailure);
+            }
+            let flight = rule_set_resources
+                .iter()
+                .position(|candidate: &RemoteResource| {
+                    candidate.kind == ResourceKind::RuleSet
+                        && candidate.url.as_str() == url.as_str()
+                });
+            let flight = if let Some(flight) = flight {
+                flight
+            } else {
+                let Some(additional_unique) = rule_set_resources.len().checked_add(1) else {
+                    return error_response(ApplicationError::ConversionLimit);
+                };
+                if let Err(error) = broker.check_reservation_capacity(additional_unique) {
+                    return error_response(error);
+                }
+                rule_set_resources.push(RemoteResource {
+                    kind: ResourceKind::RuleSet,
+                    url: url.clone(),
+                    max_body_bytes: MAX_RULE_SET_BYTES,
+                    capture_subscription_user_info: false,
+                });
+                rule_set_resources.len() - 1
+            };
+            canonical_rule_sets.push(url.as_str().to_owned());
+            flight_by_occurrence.push(flight);
+        }
+        let mut prepared = match prepared.bind_rule_set_flights_v1(&flight_by_occurrence) {
+            Ok(prepared) => prepared,
+            Err(error) => return error_response(map_acl4ssr_render_error(error)),
+        };
+        if let Err(error) = broker.preflight_rule_set_plan(&rule_set_resources) {
+            return error_response(error);
+        }
+        let mut rule_set_bodies = Vec::with_capacity(rule_set_resources.len());
+        while rule_set_bodies.len() < rule_set_resources.len() {
+            let chunk_start = rule_set_bodies.len();
+            let chunk_end = chunk_start
+                .checked_add(MAX_ACTIVE_RESOURCES)
+                .map_or(rule_set_resources.len(), |end| {
+                    end.min(rule_set_resources.len())
+                });
+            let chunk = &rule_set_resources[chunk_start..chunk_end];
+            let loaded = match broker.load_batch(chunk).await {
+                Err(error) => return error_response(error),
+                Ok(RemoteLoadBatch::Complete(responses)) => responses,
+                Ok(RemoteLoadBatch::Failed {
+                    loaded,
+                    failed_unique_index,
+                    error,
+                }) => {
+                    for loaded in loaded.into_iter().take(failed_unique_index) {
+                        let Some(loaded) = loaded else {
+                            return error_response(ApplicationError::Internal);
+                        };
+                        rule_set_bodies.push(loaded.into_response().body);
+                    }
+                    let Some(failed_unique_index) = chunk_start.checked_add(failed_unique_index)
+                    else {
+                        return error_response(ApplicationError::Internal);
+                    };
+                    let earlier_occurrence_count = flight_by_occurrence
+                        .iter()
+                        .take_while(|flight| **flight < failed_unique_index)
+                        .count();
+                    let unique_bodies = rule_set_bodies
+                        .iter()
+                        .map(Vec::as_slice)
+                        .collect::<Vec<_>>();
+                    let body_lengths = rule_set_bodies.iter().map(Vec::len).collect::<Vec<_>>();
+                    let crossing = match broker.first_decoded_crossing(
+                        &rule_set_resources[..failed_unique_index],
+                        &body_lengths,
+                        &canonical_rule_sets[..earlier_occurrence_count],
+                    ) {
+                        Ok(crossing) => crossing,
+                        Err(crossing_error) => return error_response(crossing_error),
+                    };
+                    if let Some(crossing) = crossing {
+                        if let Err(prefix_error) =
+                            prepared.validate_occurrence_prefix_v1(&unique_bodies, crossing)
+                        {
+                            return error_response(map_acl4ssr_render_error(prefix_error));
+                        }
+                        return error_response(ApplicationError::ConversionLimit);
+                    }
+                    for (resource, body) in rule_set_resources[chunk_start..failed_unique_index]
+                        .iter()
+                        .zip(&rule_set_bodies[chunk_start..])
+                    {
+                        if let Err(limit_error) = broker.account_decoded(resource, body.len()) {
+                            return error_response(limit_error);
+                        }
+                    }
+                    if let Err(prefix_error) = prepared
+                        .validate_occurrence_prefix_v1(&unique_bodies, earlier_occurrence_count)
+                    {
+                        return error_response(map_acl4ssr_render_error(prefix_error));
+                    }
+                    return error_response(error);
+                }
+            };
+            rule_set_bodies.extend(loaded.into_iter().map(|loaded| loaded.into_response().body));
+            let available_occurrence_count = flight_by_occurrence
+                .iter()
+                .take_while(|flight| **flight < rule_set_bodies.len())
+                .count();
+            let unique_bodies = rule_set_bodies
+                .iter()
+                .map(Vec::as_slice)
+                .collect::<Vec<_>>();
+            let body_lengths = rule_set_bodies.iter().map(Vec::len).collect::<Vec<_>>();
+            let crossing = match broker.first_decoded_crossing(
+                &rule_set_resources[..rule_set_bodies.len()],
+                &body_lengths,
+                &canonical_rule_sets[..available_occurrence_count],
+            ) {
+                Ok(crossing) => crossing,
+                Err(error) => return error_response(error),
+            };
+            if let Some(crossing) = crossing {
+                if let Err(prefix_error) =
+                    prepared.validate_occurrence_prefix_v1(&unique_bodies, crossing)
+                {
+                    return error_response(map_acl4ssr_render_error(prefix_error));
+                }
+                return error_response(ApplicationError::ConversionLimit);
+            }
+            for (resource, body) in rule_set_resources[chunk_start..chunk_end]
+                .iter()
+                .zip(&rule_set_bodies[chunk_start..chunk_end])
+            {
+                if let Err(error) = broker.account_decoded(resource, body.len()) {
+                    return error_response(error);
+                }
+            }
+            if let Err(prefix_error) =
+                prepared.validate_occurrence_prefix_v1(&unique_bodies, available_occurrence_count)
+            {
+                return error_response(map_acl4ssr_render_error(prefix_error));
+            }
+        }
+        let unique_rule_set_bodies = rule_set_bodies
+            .iter()
+            .map(Vec::as_slice)
+            .collect::<Vec<_>>();
+        match prepared.render_mihomo_v1(&unique_rule_set_bodies) {
             Ok(config) => {
+                let omitted_url_regex_count = config.report().omitted_url_regex_count();
                 let mut response = subscription_response(config.into_bytes());
                 insert_subscription_user_info(&mut response, eligible_metadata);
+                insert_lossy_headers(&mut response, omitted_url_regex_count);
                 response
             }
-            Err(DirectRenderError::ConversionLimit) => {
-                error_response(ApplicationError::ConversionLimit)
-            }
-            Err(DirectRenderError::Internal) => error_response(ApplicationError::Internal),
+            Err(error) => error_response(map_acl4ssr_render_error(error)),
         }
     }
 
     async fn load_remote_resources(
         &self,
-        unique_urls: &[Url],
+        resources: &[RemoteResource],
         inbound_host: &str,
-        capture_subscription_user_info: bool,
+        total_deadline: u64,
+        attempts: &AtomicUsize,
     ) -> RemoteLoadBatch {
-        const MAX_ACTIVE_RESOURCES: usize = 4;
-
-        let total_deadline = self.adapter.monotonic_millis().saturating_add(30_000);
-        let attempts = AtomicUsize::new(0);
+        let maximum_batch_attempts = resources.len().checked_mul(4);
+        let has_full_attempt_budget = maximum_batch_attempts.is_some_and(|maximum| {
+            attempts
+                .load(Ordering::Relaxed)
+                .checked_add(maximum)
+                .is_some_and(|total| total <= 48)
+        });
+        if !has_full_attempt_budget {
+            return self
+                .load_remote_resources_in_order(resources, inbound_host, total_deadline, attempts)
+                .await;
+        }
         let mut next_index = 0;
-        let mut active_indices = vec![false; unique_urls.len()];
+        let mut active_indices = vec![false; resources.len()];
         let mut active = FuturesUnordered::new();
-        let mut loaded = (0..unique_urls.len()).map(|_| None).collect::<Vec<_>>();
+        let mut loaded = (0..resources.len()).map(|_| None).collect::<Vec<_>>();
         let mut selected_failure: Option<(usize, ApplicationError)> = None;
 
         loop {
             while selected_failure.is_none()
-                && next_index < unique_urls.len()
+                && next_index < resources.len()
                 && active.len() < MAX_ACTIVE_RESOURCES
             {
                 let now = self.adapter.monotonic_millis();
@@ -580,11 +1005,10 @@ impl<A: RemoteAdapter> Application<A> {
                 active_indices[index] = true;
                 active.push(self.load_indexed_remote(
                     index,
-                    unique_urls[index].clone(),
+                    resources[index].clone(),
                     inbound_host,
                     resource_deadline,
-                    &attempts,
-                    capture_subscription_user_info,
+                    attempts,
                 ));
                 next_index += 1;
             }
@@ -626,7 +1050,49 @@ impl<A: RemoteAdapter> Application<A> {
         match loaded.into_iter().collect::<Option<Vec<_>>>() {
             Some(responses) => RemoteLoadBatch::Complete(responses),
             None => RemoteLoadBatch::Failed {
-                loaded: (0..unique_urls.len()).map(|_| None).collect(),
+                loaded: (0..resources.len()).map(|_| None).collect(),
+                failed_unique_index: 0,
+                error: ApplicationError::Internal,
+            },
+        }
+    }
+
+    async fn load_remote_resources_in_order(
+        &self,
+        resources: &[RemoteResource],
+        inbound_host: &str,
+        total_deadline: u64,
+        attempts: &AtomicUsize,
+    ) -> RemoteLoadBatch {
+        let mut loaded = (0..resources.len()).map(|_| None).collect::<Vec<_>>();
+        for (index, resource) in resources.iter().cloned().enumerate() {
+            let now = self.adapter.monotonic_millis();
+            if now >= total_deadline {
+                return RemoteLoadBatch::Failed {
+                    loaded,
+                    failed_unique_index: index,
+                    error: ApplicationError::RemoteTimeout,
+                };
+            }
+            let resource_deadline = now.saturating_add(10_000).min(total_deadline);
+            match self
+                .load_remote(resource, inbound_host, resource_deadline, attempts)
+                .await
+            {
+                Ok(response) => loaded[index] = Some(response),
+                Err(error) => {
+                    return RemoteLoadBatch::Failed {
+                        loaded,
+                        failed_unique_index: index,
+                        error,
+                    };
+                }
+            }
+        }
+        match loaded.into_iter().collect::<Option<Vec<_>>>() {
+            Some(responses) => RemoteLoadBatch::Complete(responses),
+            None => RemoteLoadBatch::Failed {
+                loaded: (0..resources.len()).map(|_| None).collect(),
                 failed_unique_index: 0,
                 error: ApplicationError::Internal,
             },
@@ -636,32 +1102,30 @@ impl<A: RemoteAdapter> Application<A> {
     async fn load_indexed_remote(
         &self,
         index: usize,
-        remote_url: Url,
+        resource: RemoteResource,
         inbound_host: &str,
         deadline_millis: u64,
         attempts: &AtomicUsize,
-        capture_subscription_user_info: bool,
     ) -> (usize, Result<LoadedRemote, ApplicationError>) {
         let result = self
-            .load_remote(
-                remote_url,
-                inbound_host,
-                deadline_millis,
-                attempts,
-                capture_subscription_user_info,
-            )
+            .load_remote(resource, inbound_host, deadline_millis, attempts)
             .await;
         (index, result)
     }
 
     async fn load_remote(
         &self,
-        mut remote_url: Url,
+        resource: RemoteResource,
         inbound_host: &str,
         deadline_millis: u64,
         attempts: &AtomicUsize,
-        capture_subscription_user_info: bool,
     ) -> Result<LoadedRemote, ApplicationError> {
+        let RemoteResource {
+            kind,
+            mut url,
+            max_body_bytes,
+            capture_subscription_user_info,
+        } = resource;
         let mut redirects = 0;
         let mut resource_attempts = 0_u8;
         loop {
@@ -680,10 +1144,10 @@ impl<A: RemoteAdapter> Application<A> {
                 .checked_add(1)
                 .ok_or(ApplicationError::Internal)?;
             let attempt = RemoteAttempt {
-                kind: ResourceKind::Subscription,
-                url: remote_url.as_str().to_owned(),
+                kind,
+                url: url.as_str().to_owned(),
                 deadline_millis,
-                max_body_bytes: 2_796_206,
+                max_body_bytes,
                 capture_subscription_user_info,
             };
             let response = match self.adapter.fetch_once(attempt).await {
@@ -699,12 +1163,12 @@ impl<A: RemoteAdapter> Application<A> {
                 return Err(ApplicationError::RemoteTimeout);
             }
             if response.status.is_success() {
-                if response.body.is_empty() || response.body.len() > 2_796_206 {
+                if response.body.is_empty() || response.body.len() > max_body_bytes {
                     return Err(ApplicationError::RemoteFailure);
                 }
                 return Ok(LoadedRemote {
                     response,
-                    final_url: remote_url,
+                    final_url: url,
                     attempts: resource_attempts,
                 });
             }
@@ -725,14 +1189,14 @@ impl<A: RemoteAdapter> Application<A> {
             if location.len() > MAX_GET_TARGET_BYTES {
                 return Err(ApplicationError::RemoteFailure);
             }
-            let joined = remote_url
+            let joined = url
                 .join(&location)
                 .map_err(|_error| ApplicationError::RemoteFailure)?;
-            remote_url = canonical_remote_url(joined.as_str(), &self.self_hosts, inbound_host)
+            url = canonical_remote_url(joined.as_str(), &self.self_hosts, inbound_host)
                 .map_err(|()| ApplicationError::RemoteFailure)?;
             if !self
                 .adapter
-                .supports_https_port(remote_url.port_or_known_default().unwrap_or(443))
+                .supports_https_port(url.port_or_known_default().unwrap_or(443))
             {
                 return Err(ApplicationError::RemoteFailure);
             }
@@ -790,6 +1254,18 @@ fn preparation_error_before_remote_failure(
             Ok(Some(ApplicationError::ConversionLimit))
         }
         Err(SubscriptionPreparationError::InvalidInput) => Err(ApplicationError::Internal),
+    }
+}
+
+const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError {
+    match error {
+        Acl4SsrRenderError::InvalidRuleSet | Acl4SsrRenderError::UnsupportedRule => {
+            ApplicationError::RemoteFailure
+        }
+        Acl4SsrRenderError::ConversionLimit => ApplicationError::ConversionLimit,
+        Acl4SsrRenderError::RuleSetAlignment | Acl4SsrRenderError::Internal => {
+            ApplicationError::Internal
+        }
     }
 }
 
@@ -882,6 +1358,20 @@ fn insert_subscription_user_info(
     if let Ok(value) = HeaderValue::from_str(&value) {
         response.headers.insert("subscription-userinfo", value);
     }
+}
+
+fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_regex_count: u8) {
+    let omitted = match omitted_url_regex_count {
+        1 => HeaderValue::from_static("URL-REGEX=1"),
+        9 => HeaderValue::from_static("URL-REGEX=9"),
+        _ => return,
+    };
+    response
+        .headers
+        .insert("x-subconverter-result", HeaderValue::from_static("lossy"));
+    response
+        .headers
+        .insert("x-subconverter-omitted-rules", omitted);
 }
 
 fn canonical_remote_url(

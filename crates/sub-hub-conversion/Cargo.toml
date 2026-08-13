@@ -8,12 +8,14 @@ publish = false
 
 [dependencies]
 base64.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_yaml_ng.workspace = true
 unicode-normalization.workspace = true
 unicode-properties.workspace = true
 unicode-segmentation.workspace = true
 uuid.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 wasm-bindgen-test = "=0.3.77"

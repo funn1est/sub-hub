@@ -11,27 +11,95 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use sub_hub_conversion::prepare_direct_subscription_v1;
+
 const MIHOMO_BINARY_ENV: &str = "SUB_HUB_MIHOMO_BIN";
 const REQUIRE_MIHOMO_ENV: &str = "SUB_HUB_REQUIRE_MIHOMO";
-const EXPECTED_MIHOMO_VERSION: &str = "v1.19.27";
+const MIHOMO_VERSION_ENV: &str = "SUB_HUB_MIHOMO_VERSION";
+const ACL4SSR_CORPUS_DIR_ENV: &str = "SUB_HUB_ACL4SSR_CORPUS_DIR";
+const REQUIRE_ACL4SSR_CORPUS_ENV: &str = "SUB_HUB_REQUIRE_ACL4SSR_CORPUS";
+const MIHOMO_V1_19_27: &str = "v1.19.27";
+const MIHOMO_V1_19_29: &str = "v1.19.29";
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 const BUILTIN_MIHOMO_GOLDEN: &[u8] = include_bytes!("golden/builtin_mihomo_v1.yaml");
+const ACL4SSR_REMOTE_PREFIX: &str = "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/";
+const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
 
 static NEXT_SANDBOX_ID: AtomicU64 = AtomicU64::new(0);
 
 #[test]
-fn official_mihomo_v1_19_27_accepts_builtin_golden() {
+fn configured_official_mihomo_accepts_builtin_golden() {
+    let expected_version = configured_mihomo_version();
     let Some(binary) = configured_mihomo_binary() else {
         return;
     };
     let sandbox = TestSandbox::create()
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
-    verify_mihomo_version(&binary, &sandbox);
+    verify_mihomo_version(&binary, &sandbox, expected_version);
     fs::write(&sandbox.config_file, BUILTIN_MIHOMO_GOLDEN)
         .unwrap_or_else(|_| panic!("failed to prepare the Mihomo acceptance fixture"));
-    verify_mihomo_config(&binary, &sandbox);
+    verify_mihomo_config(&binary, &sandbox, "builtin golden");
+}
+
+#[test]
+fn configured_mihomo_accepts_generated_online_and_full_acl4ssr_profiles() {
+    let expected_version = configured_mihomo_version();
+    let corpus_required = acl4ssr_corpus_is_required();
+    let Some(corpus_root) = configured_acl4ssr_corpus_root(corpus_required) else {
+        return;
+    };
+    let Some(binary) = configured_mihomo_binary() else {
+        assert!(
+            !corpus_required,
+            "SUB_HUB_MIHOMO_BIN must be set when SUB_HUB_REQUIRE_ACL4SSR_CORPUS=1"
+        );
+        return;
+    };
+    let version_sandbox = TestSandbox::create()
+        .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
+    verify_mihomo_version(&binary, &version_sandbox, expected_version);
+
+    for profile in [
+        "Clash/config/ACL4SSR_Online.ini",
+        "Clash/config/ACL4SSR_Online_Full_MultiMode.ini",
+    ] {
+        let rendered = render_acl4ssr_profile(&corpus_root, profile);
+        let sandbox = TestSandbox::create()
+            .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
+        fs::write(&sandbox.config_file, rendered)
+            .unwrap_or_else(|_| panic!("failed to prepare the generated ACL4SSR profile"));
+        verify_mihomo_config(&binary, &sandbox, profile);
+    }
+}
+
+#[test]
+fn mihomo_version_selection_is_closed_to_the_validation_matrix() {
+    assert_eq!(
+        parse_mihomo_version(Err(env::VarError::NotPresent)),
+        MIHOMO_V1_19_27
+    );
+    assert_eq!(
+        parse_mihomo_version(Ok(MIHOMO_V1_19_27.to_owned())),
+        MIHOMO_V1_19_27
+    );
+    assert_eq!(
+        parse_mihomo_version(Ok(MIHOMO_V1_19_29.to_owned())),
+        MIHOMO_V1_19_29
+    );
+
+    for rejected in [
+        Ok(String::new()),
+        Ok("1.19.27".to_owned()),
+        Ok("v1.19.30".to_owned()),
+        Err(env::VarError::NotUnicode("withheld".into())),
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| parse_mihomo_version(rejected)).is_err(),
+            "unapproved Mihomo version selection must panic"
+        );
+    }
 }
 
 fn configured_mihomo_binary() -> Option<PathBuf> {
@@ -64,7 +132,89 @@ fn mihomo_is_required() -> bool {
     }
 }
 
-fn verify_mihomo_version(binary: &Path, sandbox: &TestSandbox) {
+fn configured_mihomo_version() -> &'static str {
+    parse_mihomo_version(env::var(MIHOMO_VERSION_ENV))
+}
+
+fn parse_mihomo_version(value: Result<String, env::VarError>) -> &'static str {
+    match value {
+        Err(env::VarError::NotPresent) => MIHOMO_V1_19_27,
+        Ok(value) if value == MIHOMO_V1_19_27 => MIHOMO_V1_19_27,
+        Ok(value) if value == MIHOMO_V1_19_29 => MIHOMO_V1_19_29,
+        Ok(_) | Err(env::VarError::NotUnicode(_)) => {
+            panic!("SUB_HUB_MIHOMO_VERSION must be unset, v1.19.27, or v1.19.29")
+        }
+    }
+}
+
+fn acl4ssr_corpus_is_required() -> bool {
+    match env::var(REQUIRE_ACL4SSR_CORPUS_ENV) {
+        Ok(value) if value == "1" => true,
+        Ok(value) if value == "0" => false,
+        Err(env::VarError::NotPresent) => false,
+        Ok(_) | Err(env::VarError::NotUnicode(_)) => {
+            panic!("SUB_HUB_REQUIRE_ACL4SSR_CORPUS must be unset, 0, or 1")
+        }
+    }
+}
+
+fn configured_acl4ssr_corpus_root(required: bool) -> Option<PathBuf> {
+    let configured =
+        env::var_os(ACL4SSR_CORPUS_DIR_ENV).filter(|value| !value.as_os_str().is_empty());
+    let Some(configured) = configured else {
+        assert!(
+            !required,
+            "SUB_HUB_ACL4SSR_CORPUS_DIR must be set when SUB_HUB_REQUIRE_ACL4SSR_CORPUS=1"
+        );
+        eprintln!("generated ACL4SSR Mihomo acceptance skipped: corpus directory is not set");
+        return None;
+    };
+
+    match fs::canonicalize(configured) {
+        Ok(path) if path.is_dir() => Some(path),
+        Ok(_) | Err(_) => panic!("SUB_HUB_ACL4SSR_CORPUS_DIR must identify a directory"),
+    }
+}
+
+fn render_acl4ssr_profile(root: &Path, config_path: &str) -> Vec<u8> {
+    let config = read_acl4ssr_corpus_file(root, config_path);
+    let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT])
+        .expect("fixed corpus subscription must be valid")
+        .prepare_acl4ssr_config_v1(&config)
+        .expect("fixed corpus config must match its compile-time policy");
+    let bodies = prepared
+        .rule_set_requests()
+        .iter()
+        .map(|request| {
+            let relative = request
+                .url()
+                .strip_prefix(ACL4SSR_REMOTE_PREFIX)
+                .expect("fixed corpus Rule Set URL must use the approved prefix");
+            read_acl4ssr_corpus_file(root, relative)
+        })
+        .collect::<Vec<_>>();
+    let body_refs = bodies.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let flights = (0..prepared.rule_set_requests().len()).collect::<Vec<_>>();
+    prepared
+        .bind_rule_set_flights_v1(&flights)
+        .expect("fixed corpus flight plan is bounded and dense")
+        .render_mihomo_v1(&body_refs)
+        .expect("fixed corpus must render through the strict conversion seam")
+        .into_bytes()
+}
+
+fn read_acl4ssr_corpus_file(root: &Path, relative: &str) -> Vec<u8> {
+    assert!(
+        !relative
+            .split('/')
+            .any(|part| part.is_empty() || matches!(part, "." | "..")),
+        "fixed corpus path must be canonical"
+    );
+    fs::read(root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR)))
+        .unwrap_or_else(|_| panic!("required fixed corpus file is unavailable"))
+}
+
+fn verify_mihomo_version(binary: &Path, sandbox: &TestSandbox, expected: &str) {
     let mut command = isolated_command(binary, sandbox);
     command
         .arg("-v")
@@ -79,15 +229,15 @@ fn verify_mihomo_version(binary: &Path, sandbox: &TestSandbox) {
         panic!("Mihomo version check timed out; process output withheld")
     };
 
-    let version_matches =
-        reports_expected_version(&output.stdout) || reports_expected_version(&output.stderr);
+    let version_matches = reports_expected_version(&output.stdout, expected)
+        || reports_expected_version(&output.stderr, expected);
     assert!(
         output.status.success() && version_matches,
-        "configured Mihomo binary is not v1.19.27; process output withheld"
+        "configured Mihomo binary does not match the approved version; process output withheld"
     );
 }
 
-fn reports_expected_version(output: &[u8]) -> bool {
+fn reports_expected_version(output: &[u8], expected: &str) -> bool {
     let Ok(output) = std::str::from_utf8(output) else {
         return false;
     };
@@ -96,11 +246,11 @@ fn reports_expected_version(output: &[u8]) -> bool {
         let mut fields = line.split_ascii_whitespace();
         fields.next() == Some("Mihomo")
             && fields.next() == Some("Meta")
-            && fields.next() == Some(EXPECTED_MIHOMO_VERSION)
+            && fields.next() == Some(expected)
     })
 }
 
-fn verify_mihomo_config(binary: &Path, sandbox: &TestSandbox) {
+fn verify_mihomo_config(binary: &Path, sandbox: &TestSandbox, fixture: &str) {
     let mut command = isolated_command(binary, sandbox);
     command
         .arg("-d")
@@ -118,8 +268,8 @@ fn verify_mihomo_config(binary: &Path, sandbox: &TestSandbox) {
         .unwrap_or_else(|_| panic!("Mihomo configuration check failed; output withheld"))
     {
         Some(status) if status.success() => {}
-        Some(_) => panic!("Mihomo rejected the generated configuration; output withheld"),
-        None => panic!("Mihomo configuration check timed out; output withheld"),
+        Some(_) => panic!("Mihomo rejected {fixture}; process output withheld"),
+        None => panic!("Mihomo configuration check timed out for {fixture}; output withheld"),
     }
 }
 

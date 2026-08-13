@@ -223,6 +223,10 @@ const RESERVED_SYMBOLS: [&str; 7] = [
     "PASS-RULE",
     "GLOBAL",
 ];
+
+pub(crate) fn is_reserved_symbol(value: &str) -> bool {
+    RESERVED_SYMBOLS.contains(&value)
+}
 const MAX_FROZEN_SYMBOLS: usize = 10_000;
 
 struct NameAllocator {
@@ -289,7 +293,7 @@ impl NameAllocator {
     }
 }
 
-fn validate_group_name(group_name: &str) -> Option<GroupNameError> {
+pub(crate) fn validate_group_name(group_name: &str) -> Option<GroupNameError> {
     if group_name.is_empty() {
         Some(GroupNameError::Empty)
     } else if group_name.len() > 128 {

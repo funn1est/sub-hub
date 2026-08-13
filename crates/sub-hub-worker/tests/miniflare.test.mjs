@@ -286,6 +286,47 @@ test("remote fetch is constrained and preserves the shared response", async (t) 
   assert.equal(observed.headers["x-caller-header"], undefined);
 });
 
+test("remote ACL4SSR config and Rule Set render through the Worker host", async (t) => {
+  const fetchMock = createFetchMock();
+  fetchMock.disableNetConnect();
+  fetchMock
+    .get("https://config.example")
+    .intercept({ path: "/acl.ini", method: "GET" })
+    .reply(
+      200,
+      concat(
+        "[custom]\n",
+        "custom_proxy_group=PROXY`select`.*\n",
+        "ruleset=PROXY,https://rules.example/list\n",
+        "ruleset=PROXY,[]FINAL\n",
+        "enable_rule_generator=true\n",
+        "overwrite_original_rules=true\n",
+      ),
+    );
+  fetchMock
+    .get("https://rules.example")
+    .intercept({ path: "/list", method: "GET" })
+    .reply(200, "DOMAIN,example.org\n");
+  const mf = runtime({}, fetchMock);
+  t.after(() => mf.dispose());
+  const config = encodeURIComponent("https://config.example/acl.ini");
+
+  const response = await mf.dispatchFetch(
+    `https://worker.example/sub?target=clash&url=${encodeURIComponent(VLESS)}&config=${config}`,
+  );
+
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.deepEqual(applicationHeaders(response), {
+    "cache-control": "no-store",
+    "content-type": "text/plain;charset=utf-8",
+  });
+  const body = await response.text();
+  assert.match(body, /- name: PROXY\n  type: select\n  proxies:\n  - Alpha/);
+  assert.match(body, /- DOMAIN,example\.org,PROXY/);
+  assert.match(body, /- MATCH,PROXY/);
+  fetchMock.assertNoPendingInterceptors();
+});
+
 test("relative redirects are manual and each hop is constrained", async (t) => {
   const fetchMock = createFetchMock();
   fetchMock.disableNetConnect();

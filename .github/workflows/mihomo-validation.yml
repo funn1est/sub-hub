@@ -11,13 +11,23 @@ permissions:
   contents: read
 
 jobs:
-  mihomo-v1-19-27:
-    name: Official Mihomo v1.19.27
+  mihomo-validation:
+    name: Official Mihomo ${{ matrix.version }}
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: v1.19.27
+            sha256: 34b4c5bc0c176eebd298f6624aa23ea41985a2c54efb04eb0e9c4542e45190ee
+          - version: v1.19.29
+            sha256: 1a8520cfe425441eba3eba8623b27b985020031243fe1ecaa1af2b92358a03f9
     env:
       CARGO_TERM_COLOR: always
       SUB_HUB_REQUIRE_MIHOMO: "1"
+      SUB_HUB_REQUIRE_ACL4SSR_CORPUS: "1"
+      SUB_HUB_MIHOMO_VERSION: ${{ matrix.version }}
 
     steps:
       - name: Checkout
@@ -40,16 +50,40 @@ jobs:
         shell: pwsh
         run: corepack pnpm install --frozen-lockfile
 
-      - name: Download and verify Mihomo v1.19.27
+      - name: Checkout the pinned ACL4SSR corpus
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $asset = 'mihomo-windows-amd64-v1.19.27.zip'
-          $expected = '34b4c5bc0c176eebd298f6624aa23ea41985a2c54efb04eb0e9c4542e45190ee'
+          $commit = '2fc7487be9ec0a0fcd7c91db319787d7b35a195d'
+          $corpus = Join-Path $env:RUNNER_TEMP 'acl4ssr-corpus'
+          git init $corpus
+          git -C $corpus config core.autocrlf false
+          git -C $corpus remote add origin https://github.com/ACL4SSR/ACL4SSR.git
+          git -C $corpus fetch --depth=1 --no-tags origin $commit
+          git -C $corpus checkout --detach FETCH_HEAD
+
+          $actual = (git -C $corpus rev-parse --verify 'HEAD^{commit}').Trim()
+          if ($actual -cne $commit) {
+            throw 'Pinned ACL4SSR checkout identity mismatch.'
+          }
+
+          Add-Content `
+            -LiteralPath $env:GITHUB_ENV `
+            -Value "SUB_HUB_ACL4SSR_CORPUS_DIR=$corpus" `
+            -Encoding utf8
+
+      - name: Download and verify Mihomo ${{ matrix.version }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $version = '${{ matrix.version }}'
+          $asset = "mihomo-windows-amd64-$version.zip"
+          $expected = '${{ matrix.sha256 }}'
           $archive = Join-Path $env:RUNNER_TEMP $asset
-          $extract = Join-Path $env:RUNNER_TEMP 'mihomo-v1.19.27'
-          $url = "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/$asset"
+          $extract = Join-Path $env:RUNNER_TEMP "mihomo-$version"
+          $url = "https://github.com/MetaCubeX/mihomo/releases/download/$version/$asset"
 
           Invoke-WebRequest -Uri $url -OutFile $archive
 

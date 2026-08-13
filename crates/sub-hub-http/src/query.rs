@@ -2,6 +2,7 @@ const MAX_DIRECT_SOURCES: usize = 5;
 
 pub(super) struct DirectQuery {
     pub(super) sources: Vec<String>,
+    pub(super) config: Option<String>,
     pub(super) append_info: bool,
 }
 
@@ -12,17 +13,18 @@ pub(super) enum QueryError {
 }
 
 pub(super) fn parse_direct_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
-    parse_query(raw_query, false, false)
+    parse_query(raw_query, false, false, false)
 }
 
 pub(super) fn parse_application_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
-    parse_query(raw_query, true, true)
+    parse_query(raw_query, true, true, true)
 }
 
 fn parse_query(
     raw_query: Option<&str>,
     allow_remote_https: bool,
     allow_append_info: bool,
+    allow_remote_config: bool,
 ) -> Result<DirectQuery, QueryError> {
     let raw_query = raw_query.unwrap_or_default();
     if raw_query
@@ -64,7 +66,7 @@ fn parse_query(
     if target.as_deref() != Some("clash") {
         return Err(QueryError::InvalidTarget);
     }
-    if config.as_deref().is_some_and(|value| !value.is_empty())
+    if (!allow_remote_config && config.as_deref().is_some_and(|value| !value.is_empty()))
         || insert.as_deref().is_some_and(|value| value != "false")
     {
         return Err(QueryError::InvalidRequest);
@@ -91,6 +93,7 @@ fn parse_query(
 
     Ok(DirectQuery {
         sources,
+        config: config.filter(|value| !value.is_empty()),
         append_info,
     })
 }

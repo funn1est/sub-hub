@@ -229,6 +229,49 @@ async fn head_without_a_host_header_is_rejected_without_a_body() {
 }
 
 #[tokio::test]
+async fn head_with_remote_acl4ssr_config_stops_before_config_io_and_render_headers() {
+    let source = concat!(
+        "vless://01234567-89ab-cdef-0123-456789abcdef",
+        "@example.com:443#Alpha",
+    );
+    let encoded_source =
+        url::form_urlencoded::byte_serialize(source.as_bytes()).collect::<String>();
+    let encoded_config =
+        url::form_urlencoded::byte_serialize(b"https://config.example/acl.ini").collect::<String>();
+    let uri = format!("/sub?target=clash&url={encoded_source}&config={encoded_config}");
+
+    let response = test_router()
+        .oneshot(
+            Request::builder()
+                .method(Method::HEAD)
+                .uri(uri)
+                .header(header::HOST, "subscriptions.example")
+                .body(Body::empty())
+                .expect("valid ACL4SSR HEAD request"),
+        )
+        .await
+        .expect("router is infallible");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .is_none()
+    );
+    assert!(response.headers().get("profile-update-interval").is_none());
+    assert!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .expect("body collection succeeds")
+            .to_bytes()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn malformed_host_header_is_rejected() {
     let response = test_router()
         .oneshot(

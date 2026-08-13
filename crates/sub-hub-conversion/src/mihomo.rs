@@ -90,7 +90,7 @@ pub(crate) enum BuiltinMihomoError {
     Serialization,
 }
 
-const MAX_MIHOMO_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_MIHOMO_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 pub(crate) fn render_builtin_mihomo_v1(
     parsed: ParsedSubscriptionSources,
@@ -186,7 +186,7 @@ impl Write for BoundedVec {
     }
 }
 
-fn serialize_bounded<T: Serialize>(
+pub(crate) fn serialize_bounded<T: Serialize>(
     value: &T,
     limit_bytes: usize,
 ) -> Result<Vec<u8>, BuiltinMihomoError> {
@@ -245,13 +245,13 @@ impl<'a> MihomoDocument<'a> {
 
 #[derive(Serialize)]
 #[serde(untagged)]
-enum MihomoProxy<'a> {
+pub(crate) enum MihomoProxy<'a> {
     Vless(MihomoVlessProxy<'a>),
     Shadowsocks(MihomoShadowsocksProxy<'a>),
 }
 
 #[derive(Serialize)]
-struct MihomoVlessProxy<'a> {
+pub(crate) struct MihomoVlessProxy<'a> {
     name: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
@@ -360,7 +360,7 @@ impl<'a> MihomoVlessProxy<'a> {
 }
 
 #[derive(Serialize)]
-struct MihomoShadowsocksProxy<'a> {
+pub(crate) struct MihomoShadowsocksProxy<'a> {
     name: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
