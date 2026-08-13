@@ -412,12 +412,11 @@ fn emoji_tag_sequence_end(characters: &[char], start: usize) -> Option<usize> {
     }
 
     let mut tag_spec_start = start + 1;
-    if let Some(next) = characters.get(tag_spec_start) {
-        if is_emoji_modifier_base(first) && is_emoji_modifier(*next)
-            || *next == '\u{fe0f}' && unicode_17::is_emoji_presentation_sequence_base(first)
-        {
-            tag_spec_start += 1;
-        }
+    if let Some(next) = characters.get(tag_spec_start)
+        && (is_emoji_modifier_base(first) && is_emoji_modifier(*next)
+            || *next == '\u{fe0f}' && unicode_17::is_emoji_presentation_sequence_base(first))
+    {
+        tag_spec_start += 1;
     }
     let mut end = tag_spec_start;
     while matches!(characters.get(end), Some('\u{e0020}'..='\u{e007e}')) {

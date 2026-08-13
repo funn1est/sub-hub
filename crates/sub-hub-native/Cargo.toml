@@ -1,0 +1,22 @@
+[package]
+name = "sub-hub-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+http.workspace = true
+reqwest.workspace = true
+sub-hub-http = { path = "../sub-hub-http" }
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+http-body-util.workspace = true
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+name = "sub-hub"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-08-13"
+compatibility_flags = [
+  "global_fetch_strictly_public",
+]
+
+[build]
+command = "worker-build --release"
+
+[build.upload]
+dir = "build/worker"
+format = "modules"
+main = "./shim.mjs"
+
+[[build.upload.rules]]
+globs = ["**/*.wasm"]
+type = "CompiledWasm"

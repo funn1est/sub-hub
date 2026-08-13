@@ -18,6 +18,13 @@ pub(crate) use error::SubscriptionParseError;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ParsedSubscriptionSources {
     pub(crate) occurrences: Vec<NodeOccurrence>,
+    pub(crate) remote_decoded_bytes: Vec<Option<usize>>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SubscriptionSourceInput<'a> {
+    Direct(&'a str),
+    Remote(&'a [u8]),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -39,63 +46,103 @@ pub(crate) struct NodeOrigin {
     pub(crate) occurrence: usize,
 }
 
+#[cfg(test)]
 pub(crate) fn parse_subscription_sources(
     bodies_in_declaration_order: &[&[u8]],
 ) -> Result<ParsedSubscriptionSources, SubscriptionParseError> {
-    if bodies_in_declaration_order.len() > MAX_SUBSCRIPTION_SOURCES {
+    let sources = bodies_in_declaration_order
+        .iter()
+        .copied()
+        .map(SubscriptionSourceInput::Remote)
+        .collect::<Vec<_>>();
+    parse_subscription_source_inputs(&sources)
+}
+
+pub(crate) fn parse_subscription_source_inputs(
+    sources_in_declaration_order: &[SubscriptionSourceInput<'_>],
+) -> Result<ParsedSubscriptionSources, SubscriptionParseError> {
+    if sources_in_declaration_order.len() > MAX_SUBSCRIPTION_SOURCES {
         return Err(SubscriptionParseError::TooManySources);
     }
 
     let mut occurrences = Vec::new();
+    let mut remote_decoded_bytes = Vec::with_capacity(sources_in_declaration_order.len());
     let mut total_occurrences = 0;
 
-    for (source_index, body) in bodies_in_declaration_order.iter().enumerate() {
-        if body.len() > MAX_INPUT_BYTES {
-            return Err(SubscriptionParseError::InputTooLarge { source_index });
-        }
-        let selected = select_container(body).map_err(|error| match error {
-            ContainerSelectionError::DecodedTooLarge => {
-                SubscriptionParseError::DecodedSourceTooLarge { source_index }
+    for (source_index, source) in sources_in_declaration_order.iter().enumerate() {
+        match source {
+            SubscriptionSourceInput::Direct(source) => {
+                remote_decoded_bytes.push(None);
+                let origin = NodeOrigin {
+                    source: source_index,
+                    line: 0,
+                    occurrence: 0,
+                };
+                push_occurrence(source, origin, &mut occurrences, &mut total_occurrences)?;
             }
-        })?;
-        if selected.len() > MAX_DECODED_SOURCE_BYTES {
-            return Err(SubscriptionParseError::DecodedSourceTooLarge { source_index });
-        }
-        let source = std::str::from_utf8(&selected)
-            .map_err(|_| SubscriptionParseError::InvalidUtf8 { source_index })?;
-        if has_bare_carriage_return(source.as_bytes()) {
-            return Err(SubscriptionParseError::InvalidLineEnding { source_index });
-        }
-        let mut occurrence_index = 0;
+            SubscriptionSourceInput::Remote(body) => {
+                if body.len() > MAX_INPUT_BYTES {
+                    return Err(SubscriptionParseError::InputTooLarge { source_index });
+                }
+                let selected = select_container(body).map_err(|error| match error {
+                    ContainerSelectionError::DecodedTooLarge => {
+                        SubscriptionParseError::DecodedSourceTooLarge { source_index }
+                    }
+                })?;
+                if selected.len() > MAX_DECODED_SOURCE_BYTES {
+                    return Err(SubscriptionParseError::DecodedSourceTooLarge { source_index });
+                }
+                remote_decoded_bytes.push(Some(selected.len()));
+                let source = std::str::from_utf8(&selected)
+                    .map_err(|_| SubscriptionParseError::InvalidUtf8 { source_index })?;
+                if has_bare_carriage_return(source.as_bytes()) {
+                    return Err(SubscriptionParseError::InvalidLineEnding { source_index });
+                }
+                let mut occurrence_index = 0;
 
-        for (line_index, line) in source.lines().enumerate() {
-            let line = line.trim_matches([' ', '\t']);
-            if line.is_empty() {
-                continue;
-            }
+                for (line_index, line) in source.lines().enumerate() {
+                    let line = line.trim_matches([' ', '\t']);
+                    if line.is_empty() {
+                        continue;
+                    }
 
-            let origin = NodeOrigin {
-                source: source_index,
-                line: line_index,
-                occurrence: occurrence_index,
-            };
-            if total_occurrences == MAX_NODE_OCCURRENCES {
-                return Err(SubscriptionParseError::TooManyOccurrences { at: origin });
+                    let origin = NodeOrigin {
+                        source: source_index,
+                        line: line_index,
+                        occurrence: occurrence_index,
+                    };
+                    push_occurrence(line, origin, &mut occurrences, &mut total_occurrences)?;
+                    occurrence_index += 1;
+                }
             }
-            total_occurrences += 1;
-            occurrence_index += 1;
-            let occurrence = match parse_share_uri(line) {
-                Ok(node) => NodeOccurrence::Accepted {
-                    origin,
-                    node: Box::new(node),
-                },
-                Err(rejection) => NodeOccurrence::Rejected { origin, rejection },
-            };
-            occurrences.push(occurrence);
         }
     }
 
-    Ok(ParsedSubscriptionSources { occurrences })
+    Ok(ParsedSubscriptionSources {
+        occurrences,
+        remote_decoded_bytes,
+    })
+}
+
+fn push_occurrence(
+    source: &str,
+    origin: NodeOrigin,
+    occurrences: &mut Vec<NodeOccurrence>,
+    total_occurrences: &mut usize,
+) -> Result<(), SubscriptionParseError> {
+    if *total_occurrences == MAX_NODE_OCCURRENCES {
+        return Err(SubscriptionParseError::TooManyOccurrences { at: origin });
+    }
+    *total_occurrences += 1;
+    let occurrence = match parse_share_uri(source) {
+        Ok(node) => NodeOccurrence::Accepted {
+            origin,
+            node: Box::new(node),
+        },
+        Err(rejection) => NodeOccurrence::Rejected { origin, rejection },
+    };
+    occurrences.push(occurrence);
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -170,7 +217,7 @@ fn classify_base64(input: &[u8]) -> Option<(Base64Alphabet, Base64Padding)> {
     } else {
         let padding_is_canonical = padding.len() <= 2
             && padding.iter().all(|byte| *byte == b'=')
-            && input.len() % 4 == 0
+            && input.len().is_multiple_of(4)
             && matches!((data.len() % 4, padding.len()), (2, 2) | (3, 1));
         if !padding_is_canonical {
             return None;

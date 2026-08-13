@@ -1,0 +1,352 @@
+use std::{
+    future::Future,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    pin::Pin,
+};
+
+use axum::{
+    body::Body,
+    http::{Method, Request, Response, StatusCode, header},
+};
+use http_body_util::BodyExt;
+use sub_hub_http::{Application, SelfHosts};
+use sub_hub_native::{
+    DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router,
+};
+use tower::ServiceExt;
+
+struct HostVector {
+    name: &'static str,
+    method: Method,
+    uri: String,
+    status: StatusCode,
+    body: &'static str,
+    allow: Option<&'static str>,
+}
+
+#[tokio::test]
+async fn host_visible_application_contract_is_table_driven() {
+    let vectors = [
+        HostVector {
+            name: "version",
+            method: Method::GET,
+            uri: "/version".to_owned(),
+            status: StatusCode::OK,
+            body: "sub-hub v0.1.0 backend",
+            allow: None,
+        },
+        HostVector {
+            name: "invalid version query",
+            method: Method::GET,
+            uri: "/version?x=1".to_owned(),
+            status: StatusCode::BAD_REQUEST,
+            body: "Invalid request!",
+            allow: None,
+        },
+        HostVector {
+            name: "unknown path",
+            method: Method::GET,
+            uri: "/sub/".to_owned(),
+            status: StatusCode::NOT_FOUND,
+            body: "Not Found",
+            allow: None,
+        },
+        HostVector {
+            name: "sub method",
+            method: Method::POST,
+            uri: "/sub".to_owned(),
+            status: StatusCode::METHOD_NOT_ALLOWED,
+            body: "Method Not Allowed",
+            allow: Some("GET, HEAD"),
+        },
+        HostVector {
+            name: "version method",
+            method: Method::HEAD,
+            uri: "/version".to_owned(),
+            status: StatusCode::METHOD_NOT_ALLOWED,
+            body: "",
+            allow: Some("GET"),
+        },
+        HostVector {
+            name: "uri too long before unknown path",
+            method: Method::GET,
+            uri: format!("/{}", "x".repeat(8_192)),
+            status: StatusCode::URI_TOO_LONG,
+            body: "URI Too Long",
+            allow: None,
+        },
+        HostVector {
+            name: "head invalid request suppresses body",
+            method: Method::HEAD,
+            uri: "/sub".to_owned(),
+            status: StatusCode::BAD_REQUEST,
+            body: "",
+            allow: None,
+        },
+    ];
+
+    for vector in vectors {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method(vector.method.clone())
+                    .uri(vector.uri.as_str())
+                    .header(header::HOST, "subscriptions.example")
+                    .body(Body::empty())
+                    .expect("valid conformance request"),
+            )
+            .await
+            .expect("router is infallible");
+
+        assert_application_response(response, &vector).await;
+    }
+}
+
+async fn assert_application_response(response: Response<Body>, vector: &HostVector) {
+    assert_eq!(response.status(), vector.status, "{} status", vector.name);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/plain;charset=utf-8"),
+        "{} content-type",
+        vector.name
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store"),
+        "{} cache-control",
+        vector.name
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(header::ALLOW)
+            .and_then(|value| value.to_str().ok()),
+        vector.allow,
+        "{} allow",
+        vector.name
+    );
+    assert!(
+        response.headers().get("subscription-userinfo").is_none(),
+        "{} must not emit subscription metadata",
+        vector.name
+    );
+    assert_eq!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .expect("body collection succeeds")
+            .to_bytes(),
+        vector.body,
+        "{} body",
+        vector.name
+    );
+}
+
+#[test]
+fn service_defaults_to_the_safe_loopback_address() {
+    let config = NativeConfig::from_values(None, None).expect("default configuration is valid");
+
+    assert_eq!(
+        config.bind_address(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25_500)
+    );
+    assert!(config.self_hosts().is_empty());
+}
+
+#[test]
+fn non_loopback_bind_requires_an_explicit_self_hostname() {
+    assert!(NativeConfig::from_values(Some("0.0.0.0:25500"), None).is_err());
+
+    let config = NativeConfig::from_values(Some("0.0.0.0:25500"), Some("subscriptions.example"))
+        .expect("a public bind with an explicit self hostname is valid");
+
+    assert_eq!(config.self_hosts(), ["subscriptions.example"]);
+}
+
+#[test]
+fn service_errors_do_not_expose_platform_details() {
+    let error = RunError::Service(std::io::Error::other("secret platform detail"));
+
+    assert_eq!(error.to_string(), "native HTTP service failed");
+    assert_eq!(format!("{error:?}"), "native HTTP service failed");
+    assert!(std::error::Error::source(&error).is_none());
+}
+
+#[tokio::test]
+async fn request_without_exactly_one_host_header_is_rejected() {
+    let response = test_router()
+        .oneshot(
+            Request::builder()
+                .uri("/version")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .expect("body collection succeeds")
+            .to_bytes(),
+        "Invalid request!"
+    );
+}
+
+#[tokio::test]
+async fn head_without_a_host_header_is_rejected_without_a_body() {
+    let response = test_router()
+        .oneshot(
+            Request::builder()
+                .method("HEAD")
+                .uri("/sub")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        response
+            .into_body()
+            .collect()
+            .await
+            .expect("body collection succeeds")
+            .to_bytes()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn malformed_host_header_is_rejected() {
+    let response = test_router()
+        .oneshot(
+            Request::builder()
+                .uri("/version")
+                .header("host", "user@subscriptions.example")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn repeated_host_header_is_rejected() {
+    let response = test_router()
+        .oneshot(
+            Request::builder()
+                .uri("/version")
+                .header("host", "first.example")
+                .header("host", "second.example")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn loopback_host_with_port_reaches_the_shared_application() {
+    let response = test_router()
+        .oneshot(
+            Request::builder()
+                .uri("/version")
+                .header("host", "127.0.0.1:25500")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+fn test_router() -> axum::Router {
+    let application = Application::new(
+        NativeRemoteAdapter::new(),
+        SelfHosts::new(["subscriptions.example"]).expect("valid self host"),
+    );
+    build_router(application)
+}
+
+struct MixedPublicAndPrivateResolver;
+
+impl DestinationResolver for MixedPublicAndPrivateResolver {
+    fn resolve<'a>(
+        &'a self,
+        _hostname: &'a str,
+        port: u16,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<Vec<SocketAddr>>> + Send + 'a>> {
+        Box::pin(async move {
+            Ok(vec![
+                SocketAddr::from(([8, 8, 8, 8], port)),
+                SocketAddr::from(([127, 0, 0, 1], port)),
+            ])
+        })
+    }
+}
+
+#[tokio::test]
+async fn remote_fetch_rejects_the_entire_dns_answer_when_any_address_is_not_global() {
+    assert_dns_policy_bad_gateway(
+        "target=clash&url=https%3A%2F%2Fupstream.example%2Fsubscription",
+        "mixed public and private DNS answer",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn native_custom_https_port_reaches_dns_policy_instead_of_lexical_rejection() {
+    assert_dns_policy_bad_gateway(
+        "target=clash&url=https%3A%2F%2Fupstream.example%3A8443%2Fsubscription",
+        "native custom HTTPS port",
+    )
+    .await;
+}
+
+async fn assert_dns_policy_bad_gateway(raw_query: &str, name: &'static str) {
+    let application = Application::new(
+        NativeRemoteAdapter::with_resolver(MixedPublicAndPrivateResolver),
+        SelfHosts::new(["service.example"]).expect("valid self host"),
+    );
+    let uri = format!("/sub?{raw_query}");
+    let response = build_router(application)
+        .oneshot(
+            Request::builder()
+                .uri(uri)
+                .header(header::HOST, "service.example")
+                .body(Body::empty())
+                .expect("valid remote request"),
+        )
+        .await;
+    let response = response.expect("router is infallible");
+
+    assert_application_response(
+        response,
+        &HostVector {
+            name,
+            method: Method::GET,
+            uri: String::new(),
+            status: StatusCode::BAD_GATEWAY,
+            body: "Bad Gateway",
+            allow: None,
+        },
+    )
+    .await;
+}

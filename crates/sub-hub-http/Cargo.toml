@@ -7,8 +7,10 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+futures.workspace = true
 http.workspace = true
 sub-hub-conversion = { path = "../sub-hub-conversion" }
+url.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 proptest.workspace = true

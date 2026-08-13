@@ -2,6 +2,7 @@ const MAX_DIRECT_SOURCES: usize = 5;
 
 pub(super) struct DirectQuery {
     pub(super) sources: Vec<String>,
+    pub(super) append_info: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -11,6 +12,18 @@ pub(super) enum QueryError {
 }
 
 pub(super) fn parse_direct_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
+    parse_query(raw_query, false, false)
+}
+
+pub(super) fn parse_application_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
+    parse_query(raw_query, true, true)
+}
+
+fn parse_query(
+    raw_query: Option<&str>,
+    allow_remote_https: bool,
+    allow_append_info: bool,
+) -> Result<DirectQuery, QueryError> {
     let raw_query = raw_query.unwrap_or_default();
     if raw_query
         .bytes()
@@ -23,6 +36,7 @@ pub(super) fn parse_direct_query(raw_query: Option<&str>) -> Result<DirectQuery,
     let mut url = None;
     let mut config = None;
     let mut insert = None;
+    let mut append_info = None;
 
     if !raw_query.is_empty() {
         for pair in raw_query.split('&') {
@@ -38,6 +52,7 @@ pub(super) fn parse_direct_query(raw_query: Option<&str>) -> Result<DirectQuery,
                 "url" => &mut url,
                 "config" => &mut config,
                 "insert" => &mut insert,
+                "append_info" if allow_append_info => &mut append_info,
                 _ => return Err(QueryError::InvalidRequest),
             };
             if slot.replace(value).is_some() {
@@ -55,6 +70,11 @@ pub(super) fn parse_direct_query(raw_query: Option<&str>) -> Result<DirectQuery,
         return Err(QueryError::InvalidRequest);
     }
     let url = url.ok_or(QueryError::InvalidRequest)?;
+    let append_info = match append_info.as_deref() {
+        None | Some("true") => true,
+        Some("false") => false,
+        Some(_) => return Err(QueryError::InvalidRequest),
+    };
     let sources = url.split('|').map(str::to_owned).collect::<Vec<_>>();
     if sources.is_empty()
         || sources.len() > MAX_DIRECT_SOURCES
@@ -62,13 +82,17 @@ pub(super) fn parse_direct_query(raw_query: Option<&str>) -> Result<DirectQuery,
             source.is_empty()
                 || source.starts_with([' ', '\t'])
                 || source.ends_with([' ', '\t'])
-                || is_remote_source(source)
+                || is_http_source(source)
+                || (!allow_remote_https && is_https_source(source))
         })
     {
         return Err(QueryError::InvalidRequest);
     }
 
-    Ok(DirectQuery { sources })
+    Ok(DirectQuery {
+        sources,
+        append_info,
+    })
 }
 
 fn percent_decode_value(raw: &str) -> Option<String> {
@@ -104,8 +128,12 @@ const fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn is_remote_source(source: &str) -> bool {
-    has_ascii_prefix(source, "http://") || has_ascii_prefix(source, "https://")
+pub(super) fn is_https_source(source: &str) -> bool {
+    has_ascii_prefix(source, "https://")
+}
+
+fn is_http_source(source: &str) -> bool {
+    has_ascii_prefix(source, "http://")
 }
 
 fn has_ascii_prefix(value: &str, prefix: &str) -> bool {

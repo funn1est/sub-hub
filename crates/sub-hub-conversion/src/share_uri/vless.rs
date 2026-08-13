@@ -413,7 +413,7 @@ fn parse_public_key(input: &str) -> Result<RealityPublicKey, NodeRejection> {
 
 fn parse_short_id(input: &str) -> Result<RealityShortId, NodeRejection> {
     if !(2..=16).contains(&input.len())
-        || input.len() % 2 != 0
+        || !input.len().is_multiple_of(2)
         || !input
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))

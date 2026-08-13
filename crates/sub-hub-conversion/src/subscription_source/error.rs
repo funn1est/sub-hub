@@ -13,6 +13,7 @@ pub(crate) enum SubscriptionParseError {
 }
 
 impl SubscriptionParseError {
+    #[cfg(test)]
     pub(crate) const fn code(&self) -> &'static str {
         match self {
             Self::TooManySources => "too_many_sources",
