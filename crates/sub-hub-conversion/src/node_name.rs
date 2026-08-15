@@ -119,6 +119,10 @@ pub(crate) struct NodeNameDiagnostics {
 }
 
 impl NodeNameDiagnostics {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind conversion orchestration")
+    )]
     pub(crate) const fn count(&self, kind: NodeNameDiagnosticKind) -> u32 {
         self.counts[kind.index()]
     }

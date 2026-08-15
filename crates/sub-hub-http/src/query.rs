@@ -12,20 +12,11 @@ pub(super) enum QueryError {
     InvalidTarget,
 }
 
-pub(super) fn parse_direct_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
-    parse_query(raw_query, false, false, false)
-}
-
 pub(super) fn parse_application_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
-    parse_query(raw_query, true, true, true)
+    parse_query(raw_query)
 }
 
-fn parse_query(
-    raw_query: Option<&str>,
-    allow_remote_https: bool,
-    allow_append_info: bool,
-    allow_remote_config: bool,
-) -> Result<DirectQuery, QueryError> {
+fn parse_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
     let raw_query = raw_query.unwrap_or_default();
     if raw_query
         .bytes()
@@ -54,7 +45,7 @@ fn parse_query(
                 "url" => &mut url,
                 "config" => &mut config,
                 "insert" => &mut insert,
-                "append_info" if allow_append_info => &mut append_info,
+                "append_info" => &mut append_info,
                 _ => return Err(QueryError::InvalidRequest),
             };
             if slot.replace(value).is_some() {
@@ -66,9 +57,7 @@ fn parse_query(
     if target.as_deref() != Some("clash") {
         return Err(QueryError::InvalidTarget);
     }
-    if (!allow_remote_config && config.as_deref().is_some_and(|value| !value.is_empty()))
-        || insert.as_deref().is_some_and(|value| value != "false")
-    {
+    if insert.as_deref().is_some_and(|value| value != "false") {
         return Err(QueryError::InvalidRequest);
     }
     let url = url.ok_or(QueryError::InvalidRequest)?;
@@ -85,7 +74,6 @@ fn parse_query(
                 || source.starts_with([' ', '\t'])
                 || source.ends_with([' ', '\t'])
                 || is_http_source(source)
-                || (!allow_remote_https && is_https_source(source))
         })
     {
         return Err(QueryError::InvalidRequest);

@@ -2,7 +2,32 @@
 
 use http::Method;
 use proptest::prelude::*;
-use sub_hub_http::{HttpRequest, handle};
+use sub_hub_http::{
+    Application, HttpRequest, HttpResponse, RemoteAdapter, RemoteAttempt, RemoteFetchError,
+    RemoteResponse, SelfHosts,
+};
+
+struct UnreachableRemote;
+
+impl RemoteAdapter for UnreachableRemote {
+    type FetchFuture<'a> = std::future::Ready<Result<RemoteResponse, RemoteFetchError>>;
+
+    fn monotonic_millis(&self) -> u64 {
+        0
+    }
+
+    fn fetch_once(&self, _attempt: RemoteAttempt) -> Self::FetchFuture<'_> {
+        std::future::ready(Err(RemoteFetchError::Failure))
+    }
+}
+
+fn handle(request: HttpRequest<'_>) -> HttpResponse {
+    let application = Application::new(
+        UnreachableRemote,
+        SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
+    );
+    futures::executor::block_on(application.handle(request))
+}
 
 proptest! {
     #[test]

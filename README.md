@@ -79,6 +79,7 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace --all-targets
 cargo check --locked -p sub-hub-conversion --target wasm32-unknown-unknown
+cargo check --locked -p sub-hub-http --target wasm32-unknown-unknown
 ```
 
 Use `cargo fmt --all` without `--check` to apply formatting locally. GitHub's `CI` workflow runs

@@ -47,6 +47,9 @@ jobs:
       - name: Check the conversion core for Wasm
         run: cargo check --locked -p sub-hub-conversion --target wasm32-unknown-unknown
 
+      - name: Check the HTTP module for Wasm
+        run: cargo check --locked -p sub-hub-http --target wasm32-unknown-unknown
+
       - name: Install Node.js 24
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

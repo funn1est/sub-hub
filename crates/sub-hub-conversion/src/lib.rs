@@ -2,22 +2,8 @@ mod acl4ssr;
 mod direct_subscription;
 mod node;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Detailed Mihomo diagnostics remain internal to the direct application facade"
-    )
-)]
 mod mihomo;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Detailed naming diagnostics remain internal to conversion orchestration"
-    )
-)]
 mod node_name;
 
 #[cfg(test)]

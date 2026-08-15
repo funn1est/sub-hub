@@ -30,6 +30,10 @@ impl BuiltinMihomoOutput {
         &self.config
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
     pub(crate) const fn diagnostics(&self) -> &BuiltinMihomoDiagnostics {
         &self.diagnostics
     }
@@ -53,10 +57,18 @@ pub(crate) struct BuiltinMihomoDiagnostics {
 }
 
 impl BuiltinMihomoDiagnostics {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
     pub(crate) fn rejections(&self) -> &[BuiltinMihomoRejection] {
         &self.rejections
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
     pub(crate) const fn node_names(&self) -> &NodeNameDiagnostics {
         &self.node_names
     }
@@ -69,10 +81,18 @@ pub(crate) struct BuiltinMihomoRejection {
 }
 
 impl BuiltinMihomoRejection {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
     pub(crate) const fn origin(&self) -> NodeOrigin {
         self.origin
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
     pub(crate) const fn rejection(&self) -> &NodeRejection {
         &self.rejection
     }
