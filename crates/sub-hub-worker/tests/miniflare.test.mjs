@@ -249,6 +249,41 @@ test("configured access token protects /sub and leaves /version public", async (
   assert.equal(await ok.text(), SINGLE_VLESS_YAML);
 });
 
+test("target=mihomo is a clash synonym and target=quanx renders Quantumult X", async (t) => {
+  const mf = runtime();
+  t.after(() => mf.dispose());
+
+  const mihomo = await mf.dispatchFetch(
+    `https://worker.example/sub?target=mihomo&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(mihomo.status, 200);
+  assert.equal(await mihomo.text(), SINGLE_VLESS_YAML);
+
+  const quanx = await mf.dispatchFetch(
+    `https://worker.example/sub?target=quanx&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(quanx.status, 200);
+  assert.equal(quanx.headers.get("content-disposition"), 'attachment; filename="sub-hub-quanx.conf"');
+  assert.equal(
+    await quanx.text(),
+    [
+      "[general]",
+      "server_check_url=https://www.gstatic.com/generate_204",
+      "",
+      "[server_local]",
+      "vless=example.com:443, method=none, password=01234567-89ab-cdef-0123-456789abcdef, udp-relay=true, fast-open=false, tag=Alpha",
+      "",
+      "[policy]",
+      "static = PROXY, AUTO, Alpha, direct",
+      "url-latency-benchmark = AUTO, Alpha, check-interval=300, alive-checking=true, tolerance=0",
+      "",
+      "[filter_local]",
+      "final, PROXY",
+      "",
+    ].join("\n"),
+  );
+});
+
 test("invalid access token binding returns the fixed application 500", async (t) => {
   const mf = runtime({ SUB_HUB_ACCESS_TOKEN: "has space" });
   t.after(() => mf.dispose());

@@ -1,6 +1,13 @@
 const MAX_DIRECT_SOURCES: usize = 5;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OutputTarget {
+    Mihomo,
+    Quanx,
+}
+
 pub(super) struct DirectQuery {
+    pub(super) target: OutputTarget,
     pub(super) sources: Vec<String>,
     pub(super) config: Option<String>,
     pub(super) append_info: bool,
@@ -54,9 +61,11 @@ fn parse_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
         }
     }
 
-    if target.as_deref() != Some("clash") {
-        return Err(QueryError::InvalidTarget);
-    }
+    let target = match target.as_deref() {
+        Some("clash" | "mihomo") => OutputTarget::Mihomo,
+        Some("quanx") => OutputTarget::Quanx,
+        _ => return Err(QueryError::InvalidTarget),
+    };
     if insert.as_deref().is_some_and(|value| value != "false") {
         return Err(QueryError::InvalidRequest);
     }
@@ -80,6 +89,7 @@ fn parse_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
     }
 
     Ok(DirectQuery {
+        target,
         sources,
         config: config.filter(|value| !value.is_empty()),
         append_info,

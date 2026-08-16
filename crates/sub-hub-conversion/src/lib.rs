@@ -8,6 +8,8 @@ mod node_name;
 
 mod policy;
 
+mod quanx;
+
 #[cfg(test)]
 pub mod node_name_tests;
 

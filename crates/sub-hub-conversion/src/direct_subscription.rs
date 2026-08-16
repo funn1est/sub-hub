@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::{
-    mihomo::{BuiltinMihomoError, render_builtin_mihomo_v1},
+    mihomo::{BuiltinMihomoError, render_builtin_mihomo_v1, render_builtin_quanx_v1},
     subscription_source::{
         NodeOccurrence, ParsedSubscriptionSources, SubscriptionParseError, SubscriptionSourceInput,
         parse_subscription_source_inputs,
@@ -48,19 +48,33 @@ impl PreparedSubscriptionV1 {
     /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
     /// limit, or [`DirectRenderError::Internal`] when naming or serialization cannot complete.
     pub fn render_builtin_mihomo_v1(self) -> Result<MihomoConfig, DirectRenderError> {
-        match render_builtin_mihomo_v1(self.parsed) {
-            Ok(output) => Ok(MihomoConfig {
-                bytes: output.config().to_vec(),
-            }),
-            Err(BuiltinMihomoError::OutputTooLarge { .. }) => {
-                Err(DirectRenderError::ConversionLimit)
-            }
-            Err(
-                BuiltinMihomoError::NodeNaming(_)
-                | BuiltinMihomoError::NoValidNodes { .. }
-                | BuiltinMihomoError::Serialization,
-            ) => Err(DirectRenderError::Internal),
-        }
+        map_builtin_render(render_builtin_mihomo_v1(self.parsed))
+    }
+
+    /// Consumes the prepared subscription and renders the builtin Quantumult X document.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
+    /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
+    pub fn render_builtin_quanx_v1(self) -> Result<MihomoConfig, DirectRenderError> {
+        map_builtin_render(render_builtin_quanx_v1(self.parsed))
+    }
+}
+
+fn map_builtin_render(
+    result: Result<crate::mihomo::BuiltinMihomoOutput, BuiltinMihomoError>,
+) -> Result<MihomoConfig, DirectRenderError> {
+    match result {
+        Ok(output) => Ok(MihomoConfig {
+            bytes: output.config().to_vec(),
+        }),
+        Err(BuiltinMihomoError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
+        Err(
+            BuiltinMihomoError::NodeNaming(_)
+            | BuiltinMihomoError::NoValidNodes { .. }
+            | BuiltinMihomoError::Serialization,
+        ) => Err(DirectRenderError::Internal),
     }
 }
 

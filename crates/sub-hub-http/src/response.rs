@@ -58,15 +58,29 @@ impl std::fmt::Debug for HttpResponse {
     }
 }
 
-pub(crate) fn subscription_response(body: Vec<u8>) -> HttpResponse {
+pub(crate) fn subscription_response(
+    body: Vec<u8>,
+    filename: &'static str,
+    profile_update_interval: bool,
+) -> HttpResponse {
     let mut response = success_response(StatusCode::OK, body);
-    response.headers.insert(
-        header::CONTENT_DISPOSITION,
-        HeaderValue::from_static("attachment; filename=\"sub-hub-mihomo.yaml\""),
-    );
+    let disposition = match filename {
+        "sub-hub-mihomo.yaml" => {
+            HeaderValue::from_static("attachment; filename=\"sub-hub-mihomo.yaml\"")
+        }
+        "sub-hub-quanx.conf" => {
+            HeaderValue::from_static("attachment; filename=\"sub-hub-quanx.conf\"")
+        }
+        _ => HeaderValue::from_static("attachment"),
+    };
     response
         .headers
-        .insert("profile-update-interval", HeaderValue::from_static("24"));
+        .insert(header::CONTENT_DISPOSITION, disposition);
+    if profile_update_interval {
+        response
+            .headers
+            .insert("profile-update-interval", HeaderValue::from_static("24"));
+    }
     response
 }
 

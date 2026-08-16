@@ -301,10 +301,15 @@ impl<A: RemoteAdapter> Application<A> {
             insert_subscription_user_info(&mut response, eligible_metadata);
             return Ok(response);
         }
+        let target = plan.parsed.target;
         let Some(config_url) = config_url else {
-            return match prepared.render_builtin_mihomo_v1() {
+            let rendered = match target {
+                query::OutputTarget::Mihomo => prepared.render_builtin_mihomo_v1(),
+                query::OutputTarget::Quanx => prepared.render_builtin_quanx_v1(),
+            };
+            return match rendered {
                 Ok(config) => {
-                    let mut response = subscription_response(config.into_bytes());
+                    let mut response = subscription_response_for(target, config.into_bytes());
                     insert_subscription_user_info(&mut response, eligible_metadata);
                     Ok(response)
                 }
@@ -318,6 +323,7 @@ impl<A: RemoteAdapter> Application<A> {
             config_url,
             &inbound_host,
             eligible_metadata,
+            target,
         )
         .await
     }
@@ -437,6 +443,7 @@ impl<A: RemoteAdapter> Application<A> {
         config_url: Url,
         inbound_host: &str,
         eligible_metadata: Option<SubscriptionUserInfoV1>,
+        target: query::OutputTarget,
     ) -> Result<HttpResponse, ApplicationError> {
         let config_resource = RemoteResource {
             kind: ResourceKind::Config,
@@ -521,10 +528,14 @@ impl<A: RemoteAdapter> Application<A> {
             .iter()
             .map(Vec::as_slice)
             .collect::<Vec<_>>();
-        match prepared.render_mihomo_v1(&unique_rule_set_bodies) {
+        let rendered = match target {
+            query::OutputTarget::Mihomo => prepared.render_mihomo_v1(&unique_rule_set_bodies),
+            query::OutputTarget::Quanx => prepared.render_quanx_v1(&unique_rule_set_bodies),
+        };
+        match rendered {
             Ok(config) => {
                 let omitted_url_regex_count = config.report().omitted_url_regex_count();
-                let mut response = subscription_response(config.into_bytes());
+                let mut response = subscription_response_for(target, config.into_bytes());
                 insert_subscription_user_info(&mut response, eligible_metadata);
                 insert_lossy_headers(&mut response, omitted_url_regex_count);
                 Ok(response)
@@ -718,6 +729,13 @@ fn adjudicate_failed_rule_set_chunk(
         return Err(map_acl4ssr_render_error(prefix_error));
     }
     Err(error)
+}
+
+fn subscription_response_for(target: query::OutputTarget, body: Vec<u8>) -> HttpResponse {
+    match target {
+        query::OutputTarget::Mihomo => subscription_response(body, "sub-hub-mihomo.yaml", true),
+        query::OutputTarget::Quanx => subscription_response(body, "sub-hub-quanx.conf", false),
+    }
 }
 
 fn handle_version(method: &Method, raw_query: Option<&str>) -> HttpResponse {

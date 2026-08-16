@@ -18,6 +18,7 @@ use crate::{
         CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
         PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
     },
+    quanx::{QuanxRenderError, render_quanx_from_policy_v1},
     subscription_source::ParsedSubscriptionSources,
 };
 
@@ -111,7 +112,23 @@ impl PreparedAcl4SsrRuleSetsV1 {
         if unique_rule_set_bodies.len() != self.flight_count {
             return Err(Acl4SsrRenderError::RuleSetAlignment);
         }
-        render(self, unique_rule_set_bodies)
+        render(self, unique_rule_set_bodies, OutputFormat::Mihomo)
+    }
+
+    /// Consumes the bound stages and renders a Quantumult X document.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
+    /// or serialization failures. No partial document is returned.
+    pub fn render_quanx_v1(
+        self,
+        unique_rule_set_bodies: &[&[u8]],
+    ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
+        if unique_rule_set_bodies.len() != self.flight_count {
+            return Err(Acl4SsrRenderError::RuleSetAlignment);
+        }
+        render(self, unique_rule_set_bodies, OutputFormat::Quanx)
     }
 
     /// Validates a successfully loaded prefix of the ordered Rule Set occurrence plan.
@@ -1201,9 +1218,16 @@ struct MaterializedRules {
     omitted_url_regex_count: usize,
 }
 
+#[derive(Clone, Copy)]
+enum OutputFormat {
+    Mihomo,
+    Quanx,
+}
+
 fn render(
     mut bound: PreparedAcl4SsrRuleSetsV1,
     unique_bodies: &[&[u8]],
+    format: OutputFormat,
 ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
     let materialized = materialize_rules(
         &bound.prepared.config,
@@ -1266,16 +1290,31 @@ fn render(
         empty_groups: policy.report().empty_groups,
         ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
     };
-    let bytes = render_mihomo_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).map_err(
-        |error| match error {
+    let bytes = match format {
+        OutputFormat::Mihomo => render_mihomo_from_policy_v1(
+            &nodes,
+            &policy,
+            MAX_MIHOMO_OUTPUT_BYTES,
+        )
+        .map_err(|error| match error {
             crate::mihomo::BuiltinMihomoError::OutputTooLarge { .. } => {
                 Acl4SsrRenderError::ConversionLimit
             }
             crate::mihomo::BuiltinMihomoError::NodeNaming(_)
             | crate::mihomo::BuiltinMihomoError::NoValidNodes { .. }
             | crate::mihomo::BuiltinMihomoError::Serialization => Acl4SsrRenderError::Internal,
-        },
-    )?;
+        })?,
+        OutputFormat::Quanx => {
+            render_quanx_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).map_err(
+                |error| match error {
+                    QuanxRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
+                    QuanxRenderError::NoValidNodes | QuanxRenderError::Internal => {
+                        Acl4SsrRenderError::Internal
+                    }
+                },
+            )?
+        }
+    };
     Ok(Acl4SsrOutputV1 { bytes, report })
 }
 
