@@ -15,9 +15,18 @@ use crate::{
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
     node::{Host, NodeProtocol, ProxyNode},
     node_name::{NamedNodeOccurrence, NodeNameDiagnostics, NodeNameError, resolve_node_names},
+    policy::{
+        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1,
+        compile_builtin_policy_v1,
+    },
     share_uri::NodeRejection,
     subscription_source::{NodeOrigin, ParsedSubscriptionSources},
 };
+
+const LOSSY_COMMENT: &str =
+    "# subconverter: lossy conversion; unsupported URL-REGEX rules omitted\n";
+const EMPTY_GROUP_COMMENT_PREFIX: &str =
+    "# subconverter: warning; empty proxy groups downgraded to select + REJECT; count=";
 
 #[derive(PartialEq, Eq)]
 pub(crate) struct BuiltinMihomoOutput {
@@ -152,12 +161,121 @@ fn render_builtin_mihomo_v1_with_limit(
         return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
     }
 
-    let document = MihomoDocument::builtin(&nodes);
-    let config = serialize_bounded(&document, limit_bytes)?;
+    let policy = compile_builtin_policy_v1(&nodes);
+    let config = render_mihomo_from_policy_v1(&nodes, &policy, limit_bytes)?;
     Ok(BuiltinMihomoOutput {
         config,
         diagnostics,
     })
+}
+
+pub(crate) fn render_mihomo_from_policy_v1(
+    named_nodes: &[&ProxyNode],
+    policy: &CompiledPolicyV1,
+    limit_bytes: usize,
+) -> Result<Vec<u8>, BuiltinMihomoError> {
+    let document = MihomoRenderedDocument {
+        mode: "rule",
+        proxies: named_nodes
+            .iter()
+            .map(|node| MihomoProxy::from(*node))
+            .collect(),
+        proxy_groups: policy.groups().iter().map(mihomo_group).collect(),
+        rules: policy.rules().iter().map(render_clash_rule).collect(),
+    };
+    let comments = comment_prefix(
+        policy.report().omitted_url_regex,
+        policy.report().empty_groups,
+    );
+    let body_limit = limit_bytes
+        .checked_sub(comments.len())
+        .ok_or(BuiltinMihomoError::OutputTooLarge { limit_bytes })?;
+    let body = serialize_bounded(&document, body_limit)?;
+    if comments.is_empty() {
+        return Ok(body);
+    }
+    let mut bytes = Vec::with_capacity(comments.len() + body.len());
+    bytes.extend_from_slice(comments.as_bytes());
+    bytes.extend_from_slice(&body);
+    Ok(bytes)
+}
+
+pub(crate) fn render_clash_rule(rule: &CompiledRuleV1) -> String {
+    let target = rule.target().as_symbol();
+    match rule.matcher() {
+        RuleMatcherV1::Domain(value) => format!("DOMAIN,{value},{target}"),
+        RuleMatcherV1::DomainSuffix(value) => format!("DOMAIN-SUFFIX,{value},{target}"),
+        RuleMatcherV1::DomainKeyword(value) => format!("DOMAIN-KEYWORD,{value},{target}"),
+        RuleMatcherV1::ProcessName(value) => format!("PROCESS-NAME,{value},{target}"),
+        RuleMatcherV1::IpCidr {
+            value,
+            version,
+            no_resolve,
+        } => format!(
+            "{},{value},{target}{}",
+            match version {
+                IpVersion::V4 => "IP-CIDR",
+                IpVersion::V6 => "IP-CIDR6",
+            },
+            if *no_resolve { ",no-resolve" } else { "" }
+        ),
+        RuleMatcherV1::GeoIpCn => format!("GEOIP,CN,{target}"),
+        RuleMatcherV1::Match => format!("MATCH,{target}"),
+    }
+}
+
+fn comment_prefix(omitted_url_regex: u8, empty_groups: u8) -> String {
+    let mut comments = String::new();
+    if omitted_url_regex > 0 {
+        comments.push_str(LOSSY_COMMENT);
+    }
+    if empty_groups > 0 {
+        comments.push_str(EMPTY_GROUP_COMMENT_PREFIX);
+        comments.push_str(&empty_groups.to_string());
+        comments.push('\n');
+    }
+    comments
+}
+
+fn mihomo_group(group: &crate::policy::CompiledGroupV1) -> MihomoRenderedGroup {
+    let proxies = group
+        .members()
+        .iter()
+        .map(|member| member.as_symbol().to_owned())
+        .collect();
+    let (kind, url, interval, tolerance, strategy) = match group.strategy() {
+        GroupStrategyV1::Select => ("select", None, None, None, None),
+        GroupStrategyV1::UrlTest {
+            url,
+            interval,
+            tolerance,
+        } => (
+            "url-test",
+            Some(url.clone()),
+            Some(*interval),
+            *tolerance,
+            None,
+        ),
+        GroupStrategyV1::Fallback { url, interval } => {
+            ("fallback", Some(url.clone()), Some(*interval), None, None)
+        }
+        GroupStrategyV1::LoadBalance { url, interval } => (
+            "load-balance",
+            Some(url.clone()),
+            Some(*interval),
+            None,
+            Some("consistent-hashing"),
+        ),
+    };
+    MihomoRenderedGroup {
+        name: group.name().to_owned(),
+        kind,
+        proxies,
+        url,
+        interval,
+        tolerance,
+        strategy,
+    }
 }
 
 struct BoundedVec {
@@ -220,47 +338,28 @@ pub(crate) fn serialize_bounded<T: Serialize>(
 }
 
 #[derive(Serialize)]
-struct MihomoDocument<'a> {
+struct MihomoRenderedDocument<'a> {
     mode: &'static str,
     proxies: Vec<MihomoProxy<'a>>,
     #[serde(rename = "proxy-groups")]
-    proxy_groups: Vec<MihomoProxyGroup<'a>>,
-    rules: [&'static str; 1],
+    proxy_groups: Vec<MihomoRenderedGroup>,
+    rules: Vec<String>,
 }
 
-impl<'a> MihomoDocument<'a> {
-    fn builtin(nodes: &[&'a ProxyNode]) -> Self {
-        let names = nodes
-            .iter()
-            .map(|node| node.name().as_str())
-            .collect::<Vec<_>>();
-        let mut proxy_members = Vec::with_capacity(names.len() + 2);
-        proxy_members.push("AUTO");
-        proxy_members.extend(names.iter().copied());
-        proxy_members.push("DIRECT");
-
-        Self {
-            mode: "rule",
-            proxies: nodes.iter().map(|node| MihomoProxy::from(*node)).collect(),
-            proxy_groups: vec![
-                MihomoProxyGroup {
-                    name: "PROXY",
-                    kind: "select",
-                    proxies: proxy_members,
-                    url: None,
-                    interval: None,
-                },
-                MihomoProxyGroup {
-                    name: "AUTO",
-                    kind: "url-test",
-                    proxies: names,
-                    url: Some("https://www.gstatic.com/generate_204"),
-                    interval: Some(300),
-                },
-            ],
-            rules: ["MATCH,PROXY"],
-        }
-    }
+#[derive(Serialize)]
+struct MihomoRenderedGroup {
+    name: String,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    proxies: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interval: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tolerance: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strategy: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -438,18 +537,6 @@ struct MihomoRealityOptions {
     public_key: String,
     #[serde(rename = "short-id", skip_serializing_if = "Option::is_none")]
     short_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct MihomoProxyGroup<'a> {
-    name: &'static str,
-    #[serde(rename = "type")]
-    kind: &'static str,
-    proxies: Vec<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    interval: Option<u16>,
 }
 
 fn render_host(host: &Host) -> String {

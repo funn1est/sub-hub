@@ -9,13 +9,15 @@ use std::{
 };
 
 use regex::{Regex, RegexBuilder};
-use serde::Serialize;
 use url::{Host as UrlHost, Url};
 
 use crate::{
-    mihomo::{MAX_MIHOMO_OUTPUT_BYTES, MihomoProxy, serialize_bounded},
-    node::ProxyNode,
+    mihomo::{MAX_MIHOMO_OUTPUT_BYTES, render_clash_rule, render_mihomo_from_policy_v1},
     node_name::{NamedNodeOccurrence, is_reserved_symbol, resolve_node_names, validate_group_name},
+    policy::{
+        CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
+        PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
+    },
     subscription_source::ParsedSubscriptionSources,
 };
 
@@ -32,11 +34,6 @@ const MAX_REGEX_DFA_BYTES: usize = 64 * 1024;
 const MAX_REGEX_EVALUATIONS: usize = 2_000_000;
 const MAX_EXPANDED_MEMBERS: usize = 200_000;
 const MAX_RULES: usize = 200_000;
-
-const LOSSY_COMMENT: &str =
-    "# subconverter: lossy conversion; unsupported URL-REGEX rules omitted\n";
-const EMPTY_GROUP_COMMENT_PREFIX: &str =
-    "# subconverter: warning; empty proxy groups downgraded to select + REJECT; count=";
 
 pub struct PreparedAcl4SsrV1 {
     parsed_subscription: ParsedSubscriptionSources,
@@ -1200,7 +1197,7 @@ struct OmittedEvidenceEntry {
 }
 
 struct MaterializedRules {
-    rendered: Vec<String>,
+    rules: Vec<CompiledRuleV1>,
     omitted_url_regex_count: usize,
 }
 
@@ -1258,10 +1255,38 @@ fn render(
         return Err(Acl4SsrRenderError::ConversionLimit);
     }
 
-    let (proxy_groups, empty_group_count) = expand_groups(&prepared.config.groups, &node_names)?;
-    let ignored_legacy_probe_hint_count = prepared
-        .config
-        .groups
+    let policy = compile_acl4ssr_policy(
+        &prepared.config.groups,
+        &node_names,
+        materialized.rules,
+        omitted_url_regex_count,
+    )?;
+    let report = Acl4SsrConversionReportV1 {
+        omitted_url_regex: policy.report().omitted_url_regex,
+        empty_groups: policy.report().empty_groups,
+        ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
+    };
+    let bytes = render_mihomo_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).map_err(
+        |error| match error {
+            crate::mihomo::BuiltinMihomoError::OutputTooLarge { .. } => {
+                Acl4SsrRenderError::ConversionLimit
+            }
+            crate::mihomo::BuiltinMihomoError::NodeNaming(_)
+            | crate::mihomo::BuiltinMihomoError::NoValidNodes { .. }
+            | crate::mihomo::BuiltinMihomoError::Serialization => Acl4SsrRenderError::Internal,
+        },
+    )?;
+    Ok(Acl4SsrOutputV1 { bytes, report })
+}
+
+fn compile_acl4ssr_policy(
+    groups: &[Group],
+    node_names: &[&str],
+    rules: Vec<CompiledRuleV1>,
+    omitted_url_regex_count: u8,
+) -> Result<CompiledPolicyV1, Acl4SsrRenderError> {
+    let (compiled_groups, empty_group_count) = expand_groups(groups, node_names)?;
+    let ignored_legacy_probe_hint_count = groups
         .iter()
         .filter(|group| {
             group.kind != GroupType::UrlTest
@@ -1272,53 +1297,17 @@ fn render(
                     .is_some()
         })
         .count();
-    let report = Acl4SsrConversionReportV1 {
-        omitted_url_regex: omitted_url_regex_count,
-        empty_groups: u8::try_from(empty_group_count).map_err(|_| Acl4SsrRenderError::Internal)?,
-        ignored_legacy_probe_hints: u8::try_from(ignored_legacy_probe_hint_count)
-            .map_err(|_| Acl4SsrRenderError::Internal)?,
-    };
-
-    let bytes = serialize_document(&nodes, proxy_groups, materialized.rendered, report)?;
-    Ok(Acl4SsrOutputV1 { bytes, report })
-}
-
-fn serialize_document(
-    nodes: &[&ProxyNode],
-    proxy_groups: Vec<MihomoAclGroup>,
-    rules: Vec<String>,
-    report: Acl4SsrConversionReportV1,
-) -> Result<Vec<u8>, Acl4SsrRenderError> {
-    let document = Acl4SsrMihomoDocument {
-        mode: "rule",
-        proxies: nodes.iter().map(|node| MihomoProxy::from(*node)).collect(),
-        proxy_groups,
+    Ok(CompiledPolicyV1::new(
+        compiled_groups,
         rules,
-    };
-    let mut comments = String::new();
-    if report.omitted_url_regex > 0 {
-        comments.push_str(LOSSY_COMMENT);
-    }
-    if report.empty_groups > 0 {
-        comments.push_str(EMPTY_GROUP_COMMENT_PREFIX);
-        comments.push_str(&report.empty_groups.to_string());
-        comments.push('\n');
-    }
-    let body_limit = MAX_MIHOMO_OUTPUT_BYTES
-        .checked_sub(comments.len())
-        .ok_or(Acl4SsrRenderError::ConversionLimit)?;
-    let body = serialize_bounded(&document, body_limit).map_err(|error| match error {
-        crate::mihomo::BuiltinMihomoError::OutputTooLarge { .. } => {
-            Acl4SsrRenderError::ConversionLimit
-        }
-        crate::mihomo::BuiltinMihomoError::NodeNaming(_)
-        | crate::mihomo::BuiltinMihomoError::NoValidNodes { .. }
-        | crate::mihomo::BuiltinMihomoError::Serialization => Acl4SsrRenderError::Internal,
-    })?;
-    let mut bytes = Vec::with_capacity(comments.len() + body.len());
-    bytes.extend_from_slice(comments.as_bytes());
-    bytes.extend_from_slice(&body);
-    Ok(bytes)
+        PolicyReportV1 {
+            omitted_url_regex: omitted_url_regex_count,
+            empty_groups: u8::try_from(empty_group_count)
+                .map_err(|_| Acl4SsrRenderError::Internal)?,
+            ignored_legacy_probe_hints: u8::try_from(ignored_legacy_probe_hint_count)
+                .map_err(|_| Acl4SsrRenderError::Internal)?,
+        },
+    ))
 }
 
 fn materialize_rules(
@@ -1329,7 +1318,7 @@ fn materialize_rules(
     flight_by_occurrence: &[usize],
     parsed_rule_sets: &mut [Option<Vec<RuleEntry>>],
 ) -> Result<MaterializedRules, Acl4SsrRenderError> {
-    let mut rendered = Vec::new();
+    let mut rules = Vec::new();
     let mut rendered_bytes = 0_usize;
     let mut evidence = profile
         .map(|profile| OmittedEvidenceAccumulator::new(profile, config_fingerprint))
@@ -1365,9 +1354,9 @@ fn materialize_rules(
                                 .checked_add(1)
                                 .ok_or(Acl4SsrRenderError::ConversionLimit)?;
                         }
-                        entry => push_rendered_rule(
-                            &mut rendered,
-                            render_rule(entry, target),
+                        entry => push_compiled_rule(
+                            &mut rules,
+                            compiled_rule(entry, target),
                             &mut rendered_bytes,
                         )?,
                     }
@@ -1379,17 +1368,17 @@ fn materialize_rules(
             }
             RuleSource::GeoIpCn => {
                 increment_rule_count(&mut rule_count)?;
-                push_rendered_rule(
-                    &mut rendered,
-                    format!("GEOIP,CN,{}", target_name(target)),
+                push_compiled_rule(
+                    &mut rules,
+                    CompiledRuleV1::new(RuleMatcherV1::GeoIpCn, policy_member(target)),
                     &mut rendered_bytes,
                 )?;
             }
             RuleSource::Final => {
                 increment_rule_count(&mut rule_count)?;
-                push_rendered_rule(
-                    &mut rendered,
-                    format!("MATCH,{}", target_name(target)),
+                push_compiled_rule(
+                    &mut rules,
+                    CompiledRuleV1::new(RuleMatcherV1::Match, policy_member(target)),
                     &mut rendered_bytes,
                 )?;
             }
@@ -1403,7 +1392,7 @@ fn materialize_rules(
         None => 0,
     };
     Ok(MaterializedRules {
-        rendered,
+        rules,
         omitted_url_regex_count,
     })
 }
@@ -1588,13 +1577,13 @@ fn increment_rule_count_by(count: &mut usize, additional: usize) -> Result<(), A
     Ok(())
 }
 
-fn push_rendered_rule(
-    output: &mut Vec<String>,
-    rule: String,
+fn push_compiled_rule(
+    output: &mut Vec<CompiledRuleV1>,
+    rule: CompiledRuleV1,
     rendered_bytes: &mut usize,
 ) -> Result<(), Acl4SsrRenderError> {
     *rendered_bytes = rendered_bytes
-        .checked_add(rule.len())
+        .checked_add(render_clash_rule(&rule).len())
         .ok_or(Acl4SsrRenderError::ConversionLimit)?;
     if *rendered_bytes > MAX_MIHOMO_OUTPUT_BYTES {
         return Err(Acl4SsrRenderError::ConversionLimit);
@@ -1603,31 +1592,36 @@ fn push_rendered_rule(
     Ok(())
 }
 
-fn render_rule(entry: &RuleEntry, target: &TargetRef) -> String {
-    let target = target_name(target);
-    match entry {
-        RuleEntry::Domain { kind, value } => format!(
-            "{},{value},{target}",
-            match kind {
-                DomainRuleType::Domain => "DOMAIN",
-                DomainRuleType::DomainSuffix => "DOMAIN-SUFFIX",
-                DomainRuleType::DomainKeyword => "DOMAIN-KEYWORD",
-                DomainRuleType::ProcessName => "PROCESS-NAME",
-            }
-        ),
+fn compiled_rule(entry: &RuleEntry, target: &TargetRef) -> CompiledRuleV1 {
+    let matcher = match entry {
+        RuleEntry::Domain { kind, value } => match kind {
+            DomainRuleType::Domain => RuleMatcherV1::Domain(value.clone()),
+            DomainRuleType::DomainSuffix => RuleMatcherV1::DomainSuffix(value.clone()),
+            DomainRuleType::DomainKeyword => RuleMatcherV1::DomainKeyword(value.clone()),
+            DomainRuleType::ProcessName => RuleMatcherV1::ProcessName(value.clone()),
+        },
         RuleEntry::Cidr {
             kind,
             value,
             no_resolve,
-        } => format!(
-            "{},{value},{target}{}",
-            match kind {
-                CidrRuleType::V4 => "IP-CIDR",
-                CidrRuleType::V6 => "IP-CIDR6",
+        } => RuleMatcherV1::IpCidr {
+            value: value.clone(),
+            version: match kind {
+                CidrRuleType::V4 => IpVersion::V4,
+                CidrRuleType::V6 => IpVersion::V6,
             },
-            if *no_resolve { ",no-resolve" } else { "" }
-        ),
+            no_resolve: *no_resolve,
+        },
         RuleEntry::UrlRegex(_) => unreachable!("URL-REGEX is gated before rendering"),
+    };
+    CompiledRuleV1::new(matcher, policy_member(target))
+}
+
+fn policy_member(target: &TargetRef) -> PolicyMemberV1 {
+    match target {
+        TargetRef::Direct => PolicyMemberV1::Direct,
+        TargetRef::Reject => PolicyMemberV1::Reject,
+        TargetRef::Group(name) => PolicyMemberV1::Group(name.clone()),
     }
 }
 
@@ -1750,7 +1744,7 @@ fn encode_omitted_evidence(
 fn expand_groups(
     groups: &[Group],
     node_names: &[&str],
-) -> Result<(Vec<MihomoAclGroup>, usize), Acl4SsrRenderError> {
+) -> Result<(Vec<CompiledGroupV1>, usize), Acl4SsrRenderError> {
     let mut output = Vec::with_capacity(groups.len());
     let mut total_expanded_members = 0_usize;
     let mut total_expanded_member_bytes = 0_usize;
@@ -1761,11 +1755,11 @@ fn expand_groups(
         for member in &group.members {
             match member {
                 GroupMember::LiteralRef(target) => {
-                    let value = target_name(target);
-                    if seen.insert(value.to_owned()) {
+                    let member = policy_member(target);
+                    if seen.insert(member.as_symbol().to_owned()) {
                         push_expanded_member(
                             &mut members,
-                            value,
+                            member,
                             &mut total_expanded_members,
                             &mut total_expanded_member_bytes,
                         )?;
@@ -1778,7 +1772,7 @@ fn expand_groups(
                         {
                             push_expanded_member(
                                 &mut members,
-                                node_name,
+                                PolicyMemberV1::Node((*node_name).to_owned()),
                                 &mut total_expanded_members,
                                 &mut total_expanded_member_bytes,
                             )?;
@@ -1791,53 +1785,49 @@ fn expand_groups(
             empty_count += 1;
             push_expanded_member(
                 &mut members,
-                "REJECT",
+                PolicyMemberV1::Reject,
                 &mut total_expanded_members,
                 &mut total_expanded_member_bytes,
             )?;
-            output.push(MihomoAclGroup {
-                name: group.name.clone(),
-                kind: "select",
-                proxies: members,
-                url: None,
-                interval: None,
-                tolerance: None,
-                strategy: None,
-            });
+            output.push(CompiledGroupV1::new(
+                group.name.clone(),
+                GroupStrategyV1::Select,
+                members,
+            ));
             continue;
         }
-        let (url, interval, tolerance, strategy) = match &group.payload {
-            None => (None, None, None, None),
-            Some(payload) => (
-                Some(payload.health.declared.clone()),
-                Some(payload.probe.interval),
-                (group.kind == GroupType::UrlTest)
-                    .then_some(payload.probe.tolerance)
-                    .flatten(),
-                (group.kind == GroupType::LoadBalance).then_some("consistent-hashing"),
-            ),
-        };
-        output.push(MihomoAclGroup {
-            name: group.name.clone(),
-            kind: match group.kind {
-                GroupType::Select => "select",
-                GroupType::UrlTest => "url-test",
-                GroupType::Fallback => "fallback",
-                GroupType::LoadBalance => "load-balance",
-            },
-            proxies: members,
-            url,
-            interval,
-            tolerance,
-            strategy,
-        });
+        let strategy = compiled_strategy(group)?;
+        output.push(CompiledGroupV1::new(group.name.clone(), strategy, members));
     }
     Ok((output, empty_count))
 }
 
+fn compiled_strategy(group: &Group) -> Result<GroupStrategyV1, Acl4SsrRenderError> {
+    if group.kind == GroupType::Select {
+        return Ok(GroupStrategyV1::Select);
+    }
+    let payload = group.payload.as_ref().ok_or(Acl4SsrRenderError::Internal)?;
+    Ok(match group.kind {
+        GroupType::Select => GroupStrategyV1::Select,
+        GroupType::UrlTest => GroupStrategyV1::UrlTest {
+            url: payload.health.declared.clone(),
+            interval: payload.probe.interval,
+            tolerance: payload.probe.tolerance,
+        },
+        GroupType::Fallback => GroupStrategyV1::Fallback {
+            url: payload.health.declared.clone(),
+            interval: payload.probe.interval,
+        },
+        GroupType::LoadBalance => GroupStrategyV1::LoadBalance {
+            url: payload.health.declared.clone(),
+            interval: payload.probe.interval,
+        },
+    })
+}
+
 fn push_expanded_member(
-    output: &mut Vec<String>,
-    value: &str,
+    output: &mut Vec<PolicyMemberV1>,
+    member: PolicyMemberV1,
     total: &mut usize,
     total_bytes: &mut usize,
 ) -> Result<(), Acl4SsrRenderError> {
@@ -1846,38 +1836,13 @@ fn push_expanded_member(
     }
     *total += 1;
     *total_bytes = total_bytes
-        .checked_add(value.len())
+        .checked_add(member.as_symbol().len())
         .ok_or(Acl4SsrRenderError::ConversionLimit)?;
     if *total_bytes > MAX_MIHOMO_OUTPUT_BYTES {
         return Err(Acl4SsrRenderError::ConversionLimit);
     }
-    output.push(value.to_owned());
+    output.push(member);
     Ok(())
-}
-
-#[derive(Serialize)]
-struct Acl4SsrMihomoDocument<'a> {
-    mode: &'static str,
-    proxies: Vec<MihomoProxy<'a>>,
-    #[serde(rename = "proxy-groups")]
-    proxy_groups: Vec<MihomoAclGroup>,
-    rules: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct MihomoAclGroup {
-    name: String,
-    #[serde(rename = "type")]
-    kind: &'static str,
-    proxies: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    interval: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tolerance: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    strategy: Option<&'static str>,
 }
 
 #[cfg(test)]

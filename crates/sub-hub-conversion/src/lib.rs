@@ -6,6 +6,8 @@ mod mihomo;
 
 mod node_name;
 
+mod policy;
+
 #[cfg(test)]
 pub mod node_name_tests;
 
