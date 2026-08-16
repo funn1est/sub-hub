@@ -107,31 +107,54 @@ Subscription and config URLs commonly contain credentials; do not expose port
 
 ## Cloudflare Worker
 
-The Worker lives in [`crates/sub-hub-worker`](crates/sub-hub-worker). Its pinned
-local build and host-conformance commands are:
+The Worker lives in [`crates/sub-hub-worker`](crates/sub-hub-worker). Deploy
+your own copy; this repository does not operate a public instance. A Cloudflare
+account, Rust 1.97.1 with the `wasm32-unknown-unknown` target, Node.js 22 or
+newer, and the pinned `worker-build` 0.8.5 are required.
 
 ```sh
 cargo install worker-build --version 0.8.5 --locked
 cd crates/sub-hub-worker
 corepack pnpm install --frozen-lockfile
+corepack pnpm exec wrangler login
 corepack pnpm run build
 corepack pnpm run test:host
+corepack pnpm run deploy
+```
+
+The first deploy prints a `*.workers.dev` URL. Put that hostname in the
+`SUB_HUB_SELF_HOSTS` Worker variable — together with every custom-domain alias
+— and deploy again so remote loading cannot target those names. Do not commit
+an `account_id`, API tokens, a local `name` rename, or a `.dev.vars` file with
+real values.
+
+The Worker has no client authentication yet. Anyone who knows the URL can use
+it as a public converter. Do not send a real subscription URL to it until an
+access token exists.
+
+Smoke the deployed origin without fetching an external subscription:
+
+```sh
+curl "$WORKER_URL/version"
+
+curl --get "$WORKER_URL/sub" \
+  --data-urlencode 'target=clash' \
+  --data-urlencode 'url=vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha' \
+  --output sub-hub-mihomo.yaml
 ```
 
 Miniflare/workerd conformance in CI is not the production runtime. Before a
-release, an authenticated maintainer must upload a non-production Cloudflare
-preview, exercise `/version` and a direct `/sub` conversion against its preview
-URL, and remove or supersede the preview according to the deployment policy.
-For the pinned Wrangler version, a preview version can be created from the
-Worker directory with a deployment-specific alias:
+release, upload a preview and run the same smoke against that preview URL:
 
 ```sh
-corepack pnpm exec wrangler versions upload --preview-alias <preview-alias>
+cd crates/sub-hub-worker
+corepack pnpm run preview -- --preview-alias <preview-alias>
 ```
 
-This manual gate requires a Cloudflare account and is deliberately not run by
-CI. The Worker also restricts outbound HTTPS resources to port 443. See its
-[deployment notes](crates/sub-hub-worker/README.md) for the runtime boundary.
+CI does not hold Cloudflare credentials and does not deploy. The Worker
+restricts outbound HTTPS resources to port 443. See the
+[Worker deployment notes](crates/sub-hub-worker/README.md) for the runtime
+boundary, variable setup, and what not to commit.
 
 ## Compatibility and provenance
 
