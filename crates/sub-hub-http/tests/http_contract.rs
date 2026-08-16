@@ -371,6 +371,45 @@ fn get_sub_converts_a_direct_share_uri_to_exact_singbox_bytes() {
 }
 
 #[test]
+fn get_sub_converts_a_direct_share_uri_to_exact_loon_bytes() {
+    let query = concat!(
+        "target=loon&",
+        "url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef",
+        "%40EXAMPLE.COM%3A443%23Alpha",
+    );
+    let response = handle(HttpRequest::new(Method::GET, "/sub", Some(query)));
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.body(),
+        concat!(
+            "[General]\n",
+            "proxy-test-url = https://www.gstatic.com/generate_204\n",
+            "\n",
+            "[Proxy]\n",
+            "Alpha = VLESS,example.com,443,\"01234567-89ab-cdef-0123-456789abcdef\",transport=tcp,over-tls=false,udp=true\n",
+            "\n",
+            "[Proxy Group]\n",
+            "PROXY = select,AUTO,Alpha,DIRECT\n",
+            "AUTO = url-test,Alpha,url = https://www.gstatic.com/generate_204,interval = 300\n",
+            "\n",
+            "[Rule]\n",
+            "FINAL,PROXY\n",
+        )
+        .as_bytes()
+    );
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "text/plain;charset=utf-8"
+    );
+    assert_eq!(
+        response.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename=\"sub-hub-loon.conf\""
+    );
+    assert!(response.headers().get("profile-update-interval").is_none());
+    assert_eq!(response.headers().len(), 3);
+}
+
+#[test]
 fn sub_requires_one_exact_clash_target_after_wire_validation() {
     assert_sub_error(None, b"Invalid target!");
     assert_sub_error(Some(""), b"Invalid target!");
@@ -401,6 +440,14 @@ fn sub_requires_one_exact_clash_target_after_wire_validation() {
     );
     assert_sub_error(
         Some(&format!("target=Singbox&url={ENCODED_VLESS}")),
+        b"Invalid target!",
+    );
+    assert_sub_error(
+        Some(&format!("target=Loon&url={ENCODED_VLESS}")),
+        b"Invalid target!",
+    );
+    assert_sub_error(
+        Some(&format!("target=loon-lite&url={ENCODED_VLESS}")),
         b"Invalid target!",
     );
     assert_sub_error(Some("target=clash"), b"Invalid request!");

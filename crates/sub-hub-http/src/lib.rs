@@ -308,6 +308,7 @@ impl<A: RemoteAdapter> Application<A> {
                 query::OutputTarget::Mihomo => prepared.render_builtin_mihomo_v1(),
                 query::OutputTarget::Quanx => prepared.render_builtin_quanx_v1(),
                 query::OutputTarget::Singbox => prepared.render_builtin_singbox_v1(),
+                query::OutputTarget::Loon => prepared.render_builtin_loon_v1(),
             };
             return match rendered {
                 Ok(config) => {
@@ -534,6 +535,7 @@ impl<A: RemoteAdapter> Application<A> {
             query::OutputTarget::Mihomo => prepared.render_mihomo_v1(&unique_rule_set_bodies),
             query::OutputTarget::Quanx => prepared.render_quanx_v1(&unique_rule_set_bodies),
             query::OutputTarget::Singbox => prepared.render_singbox_v1(&unique_rule_set_bodies),
+            query::OutputTarget::Loon => prepared.render_loon_v1(&unique_rule_set_bodies),
         };
         match rendered {
             Ok(config) => {
@@ -739,6 +741,7 @@ fn subscription_response_for(target: query::OutputTarget, body: Vec<u8>) -> Http
         query::OutputTarget::Mihomo => subscription_response(body, "sub-hub-mihomo.yaml", true),
         query::OutputTarget::Quanx => subscription_response(body, "sub-hub-quanx.conf", false),
         query::OutputTarget::Singbox => subscription_response(body, "sub-hub-singbox.json", false),
+        query::OutputTarget::Loon => subscription_response(body, "sub-hub-loon.conf", false),
     }
 }
 

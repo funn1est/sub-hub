@@ -18,17 +18,20 @@ The current compatibility surface contains only:
 - `HEAD /sub`
 
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
-`quanx` (Quantumult X), or `singbox` (sing-box JSON). Its `url` value accepts
-one to five ordered inputs separated by `|`: direct VLESS or Shadowsocks share
-URIs, or HTTPS subscription URLs whose raw/Base64 contents contain supported
-share URIs. An optional HTTPS `config` value selects a supported strict ACL4SSR
-INI configuration and its remote Rule Sets. Quantumult X skips gRPC nodes and
-VLESS Vision without Reality. sing-box keeps those combinations, omits GeoIP CN
-rules, and normalizes fallback groups to `urltest` and load-balance groups to
-`selector`.
+`quanx` (Quantumult X), `singbox` (sing-box JSON), or `loon` (Loon). Its `url`
+value accepts one to five ordered inputs separated by `|`: direct VLESS or
+Shadowsocks share URIs, or HTTPS subscription URLs whose raw/Base64 contents
+contain supported share URIs. An optional HTTPS `config` value selects a
+supported strict ACL4SSR INI configuration and its remote Rule Sets. Quantumult
+X skips gRPC nodes and VLESS Vision without Reality. sing-box keeps those
+combinations, omits GeoIP CN rules, and normalizes fallback groups to `urltest`
+and load-balance groups to `selector`. Loon keeps TCP Reality+Vision and
+WebSocket, skips gRPC and unpaired Vision/Reality, omits process-name rules, and
+normalizes load-balance groups to `pcc`. Import a generated Loon file in store
+Loon 3.5.0 to confirm it parses; there is no official `loon check` CLI.
 
 The service does not currently expose POST conversion, capabilities, an
-administration API, VMess, Loon, or Egern. An optional
+administration API, VMess, or Egern. An optional
 `SUB_HUB_ACCESS_TOKEN` protects `GET`/`HEAD /sub/:token` when configured;
 `GET /version` stays public. Unsupported or invalid individual nodes are
 skipped, but source/container/config errors remain fatal and a request with no

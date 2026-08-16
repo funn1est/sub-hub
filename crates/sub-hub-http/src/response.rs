@@ -77,6 +77,10 @@ pub(crate) fn subscription_response(
             HeaderValue::from_static("attachment; filename=\"sub-hub-singbox.json\""),
             JSON_CONTENT_TYPE,
         ),
+        "sub-hub-loon.conf" => (
+            HeaderValue::from_static("attachment; filename=\"sub-hub-loon.conf\""),
+            TEXT_CONTENT_TYPE,
+        ),
         _ => (HeaderValue::from_static("attachment"), TEXT_CONTENT_TYPE),
     };
     response.headers.insert(header::CONTENT_TYPE, content_type);

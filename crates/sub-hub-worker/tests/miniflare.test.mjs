@@ -249,7 +249,7 @@ test("configured access token protects /sub and leaves /version public", async (
   assert.equal(await ok.text(), SINGLE_VLESS_YAML);
 });
 
-test("target=mihomo is a clash synonym and quanx/singbox render their documents", async (t) => {
+test("target=mihomo is a clash synonym and quanx/singbox/loon render their documents", async (t) => {
   const mf = runtime();
   t.after(() => mf.dispose());
 
@@ -299,6 +299,21 @@ test("target=mihomo is a clash synonym and quanx/singbox render their documents"
   assert.match(body, /"tag": "PROXY"/);
   assert.match(body, /"type": "urltest"/);
   assert.match(body, /"default_domain_resolver": "local"/);
+
+  const loon = await mf.dispatchFetch(
+    `https://worker.example/sub?target=loon&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(loon.status, 200);
+  assert.equal(loon.headers.get("content-type"), "text/plain;charset=utf-8");
+  assert.equal(
+    loon.headers.get("content-disposition"),
+    'attachment; filename="sub-hub-loon.conf"',
+  );
+  assert.equal(loon.headers.get("profile-update-interval"), null);
+  const loonBody = await loon.text();
+  assert.match(loonBody, /\[Proxy\]/);
+  assert.match(loonBody, /Alpha = VLESS/);
+  assert.match(loonBody, /FINAL,PROXY/);
 });
 
 test("invalid access token binding returns the fixed application 500", async (t) => {

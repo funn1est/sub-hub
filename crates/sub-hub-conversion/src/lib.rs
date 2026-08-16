@@ -8,6 +8,8 @@ mod node_name;
 
 mod policy;
 
+mod loon;
+
 mod quanx;
 
 mod singbox;

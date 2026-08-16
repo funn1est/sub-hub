@@ -5,6 +5,7 @@ pub(super) enum OutputTarget {
     Mihomo,
     Quanx,
     Singbox,
+    Loon,
 }
 
 pub(super) struct DirectQuery {
@@ -66,6 +67,7 @@ fn parse_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
         Some("clash" | "mihomo") => OutputTarget::Mihomo,
         Some("quanx") => OutputTarget::Quanx,
         Some("singbox") => OutputTarget::Singbox,
+        Some("loon") => OutputTarget::Loon,
         _ => return Err(QueryError::InvalidTarget),
     };
     if insert.as_deref().is_some_and(|value| value != "false") {

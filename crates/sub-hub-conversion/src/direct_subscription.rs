@@ -2,8 +2,8 @@ use std::fmt;
 
 use crate::{
     mihomo::{
-        BuiltinMihomoError, render_builtin_mihomo_v1, render_builtin_quanx_v1,
-        render_builtin_singbox_v1,
+        BuiltinMihomoError, render_builtin_loon_v1, render_builtin_mihomo_v1,
+        render_builtin_quanx_v1, render_builtin_singbox_v1,
     },
     subscription_source::{
         NodeOccurrence, ParsedSubscriptionSources, SubscriptionParseError, SubscriptionSourceInput,
@@ -72,6 +72,16 @@ impl PreparedSubscriptionV1 {
     /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
     pub fn render_builtin_singbox_v1(self) -> Result<MihomoConfig, DirectRenderError> {
         map_builtin_render(render_builtin_singbox_v1(self.parsed))
+    }
+
+    /// Consumes the prepared subscription and renders the builtin Loon document.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
+    /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
+    pub fn render_builtin_loon_v1(self) -> Result<MihomoConfig, DirectRenderError> {
+        map_builtin_render(render_builtin_loon_v1(self.parsed))
     }
 }
 

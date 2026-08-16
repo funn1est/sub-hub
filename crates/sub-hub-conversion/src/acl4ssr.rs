@@ -12,6 +12,7 @@ use regex::{Regex, RegexBuilder};
 use url::{Host as UrlHost, Url};
 
 use crate::{
+    loon::{LoonRenderError, render_loon_from_policy_v1},
     mihomo::{MAX_MIHOMO_OUTPUT_BYTES, render_clash_rule, render_mihomo_from_policy_v1},
     node_name::{NamedNodeOccurrence, is_reserved_symbol, resolve_node_names, validate_group_name},
     policy::{
@@ -146,6 +147,22 @@ impl PreparedAcl4SsrRuleSetsV1 {
             return Err(Acl4SsrRenderError::RuleSetAlignment);
         }
         render(self, unique_rule_set_bodies, OutputFormat::Singbox)
+    }
+
+    /// Consumes the bound stages and renders a Loon document.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
+    /// or serialization failures. No partial document is returned.
+    pub fn render_loon_v1(
+        self,
+        unique_rule_set_bodies: &[&[u8]],
+    ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
+        if unique_rule_set_bodies.len() != self.flight_count {
+            return Err(Acl4SsrRenderError::RuleSetAlignment);
+        }
+        render(self, unique_rule_set_bodies, OutputFormat::Loon)
     }
 
     /// Validates a successfully loaded prefix of the ordered Rule Set occurrence plan.
@@ -1240,6 +1257,7 @@ enum OutputFormat {
     Mihomo,
     Quanx,
     Singbox,
+    Loon,
 }
 
 fn render(
@@ -1308,43 +1326,57 @@ fn render(
         empty_groups: policy.report().empty_groups,
         ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
     };
-    let bytes = match format {
-        OutputFormat::Mihomo => render_mihomo_from_policy_v1(
-            &nodes,
-            &policy,
-            MAX_MIHOMO_OUTPUT_BYTES,
-        )
-        .map_err(|error| match error {
-            crate::mihomo::BuiltinMihomoError::OutputTooLarge { .. } => {
-                Acl4SsrRenderError::ConversionLimit
-            }
-            crate::mihomo::BuiltinMihomoError::NodeNaming(_)
-            | crate::mihomo::BuiltinMihomoError::NoValidNodes { .. }
-            | crate::mihomo::BuiltinMihomoError::Serialization => Acl4SsrRenderError::Internal,
-        })?,
-        OutputFormat::Quanx => {
-            render_quanx_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).map_err(
-                |error| match error {
-                    QuanxRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
-                    QuanxRenderError::NoValidNodes | QuanxRenderError::Internal => {
+    let bytes = render_policy_bytes(format, &nodes, &policy)?;
+    Ok(Acl4SsrOutputV1 { bytes, report })
+}
+
+fn render_policy_bytes(
+    format: OutputFormat,
+    nodes: &[&crate::node::ProxyNode],
+    policy: &CompiledPolicyV1,
+) -> Result<Vec<u8>, Acl4SsrRenderError> {
+    match format {
+        OutputFormat::Mihomo => {
+            render_mihomo_from_policy_v1(nodes, policy, MAX_MIHOMO_OUTPUT_BYTES).map_err(|error| {
+                match error {
+                    crate::mihomo::BuiltinMihomoError::OutputTooLarge { .. } => {
+                        Acl4SsrRenderError::ConversionLimit
+                    }
+                    crate::mihomo::BuiltinMihomoError::NodeNaming(_)
+                    | crate::mihomo::BuiltinMihomoError::NoValidNodes { .. }
+                    | crate::mihomo::BuiltinMihomoError::Serialization => {
                         Acl4SsrRenderError::Internal
                     }
-                },
-            )?
+                }
+            })
         }
-        OutputFormat::Singbox => render_singbox_from_policy_v1(
-            &nodes,
-            &policy,
-            MAX_MIHOMO_OUTPUT_BYTES,
-        )
-        .map_err(|error| match error {
-            SingboxRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
-            SingboxRenderError::NoValidNodes | SingboxRenderError::Internal => {
-                Acl4SsrRenderError::Internal
-            }
-        })?,
-    };
-    Ok(Acl4SsrOutputV1 { bytes, report })
+        OutputFormat::Quanx => render_quanx_from_policy_v1(nodes, policy, MAX_MIHOMO_OUTPUT_BYTES)
+            .map_err(|error| match error {
+                QuanxRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
+                QuanxRenderError::NoValidNodes | QuanxRenderError::Internal => {
+                    Acl4SsrRenderError::Internal
+                }
+            }),
+        OutputFormat::Singbox => {
+            render_singbox_from_policy_v1(nodes, policy, MAX_MIHOMO_OUTPUT_BYTES).map_err(|error| {
+                match error {
+                    SingboxRenderError::OutputTooLarge { .. } => {
+                        Acl4SsrRenderError::ConversionLimit
+                    }
+                    SingboxRenderError::NoValidNodes | SingboxRenderError::Internal => {
+                        Acl4SsrRenderError::Internal
+                    }
+                }
+            })
+        }
+        OutputFormat::Loon => render_loon_from_policy_v1(nodes, policy, MAX_MIHOMO_OUTPUT_BYTES)
+            .map_err(|error| match error {
+                LoonRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
+                LoonRenderError::NoValidNodes | LoonRenderError::Internal => {
+                    Acl4SsrRenderError::Internal
+                }
+            }),
+    }
 }
 
 fn compile_acl4ssr_policy(
