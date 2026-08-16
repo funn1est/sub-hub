@@ -9,7 +9,7 @@ use axum::{
     http::{Method, Request, Response, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use sub_hub_http::{Application, SelfHosts};
+use sub_hub_http::{AccessToken, Application, SelfHosts};
 use sub_hub_native::{
     DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router,
 };
@@ -158,6 +158,7 @@ fn service_defaults_to_the_safe_loopback_address() {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25_500)
     );
     assert!(config.self_hosts().is_empty());
+    assert!(config.access_token().is_none());
 }
 
 #[test]
@@ -318,6 +319,63 @@ async fn loopback_host_with_port_reaches_the_shared_application() {
         .expect("router is infallible");
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn configured_access_token_protects_sub_and_leaves_version_public() {
+    let application = Application::new(
+        NativeRemoteAdapter::new(),
+        SelfHosts::new(["subscriptions.example"]).expect("valid self host"),
+    )
+    .with_access_token(AccessToken::parse("deployer-token").expect("valid token"));
+    let router = build_router(application);
+
+    let version = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/version")
+                .header("host", "127.0.0.1:25500")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+    assert_eq!(version.status(), StatusCode::OK);
+
+    let missing = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/sub?target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40EXAMPLE.COM%3A443%23Alpha")
+                .header("host", "127.0.0.1:25500")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        missing
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes(),
+        "Unauthorized!"
+    );
+
+    let ok = router
+        .oneshot(
+            Request::builder()
+                .uri("/sub/deployer-token?target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40EXAMPLE.COM%3A443%23Alpha")
+                .header("host", "127.0.0.1:25500")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+    assert_eq!(ok.status(), StatusCode::OK);
 }
 
 fn test_router() -> axum::Router {

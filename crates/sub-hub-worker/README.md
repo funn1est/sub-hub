@@ -21,13 +21,23 @@ canonical DNS aliases that remote loading must also reject. List every
 published hostname — the `*.workers.dev` name and any custom domain — so a
 request arriving on one alias cannot fetch another.
 
-## Anonymous access
+## Access token
 
-Neither host authenticates clients at this checkpoint. Anyone who knows the
+`SUB_HUB_ACCESS_TOKEN` is optional. When it is unset, anyone who knows the
 Worker URL can convert subscriptions and ask the Worker to fetch HTTPS
-resources through the shared SSRF broker. Treat the URL as a public converter
-until an access token exists. Do not send a real subscription URL to a public
-Worker until that control is in place.
+resources through the shared SSRF broker. Do not send a real subscription URL
+to a public Worker until the token is set.
+
+Configure it as a secret, not a committed `[vars]` value:
+
+```sh
+corepack pnpm exec wrangler secret put SUB_HUB_ACCESS_TOKEN
+```
+
+The value must be 1–128 bytes from `A–Z a–z 0–9 - . _ ~`. After it is set,
+clients must call `GET /sub/<token>`; `GET /sub` returns `401 Unauthorized!`.
+`GET /version` stays public. A malformed secret makes every request return
+`500`.
 
 Do not log complete request URLs. Query strings commonly contain credentials.
 
@@ -96,6 +106,9 @@ curl --get "$WORKER_URL/sub" \
   --data-urlencode 'url=vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha' \
   --output sub-hub-mihomo.yaml
 ```
+
+If `SUB_HUB_ACCESS_TOKEN` is set, replace `/sub` with `/sub/<token>` in the
+second command.
 
 `GET /version` must print `sub-hub v0.1.0 backend`. The `/sub` response must
 be Mihomo YAML that contains that VLESS node.

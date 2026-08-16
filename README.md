@@ -25,11 +25,12 @@ value selects a supported strict ACL4SSR INI configuration and its remote Rule
 Sets.
 
 The service does not currently expose POST conversion, capabilities, an
-administration API, VMess, or output formats other than Mihomo. Neither host
-provides built-in client authentication at this checkpoint. Unsupported or
-invalid individual nodes are skipped, but source/container/config errors remain
-fatal and a request with no valid nodes fails. All remote resources pass through
-the shared bounded SSRF broker.
+administration API, VMess, or output formats other than Mihomo. An optional
+`SUB_HUB_ACCESS_TOKEN` protects `GET`/`HEAD /sub/:token` when configured;
+`GET /version` stays public. Unsupported or invalid individual nodes are
+skipped, but source/container/config errors remain fatal and a request with no
+valid nodes fails. All remote resources pass through the shared bounded SSRF
+broker.
 
 ## Run the native backend
 
@@ -88,22 +89,26 @@ is limited to its pinned two-version external acceptance matrix.
 
 ## Native deployment boundary
 
-The native host reads two optional environment variables:
+The native host reads three optional environment variables:
 
 - `SUB_HUB_BIND` sets the listener and defaults to `127.0.0.1:25500`.
 - `SUB_HUB_SELF_HOSTS` is a comma-separated list of canonical DNS aliases that
   remote loading must reject as self-targets.
+- `SUB_HUB_ACCESS_TOKEN` is a single unreserved path token (`A–Z a–z 0–9 - . _ ~`,
+  1–128 bytes). When unset, `GET /sub` stays anonymous and the process prints a
+  warning. When set, clients must call `GET /sub/<token>`.
 
 A non-loopback `SUB_HUB_BIND` is rejected unless `SUB_HUB_SELF_HOSTS` contains
 at least one hostname. List every additional deployment alias even when a
 reverse proxy forwards to a loopback listener.
 
-The native binary intentionally does not terminate TLS, authenticate clients,
-or provide deployment-wide rate limiting. For a network deployment, keep it
-behind a mature reverse proxy that supplies those controls, enforces request
-and concurrency limits, and disables or redacts query-string access logs.
+The native binary intentionally does not terminate TLS or provide
+deployment-wide rate limiting. For a network deployment, keep it behind a
+mature reverse proxy that supplies those controls, enforces request and
+concurrency limits, and disables or redacts query-string access logs.
 Subscription and config URLs commonly contain credentials; do not expose port
-25500 directly or log complete request URLs.
+25500 directly or log complete request URLs. Set `SUB_HUB_ACCESS_TOKEN` before
+sending a real subscription URL to a non-loopback listener.
 
 ## Cloudflare Worker
 
@@ -128,9 +133,10 @@ The first deploy prints a `*.workers.dev` URL. Put that hostname in the
 an `account_id`, API tokens, a local `name` rename, or a `.dev.vars` file with
 real values.
 
-The Worker has no client authentication yet. Anyone who knows the URL can use
-it as a public converter. Do not send a real subscription URL to it until an
-access token exists.
+Set `SUB_HUB_ACCESS_TOKEN` with `wrangler secret put SUB_HUB_ACCESS_TOKEN`
+before sending a real subscription URL to a public Worker. Clients then use
+`GET /sub/<token>?target=clash&url=...`. `GET /version` stays public. Do not
+write the token into the committed `wrangler.toml`.
 
 Smoke the deployed origin without fetching an external subscription:
 

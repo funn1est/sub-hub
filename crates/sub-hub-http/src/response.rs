@@ -15,6 +15,7 @@ pub(crate) enum ApplicationError {
     NoValidNodes,
     ConversionLimit,
     NotFound,
+    Unauthorized,
     SubMethodNotAllowed,
     VersionMethodNotAllowed,
     UriTooLong,
@@ -78,6 +79,7 @@ pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
             (StatusCode::BAD_REQUEST, b"Resource limit exceeded!", None)
         }
         ApplicationError::NotFound => (StatusCode::NOT_FOUND, b"Not Found", None),
+        ApplicationError::Unauthorized => (StatusCode::UNAUTHORIZED, b"Unauthorized!", None),
         ApplicationError::SubMethodNotAllowed => (
             StatusCode::METHOD_NOT_ALLOWED,
             b"Method Not Allowed",

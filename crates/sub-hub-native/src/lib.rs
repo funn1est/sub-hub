@@ -7,8 +7,8 @@ use axum::{
 use http::{HeaderMap, HeaderValue};
 use std::{fmt, future::Future, net::SocketAddr, pin::Pin, sync::Arc, time::Instant};
 use sub_hub_http::{
-    Application, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse,
-    SelfHosts, is_globally_reachable,
+    AccessToken, Application, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError,
+    RemoteResponse, SelfHosts, is_globally_reachable,
 };
 use url::{Host, Url};
 
@@ -16,14 +16,15 @@ const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:25500";
 const MAX_LOCATION_BYTES: usize = 8_192;
 const SUBSCRIPTION_USER_INFO: &str = "subscription-userinfo";
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct NativeConfig {
     bind_address: SocketAddr,
     self_hosts: Vec<String>,
+    access_token: Option<AccessToken>,
 }
 
 impl NativeConfig {
-    /// Parses the two non-secret deployment settings used by the native host.
+    /// Parses the bind address and self-host aliases used by the native host.
     ///
     /// # Errors
     ///
@@ -45,19 +46,24 @@ impl NativeConfig {
         Ok(Self {
             bind_address,
             self_hosts,
+            access_token: None,
         })
     }
 
-    /// Reads `SUB_HUB_BIND` and `SUB_HUB_SELF_HOSTS` without consulting a config file.
+    /// Reads `SUB_HUB_BIND`, `SUB_HUB_SELF_HOSTS`, and optional `SUB_HUB_ACCESS_TOKEN`.
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] when either value is not Unicode or does not satisfy
-    /// [`NativeConfig::from_values`].
+    /// Returns [`ConfigError`] when a value is not Unicode or does not satisfy
+    /// [`NativeConfig::from_values`] / [`AccessToken::parse_optional`].
     pub fn from_environment() -> Result<Self, ConfigError> {
         let bind_address = unicode_environment_value("SUB_HUB_BIND")?;
         let self_hosts = unicode_environment_value("SUB_HUB_SELF_HOSTS")?;
-        Self::from_values(bind_address.as_deref(), self_hosts.as_deref())
+        let access_token = unicode_environment_value("SUB_HUB_ACCESS_TOKEN")?;
+        let mut config = Self::from_values(bind_address.as_deref(), self_hosts.as_deref())?;
+        config.access_token =
+            AccessToken::parse_optional(access_token.as_deref()).map_err(|_| ConfigError)?;
+        Ok(config)
     }
 
     #[must_use]
@@ -69,6 +75,11 @@ impl NativeConfig {
     pub fn self_hosts(&self) -> &[String] {
         &self.self_hosts
     }
+
+    #[must_use]
+    pub fn access_token(&self) -> Option<&AccessToken> {
+        self.access_token.as_ref()
+    }
 }
 
 impl fmt::Debug for NativeConfig {
@@ -77,6 +88,7 @@ impl fmt::Debug for NativeConfig {
             .debug_struct("NativeConfig")
             .field("bind_address", &self.bind_address)
             .field("self_host_count", &self.self_hosts.len())
+            .field("access_token", &self.access_token.is_some())
             .finish()
     }
 }
@@ -418,8 +430,14 @@ pub fn build_router(application: Application<NativeRemoteAdapter>) -> Router {
 ///
 /// Returns [`RunError`] if configuration validation, binding, or serving fails.
 pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
+    if config.access_token.is_none() {
+        eprintln!("sub-hub-native: SUB_HUB_ACCESS_TOKEN is unset; GET /sub is anonymous");
+    }
     let self_hosts = SelfHosts::new(config.self_hosts.iter()).map_err(|_| ConfigError)?;
-    let application = Application::new(NativeRemoteAdapter::new(), self_hosts);
+    let mut application = Application::new(NativeRemoteAdapter::new(), self_hosts);
+    if let Some(token) = config.access_token {
+        application = application.with_access_token(token);
+    }
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
     axum::serve(listener, build_router(application)).await?;
     Ok(())

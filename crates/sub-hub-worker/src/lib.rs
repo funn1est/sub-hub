@@ -3,8 +3,8 @@ use std::{fmt, future::Future, pin::Pin, time::Duration};
 use futures::{StreamExt, future::Either, pin_mut};
 use http::{HeaderName, StatusCode};
 use sub_hub_http::{
-    Application, HttpRequest as ApplicationRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError,
-    RemoteResponse, SelfHosts,
+    AccessToken, Application, HttpRequest as ApplicationRequest, RemoteAdapter, RemoteAttempt,
+    RemoteFetchError, RemoteResponse, SelfHosts,
 };
 use url::Host;
 use worker::wasm_bindgen::JsCast;
@@ -15,6 +15,7 @@ use worker::{
 use worker_macros::event;
 
 const SELF_HOSTS_BINDING: &str = "SUB_HUB_SELF_HOSTS";
+const ACCESS_TOKEN_BINDING: &str = "SUB_HUB_ACCESS_TOKEN";
 const MAX_LOCATION_BYTES: usize = 8 * 1024;
 const MAX_METADATA_BYTES: usize = 256;
 
@@ -81,8 +82,15 @@ async fn handle_request(
     let Ok(self_hosts) = self_hosts_from_environment(environment, &inbound_host) else {
         return Err(HostFailure::InvalidConfiguration);
     };
+    let Ok(access_token) = access_token_from_environment(environment) else {
+        return Err(HostFailure::InvalidConfiguration);
+    };
+    let mut application = Application::new(CloudflareRemoteAdapter, self_hosts);
+    if let Some(access_token) = access_token {
+        application = application.with_access_token(access_token);
+    }
 
-    Ok(Application::new(CloudflareRemoteAdapter, self_hosts)
+    Ok(application
         .handle(ApplicationRequest::new_with_inbound_host(
             request.method().clone(),
             request_url.path(),
@@ -256,6 +264,25 @@ fn optional_metadata(headers: &Headers) -> Option<Vec<u8>> {
         && !value.contains(',')
         && !value.contains(['\r', '\n']))
     .then(|| value.as_bytes().to_vec())
+}
+
+fn access_token_from_environment(environment: &Env) -> Result<Option<AccessToken>, ()> {
+    let raw = optional_binding(environment, ACCESS_TOKEN_BINDING)?;
+    AccessToken::parse_optional(raw.as_deref()).map_err(|_| ())
+}
+
+fn optional_binding(environment: &Env, name: &str) -> Result<Option<String>, ()> {
+    let key = worker::wasm_bindgen::JsValue::from_str(name);
+    let has_binding = worker::js_sys::Reflect::has(environment.as_ref(), &key).map_err(|_| ())?;
+    if !has_binding {
+        return Ok(None);
+    }
+    let value = environment
+        .var(name)
+        .or_else(|_| environment.secret(name))
+        .map_err(|_| ())?
+        .to_string();
+    Ok(Some(value))
 }
 
 fn self_hosts_from_environment(environment: &Env, _inbound_host: &str) -> Result<SelfHosts, ()> {

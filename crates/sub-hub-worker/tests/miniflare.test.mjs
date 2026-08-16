@@ -222,6 +222,42 @@ test("fixed configuration failure suppresses the HEAD body", async (t) => {
   assert.equal(await response.text(), "");
 });
 
+test("configured access token protects /sub and leaves /version public", async (t) => {
+  const mf = runtime({ SUB_HUB_ACCESS_TOKEN: "deployer-token" });
+  t.after(() => mf.dispose());
+
+  const version = await mf.dispatchFetch("https://worker.example/version");
+  assert.equal(version.status, 200);
+  assert.equal(await version.text(), "sub-hub v0.1.0 backend");
+
+  const missing = await mf.dispatchFetch(
+    `https://worker.example/sub?target=clash&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(missing.status, 401);
+  assert.equal(await missing.text(), "Unauthorized!");
+
+  const wrong = await mf.dispatchFetch(
+    `https://worker.example/sub/wrong-token?target=clash&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(wrong.status, 401);
+  assert.equal(await wrong.text(), "Unauthorized!");
+
+  const ok = await mf.dispatchFetch(
+    `https://worker.example/sub/deployer-token?target=clash&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(ok.status, 200);
+  assert.equal(await ok.text(), SINGLE_VLESS_YAML);
+});
+
+test("invalid access token binding returns the fixed application 500", async (t) => {
+  const mf = runtime({ SUB_HUB_ACCESS_TOKEN: "has space" });
+  t.after(() => mf.dispose());
+
+  const response = await mf.dispatchFetch("https://worker.example/version");
+  assert.equal(response.status, 500);
+  assert.equal(await response.text(), "Internal Server Error");
+});
+
 test("non-443 remote source is rejected before fetch", async (t) => {
   const mf = runtime();
   t.after(() => mf.dispose());

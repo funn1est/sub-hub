@@ -7,11 +7,13 @@ use sub_hub_conversion::{
 };
 use url::{Host, Url};
 
+mod access_token;
 mod broker;
 mod public_destination;
 mod query;
 mod response;
 
+pub use access_token::{AccessToken, AccessTokenError};
 pub use broker::{RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, ResourceKind};
 pub use public_destination::is_globally_reachable;
 pub use response::HttpResponse;
@@ -151,6 +153,7 @@ fn is_canonical_dns_name(host: &str) -> bool {
 pub struct Application<A> {
     adapter: A,
     self_hosts: SelfHosts,
+    access_token: Option<AccessToken>,
 }
 
 impl<A: RemoteAdapter> Application<A> {
@@ -159,7 +162,15 @@ impl<A: RemoteAdapter> Application<A> {
         Self {
             adapter,
             self_hosts,
+            access_token: None,
         }
+    }
+
+    /// Requires `GET`/`HEAD /sub/:token` when a deployer token is configured.
+    #[must_use]
+    pub fn with_access_token(mut self, access_token: AccessToken) -> Self {
+        self.access_token = Some(access_token);
+        self
     }
 
     pub async fn handle(&self, request: HttpRequest<'_>) -> HttpResponse {
@@ -176,14 +187,21 @@ impl<A: RemoteAdapter> Application<A> {
         if request_target_too_long(&method, path, raw_query) {
             return error_response(ApplicationError::UriTooLong);
         }
-        match path {
-            "/version" => handle_version(&method, raw_query),
-            "/sub" if method == Method::GET || method == Method::HEAD => self
+        match classify_path(path, self.access_token.is_some()) {
+            RequestPath::Version => handle_version(&method, raw_query),
+            RequestPath::Sub { .. } if method != Method::GET && method != Method::HEAD => {
+                error_response(ApplicationError::SubMethodNotAllowed)
+            }
+            RequestPath::Sub { provided_token }
+                if !sub_authorized(self.access_token.as_ref(), provided_token) =>
+            {
+                error_response(ApplicationError::Unauthorized)
+            }
+            RequestPath::Sub { .. } => self
                 .convert_sub(&method, raw_query, inbound_host)
                 .await
                 .unwrap_or_else(error_response),
-            "/sub" => error_response(ApplicationError::SubMethodNotAllowed),
-            _ => error_response(ApplicationError::NotFound),
+            RequestPath::Unknown => error_response(ApplicationError::NotFound),
         }
     }
 
@@ -955,7 +973,40 @@ impl<A> fmt::Debug for Application<A> {
             .debug_struct("Application")
             .field("adapter", &"[REDACTED]")
             .field("self_hosts", &self.self_hosts)
+            .field("access_token", &self.access_token.is_some())
             .finish()
+    }
+}
+
+enum RequestPath<'a> {
+    Version,
+    Sub { provided_token: Option<&'a str> },
+    Unknown,
+}
+
+fn classify_path(path: &str, token_configured: bool) -> RequestPath<'_> {
+    if path == "/version" {
+        RequestPath::Version
+    } else if path == "/sub" {
+        RequestPath::Sub {
+            provided_token: None,
+        }
+    } else if token_configured {
+        match path.strip_prefix("/sub/") {
+            Some(token) if !token.is_empty() && !token.contains('/') => RequestPath::Sub {
+                provided_token: Some(token),
+            },
+            _ => RequestPath::Unknown,
+        }
+    } else {
+        RequestPath::Unknown
+    }
+}
+
+fn sub_authorized(expected: Option<&AccessToken>, provided: Option<&str>) -> bool {
+    match expected {
+        None => provided.is_none(),
+        Some(token) => provided.is_some_and(|provided| token.matches(provided)),
     }
 }
 
