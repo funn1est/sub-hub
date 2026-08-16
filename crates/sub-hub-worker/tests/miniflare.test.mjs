@@ -249,7 +249,7 @@ test("configured access token protects /sub and leaves /version public", async (
   assert.equal(await ok.text(), SINGLE_VLESS_YAML);
 });
 
-test("target=mihomo is a clash synonym and target=quanx renders Quantumult X", async (t) => {
+test("target=mihomo is a clash synonym and quanx/singbox render their documents", async (t) => {
   const mf = runtime();
   t.after(() => mf.dispose());
 
@@ -282,6 +282,23 @@ test("target=mihomo is a clash synonym and target=quanx renders Quantumult X", a
       "",
     ].join("\n"),
   );
+
+  const singbox = await mf.dispatchFetch(
+    `https://worker.example/sub?target=singbox&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(singbox.status, 200);
+  assert.equal(singbox.headers.get("content-type"), "application/json;charset=utf-8");
+  assert.equal(
+    singbox.headers.get("content-disposition"),
+    'attachment; filename="sub-hub-singbox.json"',
+  );
+  assert.equal(singbox.headers.get("profile-update-interval"), null);
+  const body = await singbox.text();
+  assert.match(body, /"type": "vless"/);
+  assert.match(body, /"tag": "Alpha"/);
+  assert.match(body, /"tag": "PROXY"/);
+  assert.match(body, /"type": "urltest"/);
+  assert.match(body, /"default_domain_resolver": "local"/);
 });
 
 test("invalid access token binding returns the fixed application 500", async (t) => {

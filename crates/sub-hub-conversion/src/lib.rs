@@ -10,6 +10,8 @@ mod policy;
 
 mod quanx;
 
+mod singbox;
+
 #[cfg(test)]
 pub mod node_name_tests;
 

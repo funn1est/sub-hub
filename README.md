@@ -17,15 +17,18 @@ The current compatibility surface contains only:
 - `GET /sub`
 - `HEAD /sub`
 
-`/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML) or
-`quanx` (Quantumult X). Its `url` value accepts one to five ordered inputs
-separated by `|`: direct VLESS or Shadowsocks share URIs, or HTTPS subscription
-URLs whose raw/Base64 contents contain supported share URIs. An optional HTTPS
-`config` value selects a supported strict ACL4SSR INI configuration and its
-remote Rule Sets. Quantumult X skips gRPC nodes and VLESS Vision without Reality.
+`/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
+`quanx` (Quantumult X), or `singbox` (sing-box JSON). Its `url` value accepts
+one to five ordered inputs separated by `|`: direct VLESS or Shadowsocks share
+URIs, or HTTPS subscription URLs whose raw/Base64 contents contain supported
+share URIs. An optional HTTPS `config` value selects a supported strict ACL4SSR
+INI configuration and its remote Rule Sets. Quantumult X skips gRPC nodes and
+VLESS Vision without Reality. sing-box keeps those combinations, omits GeoIP CN
+rules, and normalizes fallback groups to `urltest` and load-balance groups to
+`selector`.
 
 The service does not currently expose POST conversion, capabilities, an
-administration API, VMess, sing-box, Loon, or Egern. An optional
+administration API, VMess, Loon, or Egern. An optional
 `SUB_HUB_ACCESS_TOKEN` protects `GET`/`HEAD /sub/:token` when configured;
 `GET /version` stays public. Unsupported or invalid individual nodes are
 skipped, but source/container/config errors remain fatal and a request with no

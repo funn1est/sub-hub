@@ -19,6 +19,7 @@ use crate::{
         PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
     },
     quanx::{QuanxRenderError, render_quanx_from_policy_v1},
+    singbox::{SingboxRenderError, render_singbox_from_policy_v1},
     subscription_source::ParsedSubscriptionSources,
 };
 
@@ -129,6 +130,22 @@ impl PreparedAcl4SsrRuleSetsV1 {
             return Err(Acl4SsrRenderError::RuleSetAlignment);
         }
         render(self, unique_rule_set_bodies, OutputFormat::Quanx)
+    }
+
+    /// Consumes the bound stages and renders a sing-box document.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
+    /// or serialization failures. No partial document is returned.
+    pub fn render_singbox_v1(
+        self,
+        unique_rule_set_bodies: &[&[u8]],
+    ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
+        if unique_rule_set_bodies.len() != self.flight_count {
+            return Err(Acl4SsrRenderError::RuleSetAlignment);
+        }
+        render(self, unique_rule_set_bodies, OutputFormat::Singbox)
     }
 
     /// Validates a successfully loaded prefix of the ordered Rule Set occurrence plan.
@@ -1222,6 +1239,7 @@ struct MaterializedRules {
 enum OutputFormat {
     Mihomo,
     Quanx,
+    Singbox,
 }
 
 fn render(
@@ -1314,6 +1332,17 @@ fn render(
                 },
             )?
         }
+        OutputFormat::Singbox => render_singbox_from_policy_v1(
+            &nodes,
+            &policy,
+            MAX_MIHOMO_OUTPUT_BYTES,
+        )
+        .map_err(|error| match error {
+            SingboxRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
+            SingboxRenderError::NoValidNodes | SingboxRenderError::Internal => {
+                Acl4SsrRenderError::Internal
+            }
+        })?,
     };
     Ok(Acl4SsrOutputV1 { bytes, report })
 }

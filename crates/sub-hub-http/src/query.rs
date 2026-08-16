@@ -4,6 +4,7 @@ const MAX_DIRECT_SOURCES: usize = 5;
 pub(super) enum OutputTarget {
     Mihomo,
     Quanx,
+    Singbox,
 }
 
 pub(super) struct DirectQuery {
@@ -64,6 +65,7 @@ fn parse_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
     let target = match target.as_deref() {
         Some("clash" | "mihomo") => OutputTarget::Mihomo,
         Some("quanx") => OutputTarget::Quanx,
+        Some("singbox") => OutputTarget::Singbox,
         _ => return Err(QueryError::InvalidTarget),
     };
     if insert.as_deref().is_some_and(|value| value != "false") {

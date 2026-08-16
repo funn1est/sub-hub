@@ -1,6 +1,6 @@
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 
-use crate::{NO_STORE, TEXT_CONTENT_TYPE};
+use crate::{JSON_CONTENT_TYPE, NO_STORE, TEXT_CONTENT_TYPE};
 
 pub struct HttpResponse {
     pub(crate) status: StatusCode,
@@ -64,15 +64,22 @@ pub(crate) fn subscription_response(
     profile_update_interval: bool,
 ) -> HttpResponse {
     let mut response = success_response(StatusCode::OK, body);
-    let disposition = match filename {
-        "sub-hub-mihomo.yaml" => {
-            HeaderValue::from_static("attachment; filename=\"sub-hub-mihomo.yaml\"")
-        }
-        "sub-hub-quanx.conf" => {
-            HeaderValue::from_static("attachment; filename=\"sub-hub-quanx.conf\"")
-        }
-        _ => HeaderValue::from_static("attachment"),
+    let (disposition, content_type) = match filename {
+        "sub-hub-mihomo.yaml" => (
+            HeaderValue::from_static("attachment; filename=\"sub-hub-mihomo.yaml\""),
+            TEXT_CONTENT_TYPE,
+        ),
+        "sub-hub-quanx.conf" => (
+            HeaderValue::from_static("attachment; filename=\"sub-hub-quanx.conf\""),
+            TEXT_CONTENT_TYPE,
+        ),
+        "sub-hub-singbox.json" => (
+            HeaderValue::from_static("attachment; filename=\"sub-hub-singbox.json\""),
+            JSON_CONTENT_TYPE,
+        ),
+        _ => (HeaderValue::from_static("attachment"), TEXT_CONTENT_TYPE),
     };
+    response.headers.insert(header::CONTENT_TYPE, content_type);
     response
         .headers
         .insert(header::CONTENT_DISPOSITION, disposition);

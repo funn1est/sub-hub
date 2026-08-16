@@ -277,6 +277,100 @@ fn get_sub_converts_a_direct_share_uri_to_exact_quanx_bytes() {
 }
 
 #[test]
+fn get_sub_converts_a_direct_share_uri_to_exact_singbox_bytes() {
+    let query = concat!(
+        "target=singbox&",
+        "url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef",
+        "%40EXAMPLE.COM%3A443%23Alpha",
+    );
+    let response = handle(HttpRequest::new(Method::GET, "/sub", Some(query)));
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.body(),
+        concat!(
+            "{\n",
+            "  \"log\": {\n",
+            "    \"disabled\": false,\n",
+            "    \"level\": \"info\",\n",
+            "    \"timestamp\": true\n",
+            "  },\n",
+            "  \"dns\": {\n",
+            "    \"servers\": [\n",
+            "      {\n",
+            "        \"type\": \"local\",\n",
+            "        \"tag\": \"local\"\n",
+            "      }\n",
+            "    ],\n",
+            "    \"final\": \"local\"\n",
+            "  },\n",
+            "  \"inbounds\": [\n",
+            "    {\n",
+            "      \"type\": \"mixed\",\n",
+            "      \"tag\": \"mixed-in\",\n",
+            "      \"listen\": \"127.0.0.1\",\n",
+            "      \"listen_port\": 2080,\n",
+            "      \"set_system_proxy\": false\n",
+            "    }\n",
+            "  ],\n",
+            "  \"outbounds\": [\n",
+            "    {\n",
+            "      \"type\": \"vless\",\n",
+            "      \"tag\": \"Alpha\",\n",
+            "      \"server\": \"example.com\",\n",
+            "      \"server_port\": 443,\n",
+            "      \"uuid\": \"01234567-89ab-cdef-0123-456789abcdef\"\n",
+            "    },\n",
+            "    {\n",
+            "      \"type\": \"selector\",\n",
+            "      \"tag\": \"PROXY\",\n",
+            "      \"outbounds\": [\n",
+            "        \"AUTO\",\n",
+            "        \"Alpha\",\n",
+            "        \"direct\"\n",
+            "      ],\n",
+            "      \"interrupt_exist_connections\": false\n",
+            "    },\n",
+            "    {\n",
+            "      \"type\": \"urltest\",\n",
+            "      \"tag\": \"AUTO\",\n",
+            "      \"outbounds\": [\n",
+            "        \"Alpha\"\n",
+            "      ],\n",
+            "      \"url\": \"https://www.gstatic.com/generate_204\",\n",
+            "      \"interval\": \"300s\",\n",
+            "      \"tolerance\": 50\n",
+            "    },\n",
+            "    {\n",
+            "      \"type\": \"direct\",\n",
+            "      \"tag\": \"direct\"\n",
+            "    },\n",
+            "    {\n",
+            "      \"type\": \"block\",\n",
+            "      \"tag\": \"reject\"\n",
+            "    }\n",
+            "  ],\n",
+            "  \"route\": {\n",
+            "    \"rules\": [],\n",
+            "    \"final\": \"PROXY\",\n",
+            "    \"default_domain_resolver\": \"local\"\n",
+            "  }\n",
+            "}\n",
+        )
+        .as_bytes()
+    );
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/json;charset=utf-8"
+    );
+    assert_eq!(
+        response.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename=\"sub-hub-singbox.json\""
+    );
+    assert!(response.headers().get("profile-update-interval").is_none());
+    assert_eq!(response.headers().len(), 3);
+}
+
+#[test]
 fn sub_requires_one_exact_clash_target_after_wire_validation() {
     assert_sub_error(None, b"Invalid target!");
     assert_sub_error(Some(""), b"Invalid target!");
@@ -291,6 +385,22 @@ fn sub_requires_one_exact_clash_target_after_wire_validation() {
     );
     assert_sub_error(
         Some("target=quantumultx&url=HTTPS%3A%2F%2Fexample.com"),
+        b"Invalid target!",
+    );
+    assert_sub_error(
+        Some(&format!("target=sing-box&url={ENCODED_VLESS}")),
+        b"Invalid target!",
+    );
+    assert_sub_error(
+        Some(&format!("target=sb&url={ENCODED_VLESS}")),
+        b"Invalid target!",
+    );
+    assert_sub_error(
+        Some(&format!("target=meta&url={ENCODED_VLESS}")),
+        b"Invalid target!",
+    );
+    assert_sub_error(
+        Some(&format!("target=Singbox&url={ENCODED_VLESS}")),
         b"Invalid target!",
     );
     assert_sub_error(Some("target=clash"), b"Invalid request!");
