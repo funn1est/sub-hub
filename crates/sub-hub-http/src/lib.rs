@@ -309,6 +309,7 @@ impl<A: RemoteAdapter> Application<A> {
                 query::OutputTarget::Quanx => prepared.render_builtin_quanx_v1(),
                 query::OutputTarget::Singbox => prepared.render_builtin_singbox_v1(),
                 query::OutputTarget::Loon => prepared.render_builtin_loon_v1(),
+                query::OutputTarget::Egern => prepared.render_builtin_egern_v1(),
             };
             return match rendered {
                 Ok(config) => {
@@ -531,12 +532,7 @@ impl<A: RemoteAdapter> Application<A> {
             .iter()
             .map(Vec::as_slice)
             .collect::<Vec<_>>();
-        let rendered = match target {
-            query::OutputTarget::Mihomo => prepared.render_mihomo_v1(&unique_rule_set_bodies),
-            query::OutputTarget::Quanx => prepared.render_quanx_v1(&unique_rule_set_bodies),
-            query::OutputTarget::Singbox => prepared.render_singbox_v1(&unique_rule_set_bodies),
-            query::OutputTarget::Loon => prepared.render_loon_v1(&unique_rule_set_bodies),
-        };
+        let rendered = render_acl4ssr_target(prepared, target, &unique_rule_set_bodies);
         match rendered {
             Ok(config) => {
                 let omitted_url_regex_count = config.report().omitted_url_regex_count();
@@ -736,12 +732,27 @@ fn adjudicate_failed_rule_set_chunk(
     Err(error)
 }
 
+fn render_acl4ssr_target(
+    prepared: sub_hub_conversion::PreparedAcl4SsrRuleSetsV1,
+    target: query::OutputTarget,
+    unique_rule_set_bodies: &[&[u8]],
+) -> Result<sub_hub_conversion::Acl4SsrOutputV1, sub_hub_conversion::Acl4SsrRenderError> {
+    match target {
+        query::OutputTarget::Mihomo => prepared.render_mihomo_v1(unique_rule_set_bodies),
+        query::OutputTarget::Quanx => prepared.render_quanx_v1(unique_rule_set_bodies),
+        query::OutputTarget::Singbox => prepared.render_singbox_v1(unique_rule_set_bodies),
+        query::OutputTarget::Loon => prepared.render_loon_v1(unique_rule_set_bodies),
+        query::OutputTarget::Egern => prepared.render_egern_v1(unique_rule_set_bodies),
+    }
+}
+
 fn subscription_response_for(target: query::OutputTarget, body: Vec<u8>) -> HttpResponse {
     match target {
         query::OutputTarget::Mihomo => subscription_response(body, "sub-hub-mihomo.yaml", true),
         query::OutputTarget::Quanx => subscription_response(body, "sub-hub-quanx.conf", false),
         query::OutputTarget::Singbox => subscription_response(body, "sub-hub-singbox.json", false),
         query::OutputTarget::Loon => subscription_response(body, "sub-hub-loon.conf", false),
+        query::OutputTarget::Egern => subscription_response(body, "sub-hub-egern.yaml", false),
     }
 }
 

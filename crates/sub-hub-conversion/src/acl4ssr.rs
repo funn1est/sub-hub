@@ -12,6 +12,7 @@ use regex::{Regex, RegexBuilder};
 use url::{Host as UrlHost, Url};
 
 use crate::{
+    egern::{EgernRenderError, render_egern_from_policy_v1},
     loon::{LoonRenderError, render_loon_from_policy_v1},
     mihomo::{MAX_MIHOMO_OUTPUT_BYTES, render_clash_rule, render_mihomo_from_policy_v1},
     node_name::{NamedNodeOccurrence, is_reserved_symbol, resolve_node_names, validate_group_name},
@@ -163,6 +164,22 @@ impl PreparedAcl4SsrRuleSetsV1 {
             return Err(Acl4SsrRenderError::RuleSetAlignment);
         }
         render(self, unique_rule_set_bodies, OutputFormat::Loon)
+    }
+
+    /// Consumes the bound stages and renders an Egern document.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
+    /// or serialization failures. No partial document is returned.
+    pub fn render_egern_v1(
+        self,
+        unique_rule_set_bodies: &[&[u8]],
+    ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
+        if unique_rule_set_bodies.len() != self.flight_count {
+            return Err(Acl4SsrRenderError::RuleSetAlignment);
+        }
+        render(self, unique_rule_set_bodies, OutputFormat::Egern)
     }
 
     /// Validates a successfully loaded prefix of the ordered Rule Set occurrence plan.
@@ -1258,6 +1275,7 @@ enum OutputFormat {
     Quanx,
     Singbox,
     Loon,
+    Egern,
 }
 
 fn render(
@@ -1373,6 +1391,13 @@ fn render_policy_bytes(
             .map_err(|error| match error {
                 LoonRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
                 LoonRenderError::NoValidNodes | LoonRenderError::Internal => {
+                    Acl4SsrRenderError::Internal
+                }
+            }),
+        OutputFormat::Egern => render_egern_from_policy_v1(nodes, policy, MAX_MIHOMO_OUTPUT_BYTES)
+            .map_err(|error| match error {
+                EgernRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
+                EgernRenderError::NoValidNodes | EgernRenderError::Internal => {
                     Acl4SsrRenderError::Internal
                 }
             }),

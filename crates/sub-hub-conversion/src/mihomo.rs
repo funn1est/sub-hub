@@ -11,6 +11,7 @@ use base64::{
 use serde::Serialize;
 
 use crate::{
+    egern::{EgernRenderError, render_egern_from_policy_v1},
     loon::{LoonRenderError, render_loon_from_policy_v1},
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
@@ -333,6 +334,62 @@ fn render_builtin_loon_v1_with_limit(
             return Err(BuiltinMihomoError::OutputTooLarge { limit_bytes });
         }
         Err(LoonRenderError::Internal) => return Err(BuiltinMihomoError::Serialization),
+    };
+    Ok(BuiltinMihomoOutput {
+        config,
+        diagnostics,
+    })
+}
+
+pub(crate) fn render_builtin_egern_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
+    render_builtin_egern_v1_with_limit(parsed, MAX_MIHOMO_OUTPUT_BYTES)
+}
+
+fn render_builtin_egern_v1_with_limit(
+    parsed: ParsedSubscriptionSources,
+    limit_bytes: usize,
+) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
+    let named =
+        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinMihomoError::NodeNaming)?;
+    let diagnostics = BuiltinMihomoDiagnostics {
+        rejections: named
+            .occurrences()
+            .iter()
+            .filter_map(|occurrence| match occurrence {
+                NamedNodeOccurrence::Accepted { .. } => None,
+                NamedNodeOccurrence::Rejected { origin, rejection } => {
+                    Some(BuiltinMihomoRejection {
+                        origin: *origin,
+                        rejection: rejection.clone(),
+                    })
+                }
+            })
+            .collect(),
+        node_names: named.diagnostics().clone(),
+    };
+    let nodes = named
+        .occurrences()
+        .iter()
+        .filter_map(|occurrence| match occurrence {
+            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
+            NamedNodeOccurrence::Rejected { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    if nodes.is_empty() {
+        return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
+    }
+    let policy = compile_builtin_policy_v1(&nodes);
+    let config = match render_egern_from_policy_v1(&nodes, &policy, limit_bytes) {
+        Ok(config) => config,
+        Err(EgernRenderError::NoValidNodes) => {
+            return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
+        }
+        Err(EgernRenderError::OutputTooLarge { limit_bytes }) => {
+            return Err(BuiltinMihomoError::OutputTooLarge { limit_bytes });
+        }
+        Err(EgernRenderError::Internal) => return Err(BuiltinMihomoError::Serialization),
     };
     Ok(BuiltinMihomoOutput {
         config,
