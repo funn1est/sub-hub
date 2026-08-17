@@ -239,12 +239,19 @@ function fail(message, code = 1) {
   process.exit(code);
 }
 
+const workerRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 function runWrangler(args) {
-  return spawnSync("corepack", ["pnpm", "exec", "wrangler", ...args], {
-    encoding: "utf8",
-    env: { ...process.env, WRANGLER_LOG: "error" },
-    windowsHide: true,
-  });
+  return spawnSync(
+    process.execPath,
+    [path.join(workerRoot, "node_modules", "wrangler", "bin", "wrangler.js"), ...args],
+    {
+      cwd: workerRoot,
+      encoding: "utf8",
+      env: { ...process.env, WRANGLER_LOG: "error" },
+      windowsHide: true,
+    },
+  );
 }
 
 function resolveOperatorBlob(flags) {
@@ -295,6 +302,9 @@ function putAndDeploy(mode, targeting, forwarded, blob) {
       // Windows may not honor 0600; the file is still in the temp directory.
     }
     const result = runWrangler(deployArgs(mode, targeting, forwarded, file));
+    if (result.error) {
+      process.stderr.write(`${result.error.message}\n`);
+    }
     if (result.stdout) {
       process.stdout.write(result.stdout);
     }
