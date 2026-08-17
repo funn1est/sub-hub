@@ -50,7 +50,7 @@ impl PreparedSubscriptionV1 {
     ///
     /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
     /// limit, or [`DirectRenderError::Internal`] when naming or serialization cannot complete.
-    pub fn render_builtin_mihomo_v1(self) -> Result<MihomoConfig, DirectRenderError> {
+    pub fn render_builtin_mihomo_v1(self) -> Result<RenderedConfig, DirectRenderError> {
         map_builtin_render(render_builtin_mihomo_v1(self.parsed))
     }
 
@@ -60,7 +60,7 @@ impl PreparedSubscriptionV1 {
     ///
     /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
     /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
-    pub fn render_builtin_quanx_v1(self) -> Result<MihomoConfig, DirectRenderError> {
+    pub fn render_builtin_quanx_v1(self) -> Result<RenderedConfig, DirectRenderError> {
         map_builtin_render(render_builtin_quanx_v1(self.parsed))
     }
 
@@ -70,7 +70,7 @@ impl PreparedSubscriptionV1 {
     ///
     /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
     /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
-    pub fn render_builtin_singbox_v1(self) -> Result<MihomoConfig, DirectRenderError> {
+    pub fn render_builtin_singbox_v1(self) -> Result<RenderedConfig, DirectRenderError> {
         map_builtin_render(render_builtin_singbox_v1(self.parsed))
     }
 
@@ -80,7 +80,7 @@ impl PreparedSubscriptionV1 {
     ///
     /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
     /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
-    pub fn render_builtin_loon_v1(self) -> Result<MihomoConfig, DirectRenderError> {
+    pub fn render_builtin_loon_v1(self) -> Result<RenderedConfig, DirectRenderError> {
         map_builtin_render(render_builtin_loon_v1(self.parsed))
     }
 
@@ -90,16 +90,16 @@ impl PreparedSubscriptionV1 {
     ///
     /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
     /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
-    pub fn render_builtin_egern_v1(self) -> Result<MihomoConfig, DirectRenderError> {
+    pub fn render_builtin_egern_v1(self) -> Result<RenderedConfig, DirectRenderError> {
         map_builtin_render(render_builtin_egern_v1(self.parsed))
     }
 }
 
 fn map_builtin_render(
     result: Result<BuiltinRenderOutput, BuiltinRenderError>,
-) -> Result<MihomoConfig, DirectRenderError> {
+) -> Result<RenderedConfig, DirectRenderError> {
     match result {
-        Ok(output) => Ok(MihomoConfig {
+        Ok(output) => Ok(RenderedConfig {
             bytes: output.into_config(),
         }),
         Err(BuiltinRenderError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
@@ -123,11 +123,12 @@ impl fmt::Debug for PreparedSubscriptionV1 {
 /// Backward-compatible S6 name for the prepared subscription value.
 pub type PreparedDirectSubscriptionV1 = PreparedSubscriptionV1;
 
-pub struct MihomoConfig {
+/// Bounded rendered document for the selected client target.
+pub struct RenderedConfig {
     bytes: Vec<u8>,
 }
 
-impl MihomoConfig {
+impl RenderedConfig {
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
@@ -139,10 +140,10 @@ impl MihomoConfig {
     }
 }
 
-impl fmt::Debug for MihomoConfig {
+impl fmt::Debug for RenderedConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("MihomoConfig")
+            .debug_struct("RenderedConfig")
             .field("bytes", &"[REDACTED]")
             .field("bytes_len", &self.bytes.len())
             .finish()

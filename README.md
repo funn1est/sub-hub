@@ -1,9 +1,10 @@
 # Sub Hub
 
 Sub Hub is a work-in-progress subscription-conversion backend implemented in
-Rust. It accepts selected VLESS, Shadowsocks, Trojan, VMess, Hysteria2, and TUIC v5 inputs, can load HTTPS
-subscription resources and strict ACL4SSR configurations, and generates modern
-Mihomo YAML.
+Rust. It accepts selected VLESS, Shadowsocks, Trojan, VMess, Hysteria2, and
+TUIC v5 inputs, can load HTTPS subscription resources and strict ACL4SSR
+configurations, and renders configurations for Mihomo (Clash-compatible),
+Quantumult X, sing-box, Loon, and Egern.
 
 The native service and Cloudflare Worker share the same host-neutral HTTP and
 conversion modules. This repository does not operate a public Sub Hub instance;

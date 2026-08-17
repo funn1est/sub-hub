@@ -30,7 +30,7 @@ pub use acl4ssr::{
     Acl4SsrRuleSetRequestV1, PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
 };
 pub use direct_subscription::{
-    DirectPreparationError, DirectRenderError, MihomoConfig, PreparedDirectSubscriptionV1,
-    PreparedSubscriptionV1, RemoteSourceFailureV1, SubscriptionPreparationError,
+    DirectPreparationError, DirectRenderError, PreparedDirectSubscriptionV1,
+    PreparedSubscriptionV1, RemoteSourceFailureV1, RenderedConfig, SubscriptionPreparationError,
     SubscriptionSourceV1, prepare_direct_subscription_v1, prepare_subscription_v1,
 };
