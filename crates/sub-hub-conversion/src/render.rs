@@ -5,22 +5,28 @@
 //! whose behavior must stay identical across adapters.
 
 use std::{
+    borrow::Cow,
     fmt,
     io::{self, Write},
 };
 
+use base64::{
+    Engine as _,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use serde::Serialize;
 
 use crate::{
     egern::render_egern_from_policy_v1,
     loon::render_loon_from_policy_v1,
     mihomo::render_mihomo_from_policy_v1,
-    node::shadowsocks::ShadowsocksCipher,
-    node::vless::ClientFingerprint,
+    node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
+    node::vless::{ClientFingerprint, RealityOptions},
     node::{Host, ProxyNode},
     node_name::{NamedNodeOccurrence, NodeNameDiagnostics, NodeNameError, resolve_node_names},
     policy::{
-        BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, GroupStrategyV1, compile_builtin_policy_v1,
+        BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, GroupStrategyV1, PolicyMemberV1,
+        compile_builtin_policy_v1,
     },
     quanx::render_quanx_from_policy_v1,
     share_uri::NodeRejection,
@@ -302,6 +308,51 @@ pub(crate) const fn shadowsocks_method(cipher: &ShadowsocksCipher) -> &'static s
         ShadowsocksCipher::Chacha20IetfPoly1305 => "chacha20-ietf-poly1305",
         ShadowsocksCipher::Blake3Aes128Gcm => "2022-blake3-aes-128-gcm",
         ShadowsocksCipher::Blake3Aes256Gcm => "2022-blake3-aes-256-gcm",
+    }
+}
+
+/// Maps a policy member to a target token using that target's `DIRECT`/`REJECT`
+/// spellings and group-name grammar.
+///
+/// Node members that did not survive the target's own tag/capability filter map
+/// to `None` and are silently dropped by the caller.
+pub(crate) fn policy_member_token(
+    member: &PolicyMemberV1,
+    direct_token: &'static str,
+    reject_token: &'static str,
+    group_token: impl FnOnce(&str) -> Result<Option<String>, AdapterRenderError>,
+    valid_nodes: &[&str],
+) -> Result<Option<String>, AdapterRenderError> {
+    match member {
+        PolicyMemberV1::Direct => Ok(Some(direct_token.to_owned())),
+        PolicyMemberV1::Reject => Ok(Some(reject_token.to_owned())),
+        PolicyMemberV1::Group(name) => group_token(name),
+        PolicyMemberV1::Node(name) => Ok(valid_nodes
+            .iter()
+            .any(|candidate| *candidate == name)
+            .then(|| name.clone())),
+    }
+}
+
+/// Renders a Reality public key with the URL-safe unpadded Base64 spelling
+/// shared by every target.
+pub(crate) fn reality_public_key_base64(options: &RealityOptions) -> String {
+    URL_SAFE_NO_PAD.encode(options.public_key().as_bytes())
+}
+
+/// Renders a Reality short id as lowercase hex, when one is present.
+pub(crate) fn reality_short_id_hex(options: &RealityOptions) -> Option<String> {
+    options
+        .short_id()
+        .map(|short_id| encode_hex(short_id.as_bytes()))
+}
+
+/// Renders a Shadowsocks credential as the password field shared by every
+/// target: classic passwords verbatim, 2022 PSKs as standard Base64.
+pub(crate) fn shadowsocks_password(credential: &ShadowsocksCredential) -> Cow<'_, str> {
+    match credential {
+        ShadowsocksCredential::Password(password) => Cow::Borrowed(password.expose()),
+        ShadowsocksCredential::Psk(psk) => Cow::Owned(STANDARD.encode(psk.expose())),
     }
 }
 

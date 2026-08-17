@@ -1,10 +1,4 @@
-use base64::{
-    Engine as _,
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
-};
-
 use crate::{
-    node::shadowsocks::ShadowsocksCredential,
     node::trojan::TrojanSecurity,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::{VmessCipher, VmessSecurity},
@@ -13,7 +7,9 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, RenderedTargetV1, encode_hex, render_host_bracketed, shadowsocks_method,
+        AdapterRenderError, RenderedTargetV1, encode_hex, policy_member_token,
+        reality_public_key_base64, reality_short_id_hex, render_host_bracketed, shadowsocks_method,
+        shadowsocks_password,
     },
 };
 
@@ -127,10 +123,7 @@ fn render_server_line(node: &ProxyNode, tag: &str) -> Option<String> {
     let line = match node.protocol() {
         NodeProtocol::Vless(vless) => render_vless_line(&endpoint, vless, tag)?,
         NodeProtocol::Shadowsocks(shadowsocks) => {
-            let password = match shadowsocks.credential() {
-                ShadowsocksCredential::Password(password) => password.expose().to_owned(),
-                ShadowsocksCredential::Psk(psk) => STANDARD.encode(psk.expose()),
-            };
+            let password = shadowsocks_password(shadowsocks.credential());
             if !is_safe_field(&password) {
                 return None;
             }
@@ -370,13 +363,10 @@ fn push_trojan_reality_fields(
 ) {
     fields.push(format!(
         "reality-base64-pubkey={}",
-        URL_SAFE_NO_PAD.encode(options.public_key().as_bytes())
+        reality_public_key_base64(options)
     ));
-    if let Some(short_id) = options.short_id() {
-        fields.push(format!(
-            "reality-hex-shortid={}",
-            encode_hex(short_id.as_bytes())
-        ));
+    if let Some(short_id) = reality_short_id_hex(options) {
+        fields.push(format!("reality-hex-shortid={short_id}"));
     }
 }
 
@@ -411,13 +401,10 @@ fn push_reality_fields(
     fields.push(format!("obfs-host={server_name}"));
     fields.push(format!(
         "reality-base64-pubkey={}",
-        URL_SAFE_NO_PAD.encode(options.public_key().as_bytes())
+        reality_public_key_base64(options)
     ));
-    if let Some(short_id) = options.short_id() {
-        fields.push(format!(
-            "reality-hex-shortid={}",
-            encode_hex(short_id.as_bytes())
-        ));
+    if let Some(short_id) = reality_short_id_hex(options) {
+        fields.push(format!("reality-hex-shortid={short_id}"));
     }
     Some(())
 }
@@ -435,16 +422,17 @@ fn encode_alpn_hex(protocols: &[String]) -> Option<String> {
     Some(encode_hex(&bytes))
 }
 
-fn member_token(member: &PolicyMemberV1, valid_nodes: &[&str]) -> Option<String> {
-    match member {
-        PolicyMemberV1::Direct => Some("direct".to_owned()),
-        PolicyMemberV1::Reject => Some("reject".to_owned()),
-        PolicyMemberV1::Group(name) => quanx_group_tag(name).map(str::to_owned),
-        PolicyMemberV1::Node(name) => valid_nodes
-            .iter()
-            .any(|candidate| *candidate == name)
-            .then(|| name.clone()),
-    }
+fn member_token(
+    member: &PolicyMemberV1,
+    valid_nodes: &[&str],
+) -> Result<Option<String>, AdapterRenderError> {
+    policy_member_token(
+        member,
+        "direct",
+        "reject",
+        |name| Ok(quanx_group_tag(name).map(str::to_owned)),
+        valid_nodes,
+    )
 }
 
 fn render_groups(
@@ -458,7 +446,7 @@ fn render_groups(
         let group_url = automatic_url(group.strategy());
         let mut members = Vec::new();
         for member in group.members() {
-            let Some(token) = member_token(member, valid_nodes) else {
+            let Some(token) = member_token(member, valid_nodes)? else {
                 continue;
             };
             let token = match (member, group_url) {
@@ -617,142 +605,4 @@ fn render_rules(rules: &[CompiledRuleV1]) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::render::render_builtin_quanx_v1;
-    use crate::subscription_source::parse_subscription_sources;
-
-    #[test]
-    fn builtin_tcp_vless_matches_the_frozen_quanx_shape() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha"[..],
-        ])
-        .expect("valid");
-        let output = render_builtin_quanx_v1(parsed).expect("rendered");
-        assert_eq!(
-            std::str::from_utf8(output.config()).expect("utf8"),
-            concat!(
-                "[general]\n",
-                "server_check_url=https://www.gstatic.com/generate_204\n",
-                "\n",
-                "[server_local]\n",
-                "vless=example.com:443, method=none, password=01234567-89ab-cdef-0123-456789abcdef, udp-relay=true, fast-open=false, tag=Alpha\n",
-                "\n",
-                "[policy]\n",
-                "static = PROXY, AUTO, Alpha, direct\n",
-                "url-latency-benchmark = AUTO, Alpha, check-interval=300, alive-checking=true, tolerance=0\n",
-                "\n",
-                "[filter_local]\n",
-                "final, PROXY\n",
-            )
-        );
-    }
-
-    #[test]
-    fn grpc_and_vision_without_reality_are_skipped() {
-        let source = concat!(
-            "vless://00000000-0000-4000-8000-000000000003@[2001:db8::1]:9443?type=grpc&serviceName=svc%2Fprod&security=reality&sni=reality.example&fp=safari&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sid=0a1b#Reality\n",
-            "vless://00000000-0000-4000-8000-000000000004@vision.example:443?security=tls&flow=xtls-rprx-vision#Vision\n",
-            "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_quanx_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("tag=Alpha"));
-        assert!(!text.contains("tag=Reality"));
-        assert!(!text.contains("tag=Vision"));
-        assert!(!text.contains("grpc"));
-        assert_eq!(output.diagnostics().capability_skips(), 2);
-    }
-
-    #[test]
-    fn vmess_exact_ciphers_and_auto_grpc_skip() {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        let id = "01234567-89ab-cdef-0123-456789abcdef";
-        let encode = |json: &str| format!("vmess://{}", STANDARD.encode(json.as_bytes()));
-        let source = [
-            encode(&format!(
-                r#"{{"ps":"Aes","add":"example.com","port":443,"id":"{id}","scy":"aes-128-gcm"}}"#
-            )),
-            encode(&format!(
-                r#"{{"ps":"Auto","add":"example.com","port":443,"id":"{id}","scy":"auto"}}"#
-            )),
-            encode(&format!(
-                r#"{{"ps":"Grpc","add":"example.com","port":443,"id":"{id}","scy":"none","net":"grpc","tls":"tls"}}"#
-            )),
-        ]
-        .join("\n");
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_quanx_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("vmess=example.com:443, method=aes-128-gcm, password=01234567-89ab-cdef-0123-456789abcdef"));
-        assert!(text.contains("tag=Aes"));
-        assert!(!text.contains("tag=Auto"));
-        assert!(!text.contains("tag=Grpc"));
-        assert_eq!(output.diagnostics().capability_skips(), 2);
-    }
-
-    #[test]
-    fn trojan_exact_combos_and_grpc_skip() {
-        let source = concat!(
-            "trojan://password@EXAMPLE.COM:443#TcpTls\n",
-            "trojan://password@example.com:443?security=reality&sni=apple.com&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#Reality\n",
-            "trojan://password@example.com:443?type=ws&path=%2Fpath&host=example.com#Wss\n",
-            "trojan://password@example.com:443?type=grpc&serviceName=svc#Grpc\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_quanx_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains(
-            "trojan=example.com:443, password=password, over-tls=true, tls-host=example.com, tls-verification=true, udp-relay=true, fast-open=false, tag=TcpTls"
-        ));
-        assert!(text.contains("tag=Reality"));
-        assert!(text.contains("reality-base64-pubkey="));
-        assert!(text.contains("obfs=wss"));
-        assert!(text.contains("obfs-uri=/path"));
-        assert!(text.contains("tag=Wss"));
-        assert!(!text.contains("tag=Grpc"));
-        assert!(!text.contains("grpc"));
-        assert_eq!(output.diagnostics().capability_skips(), 1);
-    }
-
-    #[test]
-    fn hysteria2_is_skipped_on_every_combo() {
-        let source = concat!(
-            "hysteria2://password@EXAMPLE.COM:443#Plain\n",
-            "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_quanx_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("tag=Alpha"));
-        assert!(!text.contains("tag=Plain"));
-        assert!(!text.contains("hysteria"));
-        assert_eq!(output.diagnostics().capability_skips(), 1);
-    }
-
-    #[test]
-    fn tuic_is_skipped_on_every_combo() {
-        let source = concat!(
-            "tuic://01234567-89ab-cdef-0123-456789abcdef:pass@EXAMPLE.COM:443#Plain\n",
-            "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_quanx_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("tag=Alpha"));
-        assert!(!text.contains("tag=Plain"));
-        assert!(!text.contains("tuic"));
-        assert_eq!(output.diagnostics().capability_skips(), 1);
-    }
-
-    #[test]
-    fn debug_output_does_not_retain_node_names() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#SecretCanary"[..],
-        ])
-        .expect("valid");
-        let output = render_builtin_quanx_v1(parsed).expect("rendered");
-        let debug = format!("{output:?}");
-        assert!(!debug.contains("SecretCanary"));
-    }
-}
+mod tests;

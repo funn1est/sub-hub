@@ -1,0 +1,85 @@
+use crate::render::render_builtin_singbox_v1;
+use crate::subscription_source::parse_subscription_sources;
+
+const BUILTIN_TCP_VLESS: &str = concat!(
+    "{\n",
+    "  \"log\": {\n",
+    "    \"disabled\": false,\n",
+    "    \"level\": \"info\",\n",
+    "    \"timestamp\": true\n",
+    "  },\n",
+    "  \"dns\": {\n",
+    "    \"servers\": [\n",
+    "      {\n",
+    "        \"type\": \"local\",\n",
+    "        \"tag\": \"local\"\n",
+    "      }\n",
+    "    ],\n",
+    "    \"final\": \"local\"\n",
+    "  },\n",
+    "  \"inbounds\": [\n",
+    "    {\n",
+    "      \"type\": \"mixed\",\n",
+    "      \"tag\": \"mixed-in\",\n",
+    "      \"listen\": \"127.0.0.1\",\n",
+    "      \"listen_port\": 2080,\n",
+    "      \"set_system_proxy\": false\n",
+    "    }\n",
+    "  ],\n",
+    "  \"outbounds\": [\n",
+    "    {\n",
+    "      \"type\": \"vless\",\n",
+    "      \"tag\": \"Alpha\",\n",
+    "      \"server\": \"example.com\",\n",
+    "      \"server_port\": 443,\n",
+    "      \"uuid\": \"01234567-89ab-cdef-0123-456789abcdef\"\n",
+    "    },\n",
+    "    {\n",
+    "      \"type\": \"selector\",\n",
+    "      \"tag\": \"PROXY\",\n",
+    "      \"outbounds\": [\n",
+    "        \"AUTO\",\n",
+    "        \"Alpha\",\n",
+    "        \"direct\"\n",
+    "      ],\n",
+    "      \"interrupt_exist_connections\": false\n",
+    "    },\n",
+    "    {\n",
+    "      \"type\": \"urltest\",\n",
+    "      \"tag\": \"AUTO\",\n",
+    "      \"outbounds\": [\n",
+    "        \"Alpha\"\n",
+    "      ],\n",
+    "      \"url\": \"https://www.gstatic.com/generate_204\",\n",
+    "      \"interval\": \"300s\",\n",
+    "      \"tolerance\": 50\n",
+    "    },\n",
+    "    {\n",
+    "      \"type\": \"direct\",\n",
+    "      \"tag\": \"direct\"\n",
+    "    },\n",
+    "    {\n",
+    "      \"type\": \"block\",\n",
+    "      \"tag\": \"reject\"\n",
+    "    }\n",
+    "  ],\n",
+    "  \"route\": {\n",
+    "    \"rules\": [],\n",
+    "    \"final\": \"PROXY\",\n",
+    "    \"default_domain_resolver\": \"local\"\n",
+    "  }\n",
+    "}\n",
+);
+
+#[test]
+fn builtin_tcp_vless_matches_the_frozen_singbox_shape() {
+    let parsed = parse_subscription_sources(&[
+        &b"vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha"[..],
+    ])
+    .expect("valid");
+    let output = render_builtin_singbox_v1(parsed).expect("rendered");
+    assert_eq!(
+        std::str::from_utf8(output.config()).expect("utf8"),
+        BUILTIN_TCP_VLESS
+    );
+}

@@ -1,13 +1,8 @@
-use base64::{
-    Engine as _,
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
-};
 use serde::Serialize;
 
 use crate::{
-    node::shadowsocks::ShadowsocksCredential,
     node::trojan::TrojanSecurity,
-    node::vless::{VlessFlow, VlessSecurity, VlessTransport},
+    node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
     policy::{
@@ -15,8 +10,9 @@ use crate::{
     },
     render::{
         AdapterRenderError, RenderedTargetV1, encode_hex, plain_group_tag, plain_node_tag,
-        probe_url_or_default, reject_when_empty, render_host_plain, serialize_bounded,
-        shadowsocks_method, shared_probe_url,
+        policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
+        reject_when_empty, render_host_plain, serialize_bounded, shadowsocks_method,
+        shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -80,10 +76,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             shadowsocks: Some(ShadowsocksProxy {
                 name: tag.to_owned(),
                 method: shadowsocks_method(shadowsocks.cipher()),
-                password: match shadowsocks.credential() {
-                    ShadowsocksCredential::Password(password) => password.expose().to_owned(),
-                    ShadowsocksCredential::Psk(psk) => STANDARD.encode(psk.expose()),
-                },
+                password: shadowsocks_password(shadowsocks.credential()).into_owned(),
                 server: render_host_plain(node.endpoint().host()),
                 port: node.endpoint().port().get(),
                 tfo: false,
@@ -269,12 +262,7 @@ fn trojan_proxy(
     let tls = trojan.security().tls_options();
     let reality = match trojan.security() {
         TrojanSecurity::Tls(_) => None,
-        TrojanSecurity::Reality(options) => Some(Reality {
-            public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
-            short_id: options
-                .short_id()
-                .map(|short_id| encode_hex(short_id.as_bytes())),
-        }),
+        TrojanSecurity::Reality(options) => Some(Reality::from_options(options)),
     };
     let websocket = match trojan.transport() {
         VlessTransport::Tcp => None,
@@ -377,12 +365,7 @@ fn tls_block(security: &VlessSecurity) -> Option<TlsTransport> {
         VlessSecurity::Reality(options) => Some(TlsTransport {
             sni: Some(options.tls().server_name().to_owned()),
             skip_tls_verify: None,
-            reality: Some(Reality {
-                public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
-                short_id: options
-                    .short_id()
-                    .map(|short_id| encode_hex(short_id.as_bytes())),
-            }),
+            reality: Some(Reality::from_options(options)),
         }),
     }
 }
@@ -391,15 +374,13 @@ fn member_token(
     member: &PolicyMemberV1,
     valid_nodes: &[&str],
 ) -> Result<Option<String>, AdapterRenderError> {
-    match member {
-        PolicyMemberV1::Direct => Ok(Some("DIRECT".to_owned())),
-        PolicyMemberV1::Reject => Ok(Some("REJECT".to_owned())),
-        PolicyMemberV1::Group(name) => plain_group_tag(name).map(|tag| Some(tag.to_owned())),
-        PolicyMemberV1::Node(name) => Ok(valid_nodes
-            .iter()
-            .any(|candidate| *candidate == name)
-            .then(|| name.clone())),
-    }
+    policy_member_token(
+        member,
+        "DIRECT",
+        "REJECT",
+        |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+        valid_nodes,
+    )
 }
 
 fn render_groups(
@@ -683,6 +664,15 @@ struct Reality {
     short_id: Option<String>,
 }
 
+impl Reality {
+    fn from_options(options: &RealityOptions) -> Self {
+        Self {
+            public_key: reality_public_key_base64(options),
+            short_id: reality_short_id_hex(options),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct WsTransport {
     path: String,
@@ -860,293 +850,4 @@ struct MatchPolicy {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        AdapterRenderError, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
-        RuleMatcherV1, render_egern_from_policy_v1,
-    };
-    use crate::node_name::{NamedNodeOccurrence, resolve_node_names};
-    use crate::policy::{CompiledGroupV1, IpVersion, PolicyReportV1, compile_builtin_policy_v1};
-    use crate::render::{MAX_OUTPUT_BYTES, render_builtin_egern_v1};
-    use crate::subscription_source::parse_subscription_sources;
-
-    #[test]
-    fn builtin_tcp_vless_matches_the_frozen_egern_shape() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha"[..],
-        ])
-        .expect("valid");
-        let output = render_builtin_egern_v1(parsed).expect("rendered");
-        assert_eq!(
-            std::str::from_utf8(output.config()).expect("utf8"),
-            concat!(
-                "proxy_latency_test_url: https://www.gstatic.com/generate_204\n",
-                "proxies:\n",
-                "- vless:\n",
-                "    name: Alpha\n",
-                "    server: example.com\n",
-                "    port: 443\n",
-                "    user_id: 01234567-89ab-cdef-0123-456789abcdef\n",
-                "    tfo: false\n",
-                "    udp_relay: true\n",
-                "policy_groups:\n",
-                "- select:\n",
-                "    name: PROXY\n",
-                "    policies:\n",
-                "    - AUTO\n",
-                "    - Alpha\n",
-                "    - DIRECT\n",
-                "- auto_test:\n",
-                "    name: AUTO\n",
-                "    policies:\n",
-                "    - Alpha\n",
-                "    interval: 300\n",
-                "    latency_test_url: https://www.gstatic.com/generate_204\n",
-                "rules:\n",
-                "- default:\n",
-                "    policy: PROXY\n",
-            )
-        );
-    }
-
-    #[test]
-    fn vmess_tcp_tls_is_exact_and_cleartext_grpc_is_skipped() {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        let id = "01234567-89ab-cdef-0123-456789abcdef";
-        let encode = |json: &str| format!("vmess://{}", STANDARD.encode(json.as_bytes()));
-        let source = [
-            encode(&format!(
-                r#"{{"ps":"TcpTls","add":"EXAMPLE.COM","port":443,"id":"{id}","scy":"auto","tls":"tls"}}"#
-            )),
-            encode(&format!(
-                r#"{{"ps":"Grpc","add":"example.com","port":443,"id":"{id}","scy":"none","net":"grpc"}}"#
-            )),
-        ]
-        .join("\n");
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_egern_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("name: TcpTls"));
-        assert!(text.contains("user_id: 01234567-89ab-cdef-0123-456789abcdef"));
-        assert!(text.contains("security: auto"));
-        assert!(text.contains("legacy: false"));
-        assert!(text.contains("skip_tls_verify: false"));
-        assert!(!text.contains("name: Grpc"));
-        assert_eq!(output.diagnostics().capability_skips(), 1);
-    }
-
-    #[test]
-    fn trojan_tcp_tls_is_exact_and_grpc_is_skipped() {
-        let source = concat!(
-            "trojan://password@EXAMPLE.COM:443#TcpTls\n",
-            "trojan://password@example.com:443?type=ws&path=%2Fws&host=cdn.example&security=reality&sni=edge.example&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#WsReality\n",
-            "trojan://password@example.com:443?type=grpc&serviceName=svc#Grpc\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_egern_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains(concat!(
-            "- trojan:\n",
-            "    name: TcpTls\n",
-            "    server: example.com\n",
-            "    port: 443\n",
-            "    password: password\n",
-            "    sni: example.com\n",
-            "    tfo: false\n",
-            "    udp_relay: true\n",
-            "    skip_tls_verify: false\n",
-        )));
-        assert!(text.contains("name: WsReality"));
-        assert!(text.contains("websocket:"));
-        assert!(text.contains("path: /ws"));
-        assert!(text.contains("host: cdn.example"));
-        assert!(text.contains("reality:"));
-        assert!(text.contains("public_key:"));
-        assert!(!text.contains("name: Grpc"));
-        assert!(!text.contains("fingerprint"));
-        assert_eq!(output.diagnostics().capability_skips(), 1);
-    }
-
-    #[test]
-    fn hysteria2_salamander_hop_and_pin_are_exact_gecko_is_skipped() {
-        const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        let source = format!(
-            concat!(
-                "hysteria2://password@EXAMPLE.COM:443/?sni=example.com&obfs=salamander&obfs-password=gawrgura#Plain\n",
-                "hysteria2://password@example.com:123,5000-6000/#Hop\n",
-                "hysteria2://password@example.com/?pinSHA256={PIN}#Pin\n",
-                "hysteria2://password@example.com/?obfs=gecko&obfs-password=secret#Gecko\n",
-            ),
-            PIN = PIN
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_egern_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains(concat!(
-            "- hysteria2:\n",
-            "    name: Plain\n",
-            "    server: example.com\n",
-            "    port: 443\n",
-            "    auth: password\n",
-            "    sni: example.com\n",
-            "    obfs: salamander\n",
-            "    obfs_password: gawrgura\n",
-            "    skip_tls_verify: false\n",
-        )));
-        assert!(text.contains("name: Hop"));
-        assert!(text.contains("port_hopping:"));
-        assert!(text.contains("123,5000-6000"));
-        assert!(text.contains("name: Pin"));
-        assert!(text.contains("fingerprint_sha256:"));
-        assert!(text.contains(PIN));
-        assert!(!text.contains("name: Gecko"));
-        assert_eq!(output.diagnostics().capability_skips(), 1);
-    }
-
-    #[test]
-    fn tuic_defaults_and_quic_are_exact_and_bbr_is_skipped() {
-        const UUID: &str = "01234567-89ab-cdef-0123-456789abcdef";
-        let source = format!(
-            concat!(
-                "tuic://{UUID}:pass@EXAMPLE.COM:443/?sni=example.com#Plain\n",
-                "tuic://{UUID}:pass@example.com:443/?udp_relay_mode=quic#Quic\n",
-                "tuic://{UUID}:pass@example.com:443/?congestion_control=bbr#Bbr\n",
-            ),
-            UUID = UUID
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_egern_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains(concat!(
-            "- tuic:\n",
-            "    name: Plain\n",
-            "    server: example.com\n",
-            "    port: 443\n",
-            "    uuid: 01234567-89ab-cdef-0123-456789abcdef\n",
-            "    password: pass\n",
-            "    sni: example.com\n",
-            "    skip_tls_verify: false\n",
-        )));
-        assert!(text.contains("name: Quic"));
-        assert!(text.contains("udp_relay_mode: quic"));
-        assert!(!text.contains("name: Bbr"));
-        assert_eq!(output.diagnostics().capability_skips(), 1);
-    }
-
-    #[test]
-    fn websocket_reality_is_skipped_and_grpc_vision_are_kept() {
-        let source = concat!(
-            "vless://00000000-0000-4000-8000-000000000003@[2001:db8::1]:9443?type=grpc&serviceName=svc%2Fprod&security=reality&sni=reality.example&fp=safari&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sid=0a1b#Grpc\n",
-            "vless://00000000-0000-4000-8000-000000000004@vision.example:443?security=tls&flow=xtls-rprx-vision#Vision\n",
-            "vless://00000000-0000-4000-8000-000000000005@ws.example:443?type=ws&path=%2Fws&security=reality&sni=edge.example&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8#WsReality\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_egern_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("name: Grpc"));
-        assert!(text.contains("name: Vision"));
-        assert!(text.contains("flow: xtls-rprx-vision"));
-        assert!(text.contains("grpc:"));
-        assert!(text.contains("service_name: svc/prod"));
-        assert!(text.contains("server: 2001:db8::1"));
-        assert!(!text.contains("name: WsReality"));
-        assert!(!text.contains("fingerprint"));
-        // WebSocket+Reality is already rejected by the share-URI parser, so it
-        // surfaces as an upstream rejection, not an adapter capability skip.
-        assert_eq!(output.diagnostics().rejections().len(), 1);
-        assert_eq!(output.diagnostics().capability_skips(), 0);
-    }
-
-    #[test]
-    fn process_name_is_omitted_and_load_balance_uses_hash() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-        ])
-        .expect("valid");
-        let named = resolve_node_names(parsed, &["Hash"]).expect("names");
-        let nodes = named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-                NamedNodeOccurrence::Rejected { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let policy = CompiledPolicyV1::new(
-            vec![CompiledGroupV1::new(
-                "Hash".to_owned(),
-                GroupStrategyV1::LoadBalance {
-                    url: String::new(),
-                    interval: 30,
-                },
-                vec![PolicyMemberV1::Node("Alpha".to_owned())],
-            )],
-            vec![
-                CompiledRuleV1::new(
-                    RuleMatcherV1::ProcessName("Telegram.exe".to_owned()),
-                    PolicyMemberV1::Direct,
-                ),
-                CompiledRuleV1::new(
-                    RuleMatcherV1::IpCidr {
-                        value: "10.0.0.0/8".to_owned(),
-                        version: IpVersion::V4,
-                        no_resolve: true,
-                    },
-                    PolicyMemberV1::Direct,
-                ),
-                CompiledRuleV1::new(RuleMatcherV1::Match, PolicyMemberV1::Direct),
-            ],
-            PolicyReportV1::default(),
-        );
-        let omitted = policy
-            .rules()
-            .iter()
-            .filter(|rule| matches!(rule.matcher(), RuleMatcherV1::ProcessName(_)))
-            .count();
-        assert_eq!(omitted, 1);
-        let output = render_egern_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
-        let text = std::str::from_utf8(&output.bytes).expect("utf8");
-        assert!(text.contains("load_balance:"));
-        assert!(text.contains("algorithm: hash"));
-        assert!(text.contains("ip_cidr:"));
-        assert!(text.contains("no_resolve: true"));
-        assert!(text.contains("default:\n    policy: DIRECT"));
-        assert!(!text.contains("Telegram"));
-        assert!(!text.contains("process"));
-    }
-
-    #[test]
-    fn oversized_output_is_rejected() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-        ])
-        .expect("valid");
-        let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
-        let nodes = named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-                NamedNodeOccurrence::Rejected { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let policy = compile_builtin_policy_v1(&nodes);
-        let error = render_egern_from_policy_v1(&nodes, &policy, 8).expect_err("limit");
-        assert!(matches!(
-            error,
-            AdapterRenderError::OutputTooLarge { limit_bytes: 8 }
-        ));
-    }
-
-    #[test]
-    fn debug_output_does_not_retain_node_names() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#SecretCanary"[..],
-        ])
-        .expect("valid");
-        let output = render_builtin_egern_v1(parsed).expect("rendered");
-        let debug = format!("{output:?}");
-        assert!(!debug.contains("SecretCanary"));
-        assert!(!debug.contains("gstatic"));
-    }
-}
+mod tests;

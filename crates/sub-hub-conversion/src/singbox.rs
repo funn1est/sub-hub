@@ -1,22 +1,18 @@
 use std::borrow::Cow;
 
-use base64::{
-    Engine as _,
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
-};
 use serde::Serialize;
 
 use crate::{
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::trojan::TrojanSecurity,
-    node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
+    node::vless::{ClientFingerprint, RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1},
     render::{
-        AdapterRenderError, RenderedTargetV1, encode_hex, plain_group_tag, plain_node_tag,
-        probe_url_or_default, reject_when_empty, render_fingerprint, render_host_plain,
-        shadowsocks_method,
+        AdapterRenderError, RenderedTargetV1, plain_group_tag, plain_node_tag, policy_member_token,
+        probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
+        render_fingerprint, render_host_plain, shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -174,12 +170,10 @@ fn hysteria2_outbound<'a>(
     })
 }
 
-fn vmess_outbound<'a>(
-    node: &'a ProxyNode,
-    vmess: &'a crate::node::vmess::VmessNode,
-    tag: &'a str,
-) -> VmessOutbound<'a> {
-    let transport = match vmess.transport() {
+/// Maps the shared VLESS-shaped transport onto the sing-box `transport` object;
+/// plain TCP omits the object entirely.
+fn stream_transport(transport: &VlessTransport) -> Option<Transport<'_>> {
+    match transport {
         VlessTransport::Tcp => None,
         VlessTransport::WebSocket { path, host } => Some(Transport {
             kind: "ws",
@@ -193,7 +187,15 @@ fn vmess_outbound<'a>(
             headers: None,
             service_name: service_name.as_deref(),
         }),
-    };
+    }
+}
+
+fn vmess_outbound<'a>(
+    node: &'a ProxyNode,
+    vmess: &'a crate::node::vmess::VmessNode,
+    tag: &'a str,
+) -> VmessOutbound<'a> {
+    let transport = stream_transport(vmess.transport());
     let tls = match vmess.security() {
         VmessSecurity::None => None,
         VmessSecurity::Tls(options) => Some(tls_object(
@@ -221,31 +223,11 @@ fn trojan_outbound<'a>(
     trojan: &'a crate::node::trojan::TrojanNode,
     tag: &'a str,
 ) -> TrojanOutbound<'a> {
-    let transport = match trojan.transport() {
-        VlessTransport::Tcp => None,
-        VlessTransport::WebSocket { path, host } => Some(Transport {
-            kind: "ws",
-            path: Some(path.as_str()),
-            headers: host.as_deref().map(|host| TransportHeaders { host }),
-            service_name: None,
-        }),
-        VlessTransport::Grpc { service_name, .. } => Some(Transport {
-            kind: "grpc",
-            path: None,
-            headers: None,
-            service_name: service_name.as_deref(),
-        }),
-    };
+    let transport = stream_transport(trojan.transport());
     let tls_options = trojan.security().tls_options();
     let reality = match trojan.security() {
         TrojanSecurity::Tls(_) => None,
-        TrojanSecurity::Reality(options) => Some(Reality {
-            enabled: true,
-            public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
-            short_id: options
-                .short_id()
-                .map(|short_id| encode_hex(short_id.as_bytes())),
-        }),
+        TrojanSecurity::Reality(options) => Some(Reality::from_options(options)),
     };
     TrojanOutbound {
         kind: "trojan",
@@ -268,21 +250,7 @@ fn vless_outbound<'a>(
     vless: &'a crate::node::vless::VlessNode,
     tag: &'a str,
 ) -> VlessOutbound<'a> {
-    let transport = match vless.transport() {
-        VlessTransport::Tcp => None,
-        VlessTransport::WebSocket { path, host } => Some(Transport {
-            kind: "ws",
-            path: Some(path.as_str()),
-            headers: host.as_deref().map(|host| TransportHeaders { host }),
-            service_name: None,
-        }),
-        VlessTransport::Grpc { service_name, .. } => Some(Transport {
-            kind: "grpc",
-            path: None,
-            headers: None,
-            service_name: service_name.as_deref(),
-        }),
-    };
+    let transport = stream_transport(vless.transport());
     let tls = match vless.security() {
         VlessSecurity::None => None,
         VlessSecurity::Tls(options) => Some(tls_object(
@@ -295,13 +263,7 @@ fn vless_outbound<'a>(
             options.tls().server_name(),
             options.tls().alpn(),
             options.tls().fingerprint(),
-            Some(Reality {
-                enabled: true,
-                public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
-                short_id: options
-                    .short_id()
-                    .map(|short_id| encode_hex(short_id.as_bytes())),
-            }),
+            Some(Reality::from_options(options)),
         )),
     };
     VlessOutbound {
@@ -342,17 +304,13 @@ fn shadowsocks_outbound<'a>(
     credential: &'a ShadowsocksCredential,
     tag: &'a str,
 ) -> ShadowsocksOutbound<'a> {
-    let password = match credential {
-        ShadowsocksCredential::Password(password) => Cow::Borrowed(password.expose()),
-        ShadowsocksCredential::Psk(psk) => Cow::Owned(STANDARD.encode(psk.expose())),
-    };
     ShadowsocksOutbound {
         kind: "shadowsocks",
         tag,
         server: render_host_plain(node.endpoint().host()),
         server_port: node.endpoint().port().get(),
         method: shadowsocks_method(cipher),
-        password,
+        password: shadowsocks_password(credential),
     }
 }
 
@@ -360,15 +318,13 @@ fn member_tag(
     member: &PolicyMemberV1,
     valid_nodes: &[&str],
 ) -> Result<Option<String>, AdapterRenderError> {
-    match member {
-        PolicyMemberV1::Direct => Ok(Some("direct".to_owned())),
-        PolicyMemberV1::Reject => Ok(Some("reject".to_owned())),
-        PolicyMemberV1::Group(name) => plain_group_tag(name).map(|tag| Some(tag.to_owned())),
-        PolicyMemberV1::Node(name) => Ok(valid_nodes
-            .iter()
-            .any(|candidate| *candidate == name)
-            .then(|| name.clone())),
-    }
+    policy_member_token(
+        member,
+        "direct",
+        "reject",
+        |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+        valid_nodes,
+    )
 }
 
 fn render_groups(
@@ -696,6 +652,16 @@ struct Reality {
     short_id: Option<String>,
 }
 
+impl Reality {
+    fn from_options(options: &RealityOptions) -> Self {
+        Self {
+            enabled: true,
+            public_key: reality_public_key_base64(options),
+            short_id: reality_short_id_hex(options),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct Transport<'a> {
     #[serde(rename = "type")]
@@ -751,442 +717,4 @@ impl RouteRule {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        AdapterRenderError, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
-        RuleMatcherV1, render_singbox_from_policy_v1,
-    };
-    use crate::node_name::{NamedNodeOccurrence, resolve_node_names};
-    use crate::policy::{CompiledGroupV1, PolicyReportV1};
-    use crate::render::{MAX_OUTPUT_BYTES, render_builtin_singbox_v1};
-    use crate::subscription_source::parse_subscription_sources;
-
-    const BUILTIN_TCP_VLESS: &str = concat!(
-        "{\n",
-        "  \"log\": {\n",
-        "    \"disabled\": false,\n",
-        "    \"level\": \"info\",\n",
-        "    \"timestamp\": true\n",
-        "  },\n",
-        "  \"dns\": {\n",
-        "    \"servers\": [\n",
-        "      {\n",
-        "        \"type\": \"local\",\n",
-        "        \"tag\": \"local\"\n",
-        "      }\n",
-        "    ],\n",
-        "    \"final\": \"local\"\n",
-        "  },\n",
-        "  \"inbounds\": [\n",
-        "    {\n",
-        "      \"type\": \"mixed\",\n",
-        "      \"tag\": \"mixed-in\",\n",
-        "      \"listen\": \"127.0.0.1\",\n",
-        "      \"listen_port\": 2080,\n",
-        "      \"set_system_proxy\": false\n",
-        "    }\n",
-        "  ],\n",
-        "  \"outbounds\": [\n",
-        "    {\n",
-        "      \"type\": \"vless\",\n",
-        "      \"tag\": \"Alpha\",\n",
-        "      \"server\": \"example.com\",\n",
-        "      \"server_port\": 443,\n",
-        "      \"uuid\": \"01234567-89ab-cdef-0123-456789abcdef\"\n",
-        "    },\n",
-        "    {\n",
-        "      \"type\": \"selector\",\n",
-        "      \"tag\": \"PROXY\",\n",
-        "      \"outbounds\": [\n",
-        "        \"AUTO\",\n",
-        "        \"Alpha\",\n",
-        "        \"direct\"\n",
-        "      ],\n",
-        "      \"interrupt_exist_connections\": false\n",
-        "    },\n",
-        "    {\n",
-        "      \"type\": \"urltest\",\n",
-        "      \"tag\": \"AUTO\",\n",
-        "      \"outbounds\": [\n",
-        "        \"Alpha\"\n",
-        "      ],\n",
-        "      \"url\": \"https://www.gstatic.com/generate_204\",\n",
-        "      \"interval\": \"300s\",\n",
-        "      \"tolerance\": 50\n",
-        "    },\n",
-        "    {\n",
-        "      \"type\": \"direct\",\n",
-        "      \"tag\": \"direct\"\n",
-        "    },\n",
-        "    {\n",
-        "      \"type\": \"block\",\n",
-        "      \"tag\": \"reject\"\n",
-        "    }\n",
-        "  ],\n",
-        "  \"route\": {\n",
-        "    \"rules\": [],\n",
-        "    \"final\": \"PROXY\",\n",
-        "    \"default_domain_resolver\": \"local\"\n",
-        "  }\n",
-        "}\n",
-    );
-
-    #[test]
-    fn builtin_tcp_vless_matches_the_frozen_singbox_shape() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha"[..],
-        ])
-        .expect("valid");
-        let output = render_builtin_singbox_v1(parsed).expect("rendered");
-        assert_eq!(
-            std::str::from_utf8(output.config()).expect("utf8"),
-            BUILTIN_TCP_VLESS
-        );
-    }
-
-    #[test]
-    fn grpc_and_vision_without_reality_are_kept() {
-        let source = concat!(
-            "vless://00000000-0000-4000-8000-000000000003@[2001:db8::1]:9443?type=grpc&serviceName=svc%2Fprod&security=reality&sni=reality.example&fp=safari&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sid=0a1b#Reality\n",
-            "vless://00000000-0000-4000-8000-000000000004@vision.example:443?security=tls&flow=xtls-rprx-vision#Vision\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_singbox_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("\"tag\": \"Reality\""));
-        assert!(text.contains("\"type\": \"grpc\""));
-        assert!(text.contains("\"service_name\": \"svc/prod\""));
-        assert!(text.contains("\"server\": \"2001:db8::1\""));
-        assert!(!text.contains("[2001:db8::1]"));
-        assert!(text.contains("\"tag\": \"Vision\""));
-        assert!(text.contains("\"flow\": \"xtls-rprx-vision\""));
-        assert!(text.contains("\"fingerprint\": \"chrome\""));
-        assert!(text.contains("\"fingerprint\": \"safari\""));
-        assert_eq!(output.diagnostics().capability_skips(), 0);
-    }
-
-    #[test]
-    fn vmess_tcp_and_grpc_are_kept() {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        let id = "01234567-89ab-cdef-0123-456789abcdef";
-        let source = format!(
-            "vmess://{}\nvmess://{}",
-            STANDARD.encode(
-                format!(
-                    r#"{{"ps":"Alpha","add":"EXAMPLE.COM","port":443,"id":"{id}","scy":"auto"}}"#
-                )
-                .as_bytes()
-            ),
-            STANDARD.encode(
-                format!(
-                    r#"{{"ps":"Grpc","add":"example.com","port":443,"id":"{id}","scy":"zero","net":"grpc","path":"svc"}}"#
-                )
-                .as_bytes()
-            )
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_singbox_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("\"type\": \"vmess\""));
-        assert!(text.contains("\"tag\": \"Alpha\""));
-        assert!(text.contains("\"security\": \"auto\""));
-        assert!(text.contains("\"alter_id\": 0"));
-        assert!(text.contains("\"tag\": \"Grpc\""));
-        assert!(text.contains("\"type\": \"grpc\""));
-        assert!(!text.contains("packet_encoding"));
-        assert!(!text.contains("multiplex"));
-        assert_eq!(output.diagnostics().capability_skips(), 0);
-    }
-
-    #[test]
-    fn trojan_tcp_tls_and_grpc_are_kept() {
-        let source = concat!(
-            "trojan://password@EXAMPLE.COM:443#Alpha\n",
-            "trojan://password@example.com:443?type=grpc&serviceName=svc&security=tls#Grpc\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_singbox_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("\"type\": \"trojan\""));
-        assert!(text.contains("\"tag\": \"Alpha\""));
-        assert!(text.contains("\"password\": \"password\""));
-        assert!(text.contains("\"enabled\": true"));
-        assert!(text.contains("\"server_name\": \"example.com\""));
-        assert!(text.contains("\"fingerprint\": \"chrome\""));
-        assert!(text.contains("\"tag\": \"Grpc\""));
-        assert!(text.contains("\"type\": \"grpc\""));
-        assert!(!text.contains("multiplex"));
-        assert_eq!(output.diagnostics().capability_skips(), 0);
-    }
-
-    #[test]
-    fn hysteria2_salamander_and_hop_are_kept_gecko_and_pin_skipped() {
-        const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        let source = format!(
-            concat!(
-                "hysteria2://password@EXAMPLE.COM:443/?sni=example.com&obfs=salamander&obfs-password=gawrgura#Plain\n",
-                "hysteria2://password@example.com:123,5000-6000/#Hop\n",
-                "hysteria2://password@example.com/?obfs=gecko&obfs-password=secret#Gecko\n",
-                "hysteria2://password@example.com/?pinSHA256={PIN}#Pin\n",
-            ),
-            PIN = PIN
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_singbox_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("\"type\": \"hysteria2\""));
-        assert!(text.contains("\"tag\": \"Plain\""));
-        assert!(text.contains("\"password\": \"password\""));
-        assert!(text.contains("\"type\": \"salamander\""));
-        assert!(text.contains("\"password\": \"gawrgura\""));
-        assert!(text.contains("\"server_name\": \"example.com\""));
-        assert!(text.contains("\"tag\": \"Hop\""));
-        assert!(text.contains("\"123:123\""));
-        assert!(text.contains("\"5000:6000\""));
-        assert!(!text.contains("\"tag\": \"Gecko\""));
-        assert!(!text.contains("\"tag\": \"Pin\""));
-        assert!(!text.contains("certificate_public_key_sha256"));
-        assert!(!text.contains("insecure"));
-        assert_eq!(output.diagnostics().capability_skips(), 2);
-    }
-
-    #[test]
-    fn tuic_v5_defaults_and_options_are_kept() {
-        const UUID: &str = "01234567-89ab-cdef-0123-456789abcdef";
-        let source = format!(
-            concat!(
-                "tuic://{UUID}:pass@EXAMPLE.COM:443#Plain\n",
-                "tuic://{UUID}:pass@example.com:8443/?sni=real.example&alpn=h3&congestion_control=bbr&udp_relay_mode=quic#Opts\n",
-            ),
-            UUID = UUID
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_singbox_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("\"type\": \"tuic\""));
-        assert!(text.contains("\"tag\": \"Plain\""));
-        assert!(text.contains(&format!("\"uuid\": \"{UUID}\"")));
-        assert!(text.contains("\"password\": \"pass\""));
-        assert!(text.contains("\"enabled\": true"));
-        assert!(!text.contains("\"congestion_control\": \"cubic\""));
-        assert!(!text.contains("\"udp_relay_mode\": \"native\""));
-        assert!(text.contains("\"tag\": \"Opts\""));
-        assert!(text.contains("\"congestion_control\": \"bbr\""));
-        assert!(text.contains("\"udp_relay_mode\": \"quic\""));
-        assert!(text.contains("\"server_name\": \"real.example\""));
-        assert!(text.contains("\"h3\""));
-        assert!(!text.contains("insecure"));
-        assert!(!text.contains("disable_sni"));
-        assert!(!text.contains("udp_over_stream"));
-        assert_eq!(output.diagnostics().capability_skips(), 0);
-    }
-
-    #[test]
-    fn websocket_tls_and_shadowsocks_project_supported_fields() {
-        let source = concat!(
-            "vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443?type=ws&path=%2Fws&host=cdn.example&security=tls&sni=edge.example&alpn=h2%2Chttp%2F1.1&fp=firefox#WS\n",
-            "ss://aes-128-gcm:p%40ss%3Aword@example.com:8388#Classic\n",
-        );
-        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-        let output = render_builtin_singbox_v1(parsed).expect("rendered");
-        let text = std::str::from_utf8(output.config()).expect("utf8");
-        assert!(text.contains("\"type\": \"ws\""));
-        assert!(text.contains("\"path\": \"/ws\""));
-        assert!(text.contains("\"Host\": \"cdn.example\""));
-        assert!(text.contains("\"server_name\": \"edge.example\""));
-        assert!(text.contains("\"fingerprint\": \"firefox\""));
-        assert!(text.contains("\"type\": \"shadowsocks\""));
-        assert!(text.contains("\"method\": \"aes-128-gcm\""));
-        assert!(text.contains("\"password\": \"p@ss:word\""));
-    }
-
-    #[test]
-    fn reserved_node_tags_are_skipped_and_empty_members_become_reject() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#direct\nvless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Alpha"[..],
-        ])
-        .expect("valid");
-        let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
-        let nodes = named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-                NamedNodeOccurrence::Rejected { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(nodes.len(), 2);
-        let policy = CompiledPolicyV1::new(
-            vec![CompiledGroupV1::new(
-                "PROXY".to_owned(),
-                GroupStrategyV1::Select,
-                vec![PolicyMemberV1::Node("direct".to_owned())],
-            )],
-            vec![],
-            PolicyReportV1::default(),
-        );
-        let output = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
-        let text = std::str::from_utf8(&output.bytes).expect("utf8");
-        assert!(text.contains("\"tag\": \"Alpha\""));
-        assert!(!text.contains("\"server\": \"example.com\""));
-        assert!(text.contains("\"outbounds\": [\n        \"reject\"\n      ]"));
-    }
-
-    #[test]
-    fn only_reserved_node_tags_are_no_valid_nodes() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#reject"[..],
-        ])
-        .expect("valid");
-        let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
-        let nodes = named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-                NamedNodeOccurrence::Rejected { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let policy = CompiledPolicyV1::new(vec![], vec![], PolicyReportV1::default());
-        let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
-            .expect_err("no valid nodes");
-        assert!(matches!(error, AdapterRenderError::NoValidNodes));
-    }
-
-    #[test]
-    fn fallback_and_load_balance_are_normalized_and_geoip_cn_is_omitted() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-        ])
-        .expect("valid");
-        let named = resolve_node_names(parsed, &["Fallback", "Hash"]).expect("names");
-        let nodes = named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-                NamedNodeOccurrence::Rejected { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let policy = CompiledPolicyV1::new(
-            vec![
-                CompiledGroupV1::new(
-                    "Fallback".to_owned(),
-                    GroupStrategyV1::Fallback {
-                        url: "https://www.gstatic.com/generate_204".to_owned(),
-                        interval: 60,
-                    },
-                    vec![PolicyMemberV1::Node("Alpha".to_owned())],
-                ),
-                CompiledGroupV1::new(
-                    "Hash".to_owned(),
-                    GroupStrategyV1::LoadBalance {
-                        url: String::new(),
-                        interval: 30,
-                    },
-                    vec![PolicyMemberV1::Node("Alpha".to_owned())],
-                ),
-            ],
-            vec![
-                CompiledRuleV1::new(RuleMatcherV1::GeoIpCn, PolicyMemberV1::Direct),
-                CompiledRuleV1::new(
-                    RuleMatcherV1::DomainSuffix("example.com".to_owned()),
-                    PolicyMemberV1::Group("Fallback".to_owned()),
-                ),
-                CompiledRuleV1::new(
-                    RuleMatcherV1::Match,
-                    PolicyMemberV1::Group("Fallback".to_owned()),
-                ),
-            ],
-            PolicyReportV1::default(),
-        );
-        let omitted = policy
-            .rules()
-            .iter()
-            .filter(|rule| matches!(rule.matcher(), RuleMatcherV1::GeoIpCn))
-            .count();
-        assert_eq!(omitted, 1);
-        let output = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
-        let text = std::str::from_utf8(&output.bytes).expect("utf8");
-        assert!(text.contains("\"type\": \"urltest\""));
-        assert!(text.contains("\"tag\": \"Fallback\""));
-        assert!(text.contains("\"interval\": \"60s\""));
-        assert!(text.contains("\"type\": \"selector\""));
-        assert!(text.contains("\"tag\": \"Hash\""));
-        assert!(!text.contains("geoip"));
-        assert!(text.contains("\"domain_suffix\""));
-        assert!(text.contains("example.com"));
-        assert!(text.contains("\"final\": \"Fallback\""));
-        assert!(!text.contains("\"outbound\": \"direct\""));
-        assert_eq!(text.matches("\"outbound\":").count(), 1);
-    }
-
-    #[test]
-    fn group_named_direct_is_internal() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-        ])
-        .expect("valid");
-        let named = resolve_node_names(parsed, &["direct"]).expect("names");
-        let nodes = named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-                NamedNodeOccurrence::Rejected { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let policy = CompiledPolicyV1::new(
-            vec![CompiledGroupV1::new(
-                "direct".to_owned(),
-                GroupStrategyV1::Select,
-                vec![PolicyMemberV1::Node("Alpha".to_owned())],
-            )],
-            vec![],
-            PolicyReportV1::default(),
-        );
-        let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
-            .expect_err("reserved group");
-        assert!(matches!(error, AdapterRenderError::Internal));
-    }
-
-    #[test]
-    fn oversized_output_is_rejected() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-        ])
-        .expect("valid");
-        let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
-        let nodes = named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-                NamedNodeOccurrence::Rejected { .. } => None,
-            })
-            .collect::<Vec<_>>();
-        let policy = crate::policy::compile_builtin_policy_v1(&nodes);
-        let error = render_singbox_from_policy_v1(&nodes, &policy, 8).expect_err("limit");
-        assert!(matches!(
-            error,
-            AdapterRenderError::OutputTooLarge { limit_bytes: 8 }
-        ));
-    }
-
-    #[test]
-    fn debug_output_does_not_retain_node_names() {
-        let parsed = parse_subscription_sources(&[
-            &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#SecretCanary"[..],
-        ])
-        .expect("valid");
-        let output = render_builtin_singbox_v1(parsed).expect("rendered");
-        let debug = format!("{output:?}");
-        assert!(!debug.contains("SecretCanary"));
-        assert!(!debug.contains("gstatic"));
-        let error_debug = format!(
-            "{:?}",
-            AdapterRenderError::OutputTooLarge { limit_bytes: 4 }
-        );
-        assert!(!error_debug.contains("SecretCanary"));
-    }
-}
+mod tests;

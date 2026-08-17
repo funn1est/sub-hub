@@ -1,21 +1,18 @@
 use std::borrow::Cow;
 
-use base64::{
-    Engine as _,
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
-};
 use serde::Serialize;
 
 use crate::{
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::trojan::TrojanSecurity,
-    node::vless::{VlessFlow, VlessSecurity, VlessTransport},
+    node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
-        AdapterRenderError, RenderedTargetV1, encode_hex, render_fingerprint, render_host_plain,
-        serialize_bounded, shadowsocks_method,
+        AdapterRenderError, RenderedTargetV1, encode_hex, reality_public_key_base64,
+        reality_short_id_hex, render_fingerprint, render_host_plain, serialize_bounded,
+        shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -352,12 +349,7 @@ impl<'a> MihomoVlessProxy<'a> {
                 Some(options.tls().server_name()),
                 options.tls().alpn(),
                 Some(render_fingerprint(options.tls().fingerprint())),
-                Some(MihomoRealityOptions {
-                    public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
-                    short_id: options
-                        .short_id()
-                        .map(|short_id| encode_hex(short_id.as_bytes())),
-                }),
+                Some(MihomoRealityOptions::from_options(options)),
             ),
         };
         MihomoVlessProxy {
@@ -518,12 +510,7 @@ impl<'a> MihomoTrojanProxy<'a> {
         let tls = trojan.security().tls_options();
         let reality_opts = match trojan.security() {
             TrojanSecurity::Tls(_) => None,
-            TrojanSecurity::Reality(options) => Some(MihomoRealityOptions {
-                public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
-                short_id: options
-                    .short_id()
-                    .map(|short_id| encode_hex(short_id.as_bytes())),
-            }),
+            TrojanSecurity::Reality(options) => Some(MihomoRealityOptions::from_options(options)),
         };
         Self {
             name: node.name().as_str(),
@@ -549,17 +536,13 @@ impl<'a> MihomoShadowsocksProxy<'a> {
         cipher: &ShadowsocksCipher,
         credential: &'a ShadowsocksCredential,
     ) -> Self {
-        let password = match credential {
-            ShadowsocksCredential::Password(password) => Cow::Borrowed(password.expose()),
-            ShadowsocksCredential::Psk(psk) => Cow::Owned(STANDARD.encode(psk.expose())),
-        };
         Self {
             name: node.name().as_str(),
             kind: "ss",
             server: render_host_plain(node.endpoint().host()),
             port: node.endpoint().port().get(),
             cipher: shadowsocks_method(cipher),
-            password,
+            password: shadowsocks_password(credential),
             udp: true,
         }
     }
@@ -590,6 +573,15 @@ struct MihomoRealityOptions {
     public_key: String,
     #[serde(rename = "short-id", skip_serializing_if = "Option::is_none")]
     short_id: Option<String>,
+}
+
+impl MihomoRealityOptions {
+    fn from_options(options: &RealityOptions) -> Self {
+        Self {
+            public_key: reality_public_key_base64(options),
+            short_id: reality_short_id_hex(options),
+        }
+    }
 }
 
 #[cfg(test)]
