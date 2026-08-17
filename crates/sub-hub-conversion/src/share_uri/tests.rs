@@ -1,6 +1,7 @@
 use super::{InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_share_uri};
 
 mod dispatch;
+mod hysteria2;
 mod privacy;
 mod properties;
 mod shadowsocks;

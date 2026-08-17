@@ -148,7 +148,48 @@ fn render_proxy_line(node: &ProxyNode, tag: &str) -> Option<String> {
         }
         NodeProtocol::Trojan(trojan) => render_trojan_line(tag, &host, port, trojan),
         NodeProtocol::Vmess(vmess) => render_vmess_line(tag, &host, port, vmess),
+        NodeProtocol::Hysteria2(hysteria2) => render_hysteria2_line(tag, &host, port, hysteria2),
     }
+}
+
+fn render_hysteria2_line(
+    tag: &str,
+    host: &str,
+    port: u16,
+    hysteria2: &crate::node::hysteria2::Hysteria2Node,
+) -> Option<String> {
+    if hysteria2.ports().is_hop()
+        || hysteria2.pin_sha256().is_some()
+        || hysteria2
+            .obfs()
+            .is_some_and(crate::node::hysteria2::Hysteria2Obfs::is_gecko)
+    {
+        return None;
+    }
+    let auth = if hysteria2.auth().expose().is_empty() {
+        "\"\"".to_owned()
+    } else {
+        quote(hysteria2.auth().expose())?
+    };
+    let mut fields = vec![
+        format!("{tag} = Hysteria2"),
+        host.to_owned(),
+        port.to_string(),
+        auth,
+    ];
+    if let Some(sni) = hysteria2.sni() {
+        if !is_safe_field(sni) {
+            return None;
+        }
+        fields.push(format!("sni={sni}"));
+    }
+    fields.push("skip-cert-verify=false".to_owned());
+    if let Some(obfs) = hysteria2.obfs() {
+        let password = quote(obfs.password())?;
+        fields.push(format!("salamander-password={password}"));
+    }
+    fields.push("udp=true".to_owned());
+    Some(fields.join(","))
 }
 
 fn render_vmess_line(
@@ -624,6 +665,31 @@ mod tests {
         assert!(!text.contains("Grpc ="));
         assert!(!text.contains("fast-open"));
         assert_eq!(output.diagnostics().capability_skips(), 2);
+    }
+
+    #[test]
+    fn hysteria2_salamander_is_exact_and_gecko_hop_pin_are_skipped() {
+        const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let source = format!(
+            concat!(
+                "hysteria2://password@EXAMPLE.COM:443/?sni=example.com&obfs=salamander&obfs-password=gawrgura#Plain\n",
+                "hysteria2://password@example.com/?obfs=gecko&obfs-password=secret#Gecko\n",
+                "hysteria2://password@example.com:123,5000-6000/#Hop\n",
+                "hysteria2://password@example.com/?pinSHA256={PIN}#Pin\n",
+            ),
+            PIN = PIN
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_loon_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains(
+            "Plain = Hysteria2,example.com,443,\"password\",sni=example.com,skip-cert-verify=false,salamander-password=\"gawrgura\",udp=true"
+        ));
+        assert!(!text.contains("Gecko ="));
+        assert!(!text.contains("Hop ="));
+        assert!(!text.contains("Pin ="));
+        assert!(!text.contains("fast-open"));
+        assert_eq!(output.diagnostics().capability_skips(), 3);
     }
 
     #[test]

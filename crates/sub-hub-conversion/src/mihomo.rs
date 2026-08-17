@@ -171,6 +171,56 @@ pub(crate) enum MihomoProxy<'a> {
     Shadowsocks(MihomoShadowsocksProxy<'a>),
     Trojan(MihomoTrojanProxy<'a>),
     Vmess(MihomoVmessProxy<'a>),
+    Hysteria2(MihomoHysteria2Proxy<'a>),
+}
+
+#[derive(Serialize)]
+pub(crate) struct MihomoHysteria2Proxy<'a> {
+    name: &'a str,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    server: String,
+    port: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ports: Option<String>,
+    password: &'a str,
+    udp: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    obfs: Option<&'static str>,
+    #[serde(rename = "obfs-password", skip_serializing_if = "Option::is_none")]
+    obfs_password: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sni: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fingerprint: Option<String>,
+}
+
+impl<'a> MihomoHysteria2Proxy<'a> {
+    fn from_node(
+        node: &'a ProxyNode,
+        hysteria2: &'a crate::node::hysteria2::Hysteria2Node,
+    ) -> Self {
+        let (obfs, obfs_password) = match hysteria2.obfs() {
+            Some(obfs) => (Some(obfs.token()), Some(obfs.password())),
+            None => (None, None),
+        };
+        Self {
+            name: node.name().as_str(),
+            kind: "hysteria2",
+            server: render_host_plain(node.endpoint().host()),
+            port: node.endpoint().port().get(),
+            ports: hysteria2
+                .ports()
+                .is_hop()
+                .then(|| hysteria2.ports().render_official()),
+            password: hysteria2.auth().expose(),
+            udp: true,
+            obfs,
+            obfs_password,
+            sni: hysteria2.sni(),
+            fingerprint: hysteria2.pin_sha256().map(|pin| encode_hex(pin)),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -217,6 +267,9 @@ impl<'a> From<&'a ProxyNode> for MihomoProxy<'a> {
                 Self::Trojan(MihomoTrojanProxy::from_node(node, trojan))
             }
             NodeProtocol::Vmess(vmess) => Self::Vmess(MihomoVmessProxy::from_node(node, vmess)),
+            NodeProtocol::Hysteria2(hysteria2) => {
+                Self::Hysteria2(MihomoHysteria2Proxy::from_node(node, hysteria2))
+            }
         }
     }
 }

@@ -230,4 +230,22 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
             .chain(trojan_representations)
             .chain(vmess_representations),
     );
+    assert_redacted(hysteria2_debug_representations());
+}
+
+fn hysteria2_debug_representations() -> [String; 5] {
+    let hysteria2 = parse_share_uri(
+        "hysteria2://CANARY_PASSWORD@canary-host.example:443/?obfs=salamander&obfs-password=CANARY_PASSWORD#CANARY_REMARK",
+    )
+    .expect("valid canary Hysteria2 node");
+    let NodeProtocol::Hysteria2(hysteria2_protocol) = &hysteria2.protocol else {
+        panic!("expected Hysteria2")
+    };
+    [
+        format!("{hysteria2:?}"),
+        format!("{:?}", hysteria2.protocol),
+        format!("{hysteria2_protocol:?}"),
+        format!("{:?}", hysteria2_protocol.auth()),
+        format!("{:?}", hysteria2_protocol.obfs()),
+    ]
 }

@@ -27,6 +27,7 @@ const ACL4SSR_REMOTE_PREFIX: &str = "https://raw.githubusercontent.com/ACL4SSR/A
 const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
 const VALID_TROJAN: &str = "trojan://password@example.com:443#Alpha";
 const VALID_VMESS: &str = "vmess://eyJ2IjoyLCJwcyI6IkFscGhhIiwiYWRkIjoiRVhBTVBMRS5DT00iLCJwb3J0Ijo0NDMsImlkIjoiMDEyMzQ1NjctODlhYi1jZGVmLTAxMjMtNDU2Nzg5YWJjZGVmIiwic2N5IjoiYWVzLTEyOC1nY20ifQ==";
+const VALID_HYSTERIA2: &str = "hysteria2://password@example.com:443#Alpha";
 
 static NEXT_SANDBOX_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -81,6 +82,25 @@ fn configured_official_mihomo_accepts_builtin_vmess() {
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the VMess Mihomo acceptance fixture"));
     verify_mihomo_config(&binary, &sandbox, "builtin VMess");
+}
+
+#[test]
+fn configured_official_mihomo_accepts_builtin_hysteria2() {
+    let expected_version = configured_mihomo_version();
+    let Some(binary) = configured_mihomo_binary() else {
+        return;
+    };
+    let sandbox = TestSandbox::create()
+        .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
+
+    verify_mihomo_version(&binary, &sandbox, expected_version);
+    let rendered = prepare_direct_subscription_v1(&[VALID_HYSTERIA2])
+        .expect("fixed Hysteria2 subscription must be valid")
+        .render_builtin_mihomo_v1()
+        .expect("builtin Hysteria2 Mihomo render must succeed");
+    fs::write(&sandbox.config_file, rendered.as_bytes())
+        .unwrap_or_else(|_| panic!("failed to prepare the Hysteria2 Mihomo acceptance fixture"));
+    verify_mihomo_config(&binary, &sandbox, "builtin Hysteria2");
 }
 
 #[test]

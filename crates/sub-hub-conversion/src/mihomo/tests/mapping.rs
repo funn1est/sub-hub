@@ -281,6 +281,41 @@ reality-opts:
 }
 
 #[test]
+fn hysteria2_single_hop_obfs_and_pin_project_supported_fields() {
+    const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let actual = rendered_yaml(
+        format!(
+            concat!(
+                "hysteria2://letmein@EXAMPLE.COM:443#Plain\n",
+                "hy2://user:pass@example.com:123,5000-6000/?obfs=salamander&obfs-password=gawrgura&sni=real.example#Hop\n",
+                "hysteria2://letmein@example.com/?obfs=gecko&obfs-password=secret&pinSHA256={PIN}#Gecko\n",
+            ),
+            PIN = PIN
+        )
+        .as_bytes(),
+    );
+
+    assert_eq!(actual["proxies"][0]["type"], "hysteria2");
+    assert_eq!(actual["proxies"][0]["server"], "example.com");
+    assert_eq!(actual["proxies"][0]["port"], 443);
+    assert_eq!(actual["proxies"][0]["password"], "letmein");
+    assert_eq!(actual["proxies"][0]["udp"], true);
+    assert!(actual["proxies"][0]["skip-cert-verify"].is_null());
+    assert!(actual["proxies"][0]["ports"].is_null());
+
+    assert_eq!(actual["proxies"][1]["password"], "user:pass");
+    assert_eq!(actual["proxies"][1]["port"], 123);
+    assert_eq!(actual["proxies"][1]["ports"], "123,5000-6000");
+    assert_eq!(actual["proxies"][1]["obfs"], "salamander");
+    assert_eq!(actual["proxies"][1]["obfs-password"], "gawrgura");
+    assert_eq!(actual["proxies"][1]["sni"], "real.example");
+
+    assert_eq!(actual["proxies"][2]["obfs"], "gecko");
+    assert_eq!(actual["proxies"][2]["fingerprint"], PIN);
+    assert!(actual["proxies"][2]["skip-cert-verify"].is_null());
+}
+
+#[test]
 fn yaml_scalars_round_trip_names_and_secrets_that_require_escaping() {
     let source = b"ss://aes-128-gcm:line%0Abreak@EXAMPLE.COM:8388#%3A%20%5Bnode%5D%20%23";
     let parsed = crate::subscription_source::parse_subscription_sources(&[source])

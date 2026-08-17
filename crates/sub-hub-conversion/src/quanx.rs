@@ -141,6 +141,7 @@ fn render_server_line(node: &ProxyNode, tag: &str) -> Option<String> {
         }
         NodeProtocol::Trojan(trojan) => render_trojan_line(&endpoint, trojan, tag)?,
         NodeProtocol::Vmess(vmess) => render_vmess_line(&endpoint, vmess, tag)?,
+        NodeProtocol::Hysteria2(_) => return None,
     };
     Some(line)
 }
@@ -711,6 +712,21 @@ mod tests {
         assert!(text.contains("tag=Wss"));
         assert!(!text.contains("tag=Grpc"));
         assert!(!text.contains("grpc"));
+        assert_eq!(output.diagnostics().capability_skips(), 1);
+    }
+
+    #[test]
+    fn hysteria2_is_skipped_on_every_combo() {
+        let source = concat!(
+            "hysteria2://password@EXAMPLE.COM:443#Plain\n",
+            "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha\n",
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_quanx_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains("tag=Alpha"));
+        assert!(!text.contains("tag=Plain"));
+        assert!(!text.contains("hysteria"));
         assert_eq!(output.diagnostics().capability_skips(), 1);
     }
 

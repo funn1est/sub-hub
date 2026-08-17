@@ -154,7 +154,7 @@ fn occurrence_limit_is_request_wide_across_direct_and_remote_sources() {
 fn zero_valid_nodes_and_error_formatting_are_closed_and_secret_safe() {
     assert_eq!(
         prepare_subscription_v1(&[
-            SubscriptionSourceV1::Direct("hysteria2://secret-canary.example:443"),
+            SubscriptionSourceV1::Direct("tuic://secret-canary.example:443"),
             SubscriptionSourceV1::Remote(b"\t \r\n"),
         ])
         .unwrap_err(),

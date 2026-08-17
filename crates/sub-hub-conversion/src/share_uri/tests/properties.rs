@@ -80,6 +80,17 @@ fn selected_cross_field_invariants_hold(node: &ProxyNodeDraft) -> bool {
                     crate::node::vmess::VmessSecurity::Tls(options) if options.server_name().is_empty()
                 )
         }
+        NodeProtocol::Hysteria2(hysteria2) => {
+            !hysteria2
+                .auth()
+                .expose()
+                .chars()
+                .any(|character| character.is_ascii_control())
+                && hysteria2.sni().is_none_or(|sni| !sni.is_empty())
+                && hysteria2
+                    .obfs()
+                    .is_none_or(|obfs| !obfs.password().is_empty())
+        }
     }
 }
 
@@ -151,28 +162,6 @@ fn valid_share_uri_strategy() -> impl Strategy<Value = String> {
             format!("ss://2022-blake3-aes-128-gcm:{psk}@{domain}.example:{port}")
         },
     );
-    let trojan_tcp = (lowercase_token(16), lowercase_token(12), 1u16..=u16::MAX).prop_map(
-        |(password, domain, port)| format!("trojan://{password}@{domain}.example:{port}"),
-    );
-    let trojan_websocket = (
-        lowercase_token(16),
-        lowercase_token(12),
-        lowercase_token(24),
-        1u16..=u16::MAX,
-    )
-        .prop_map(|(password, domain, path, port)| {
-            format!("trojan://{password}@{domain}.example:{port}?type=ws&path=%2F{path}")
-        });
-    let trojan_reality = (
-        lowercase_token(16),
-        lowercase_token(12),
-        any::<[u8; 32]>(),
-        1u16..=u16::MAX,
-    )
-        .prop_map(|(password, domain, public_key, port)| {
-            let public_key = URL_SAFE_NO_PAD.encode(public_key);
-            format!("trojan://{password}@{domain}.example:{port}?security=reality&pbk={public_key}")
-        });
     let json_v2_tcp =
         (any::<[u8; 16]>(), lowercase_token(12), 1u16..=u16::MAX).prop_map(|(id, domain, port)| {
             let json = format!(
@@ -188,11 +177,54 @@ fn valid_share_uri_strategy() -> impl Strategy<Value = String> {
         vless_reality,
         shadowsocks_classic,
         shadowsocks_2022,
-        trojan_tcp,
-        trojan_websocket,
-        trojan_reality,
+        trojan_uri_strategy(),
         json_v2_tcp,
+        hysteria2_uri_strategy(),
     ]
+}
+
+fn trojan_uri_strategy() -> impl Strategy<Value = String> {
+    let tcp = (lowercase_token(16), lowercase_token(12), 1u16..=u16::MAX).prop_map(
+        |(password, domain, port)| format!("trojan://{password}@{domain}.example:{port}"),
+    );
+    let websocket = (
+        lowercase_token(16),
+        lowercase_token(12),
+        lowercase_token(24),
+        1u16..=u16::MAX,
+    )
+        .prop_map(|(password, domain, path, port)| {
+            format!("trojan://{password}@{domain}.example:{port}?type=ws&path=%2F{path}")
+        });
+    let reality = (
+        lowercase_token(16),
+        lowercase_token(12),
+        any::<[u8; 32]>(),
+        1u16..=u16::MAX,
+    )
+        .prop_map(|(password, domain, public_key, port)| {
+            let public_key = URL_SAFE_NO_PAD.encode(public_key);
+            format!("trojan://{password}@{domain}.example:{port}?security=reality&pbk={public_key}")
+        });
+    prop_oneof![tcp, websocket, reality]
+}
+
+fn hysteria2_uri_strategy() -> impl Strategy<Value = String> {
+    let tcp = (lowercase_token(16), lowercase_token(12), 1u16..=u16::MAX).prop_map(
+        |(password, domain, port)| format!("hysteria2://{password}@{domain}.example:{port}"),
+    );
+    let salamander = (
+        lowercase_token(16),
+        lowercase_token(12),
+        lowercase_token(16),
+        1u16..=u16::MAX,
+    )
+        .prop_map(|(password, domain, obfs, port)| {
+            format!(
+                "hy2://{password}@{domain}.example:{port}/?obfs=salamander&obfs-password={obfs}"
+            )
+        });
+    prop_oneof![tcp, salamander]
 }
 
 fn parser_input_strategy() -> impl Strategy<Value = String> {
@@ -204,6 +236,8 @@ fn parser_input_strategy() -> impl Strategy<Value = String> {
         2 => any::<String>().prop_map(|tail| format!("ss://{tail}")),
         2 => any::<String>().prop_map(|tail| format!("trojan://{tail}")),
         2 => any::<String>().prop_map(|tail| format!("vmess://{tail}")),
+        2 => any::<String>().prop_map(|tail| format!("hysteria2://{tail}")),
+        2 => any::<String>().prop_map(|tail| format!("hy2://{tail}")),
         2 => (any::<String>(), any::<String>()).prop_map(|(query, fragment)| format!(
             "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443?{query}#{fragment}"
         )),

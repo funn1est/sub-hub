@@ -29,11 +29,16 @@ pub(crate) fn render_singbox_from_policy_v1(
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
     let mut node_outbounds = Vec::new();
     let mut valid_tags = Vec::new();
+    let mut capability_skips = 0_u32;
     for node in named_nodes {
         let Some(tag) = plain_node_tag(node.name().as_str()) else {
             continue;
         };
-        node_outbounds.push(node_outbound(node, tag));
+        let Some(outbound) = node_outbound(node, tag) else {
+            capability_skips = capability_skips.saturating_add(1);
+            continue;
+        };
+        node_outbounds.push(outbound);
         valid_tags.push(tag.to_owned());
     }
     if node_outbounds.is_empty() {
@@ -87,15 +92,14 @@ pub(crate) fn render_singbox_from_policy_v1(
         },
     };
     let bytes = serialize_pretty(&document, limit_bytes)?;
-    // sing-box keeps every supported protocol/transport combination today.
     Ok(RenderedTargetV1 {
         bytes,
-        capability_skips: 0,
+        capability_skips,
     })
 }
 
-fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Outbound<'a> {
-    match node.protocol() {
+fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Option<Outbound<'a>> {
+    Some(match node.protocol() {
         NodeProtocol::Vless(vless) => Outbound::Vless(vless_outbound(node, vless, tag)),
         NodeProtocol::Shadowsocks(shadowsocks) => Outbound::Shadowsocks(shadowsocks_outbound(
             node,
@@ -105,7 +109,46 @@ fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Outbound<'a> {
         )),
         NodeProtocol::Trojan(trojan) => Outbound::Trojan(trojan_outbound(node, trojan, tag)),
         NodeProtocol::Vmess(vmess) => Outbound::Vmess(vmess_outbound(node, vmess, tag)),
+        NodeProtocol::Hysteria2(hysteria2) => {
+            Outbound::Hysteria2(hysteria2_outbound(node, hysteria2, tag)?)
+        }
+    })
+}
+
+fn hysteria2_outbound<'a>(
+    node: &'a ProxyNode,
+    hysteria2: &'a crate::node::hysteria2::Hysteria2Node,
+    tag: &'a str,
+) -> Option<Hysteria2Outbound<'a>> {
+    if hysteria2.pin_sha256().is_some()
+        || hysteria2
+            .obfs()
+            .is_some_and(crate::node::hysteria2::Hysteria2Obfs::is_gecko)
+    {
+        return None;
     }
+    let (server_port, server_ports) = if hysteria2.ports().is_hop() {
+        (None, Some(hysteria2.ports().render_singbox()))
+    } else {
+        (Some(node.endpoint().port().get()), None)
+    };
+    let obfs = hysteria2.obfs().map(|obfs| Hysteria2ObfsObject {
+        kind: obfs.token(),
+        password: obfs.password(),
+    });
+    Some(Hysteria2Outbound {
+        kind: "hysteria2",
+        tag,
+        server: render_host_plain(node.endpoint().host()),
+        server_port,
+        server_ports,
+        password: hysteria2.auth().expose(),
+        obfs,
+        tls: Hysteria2Tls {
+            enabled: true,
+            server_name: hysteria2.sni(),
+        },
+    })
 }
 
 fn vmess_outbound<'a>(
@@ -460,9 +503,40 @@ enum Outbound<'a> {
     Shadowsocks(ShadowsocksOutbound<'a>),
     Trojan(TrojanOutbound<'a>),
     Vmess(VmessOutbound<'a>),
+    Hysteria2(Hysteria2Outbound<'a>),
     Selector(SelectorOutbound),
     Urltest(UrltestOutbound),
     Simple(SimpleOutbound),
+}
+
+#[derive(Serialize)]
+struct Hysteria2Outbound<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    tag: &'a str,
+    server: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_ports: Option<Vec<String>>,
+    password: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    obfs: Option<Hysteria2ObfsObject<'a>>,
+    tls: Hysteria2Tls<'a>,
+}
+
+#[derive(Serialize)]
+struct Hysteria2ObfsObject<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    password: &'a str,
+}
+
+#[derive(Serialize)]
+struct Hysteria2Tls<'a> {
+    enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_name: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -794,6 +868,37 @@ mod tests {
         assert!(text.contains("\"type\": \"grpc\""));
         assert!(!text.contains("multiplex"));
         assert_eq!(output.diagnostics().capability_skips(), 0);
+    }
+
+    #[test]
+    fn hysteria2_salamander_and_hop_are_kept_gecko_and_pin_skipped() {
+        const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let source = format!(
+            concat!(
+                "hysteria2://password@EXAMPLE.COM:443/?sni=example.com&obfs=salamander&obfs-password=gawrgura#Plain\n",
+                "hysteria2://password@example.com:123,5000-6000/#Hop\n",
+                "hysteria2://password@example.com/?obfs=gecko&obfs-password=secret#Gecko\n",
+                "hysteria2://password@example.com/?pinSHA256={PIN}#Pin\n",
+            ),
+            PIN = PIN
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_singbox_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains("\"type\": \"hysteria2\""));
+        assert!(text.contains("\"tag\": \"Plain\""));
+        assert!(text.contains("\"password\": \"password\""));
+        assert!(text.contains("\"type\": \"salamander\""));
+        assert!(text.contains("\"password\": \"gawrgura\""));
+        assert!(text.contains("\"server_name\": \"example.com\""));
+        assert!(text.contains("\"tag\": \"Hop\""));
+        assert!(text.contains("\"123:123\""));
+        assert!(text.contains("\"5000:6000\""));
+        assert!(!text.contains("\"tag\": \"Gecko\""));
+        assert!(!text.contains("\"tag\": \"Pin\""));
+        assert!(!text.contains("certificate_public_key_sha256"));
+        assert!(!text.contains("insecure"));
+        assert_eq!(output.diagnostics().capability_skips(), 2);
     }
 
     #[test]

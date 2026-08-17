@@ -75,7 +75,7 @@ fn direct_preparation_enforces_occurrence_shape_and_count() {
 #[test]
 fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
     assert_eq!(
-        prepare_direct_subscription_v1(&["hysteria2://example.com:443"]).unwrap_err(),
+        prepare_direct_subscription_v1(&["tuic://example.com:443"]).unwrap_err(),
         DirectPreparationError::NoValidNodes
     );
 
@@ -85,7 +85,7 @@ fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
         DirectPreparationError::NoValidNodes
     );
 
-    let prepared = prepare_direct_subscription_v1(&["hysteria2://example.com:443", VALID_DIRECT])
+    let prepared = prepare_direct_subscription_v1(&["tuic://example.com:443", VALID_DIRECT])
         .expect("one accepted direct occurrence");
     let config = prepared
         .render_builtin_mihomo_v1()

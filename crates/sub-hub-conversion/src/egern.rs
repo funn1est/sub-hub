@@ -72,6 +72,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             shadowsocks: None,
             trojan: None,
             vmess: None,
+            hysteria2: None,
         }),
         NodeProtocol::Shadowsocks(shadowsocks) => Some(ProxyEntry {
             vless: None,
@@ -89,20 +90,63 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             }),
             trojan: None,
             vmess: None,
+            hysteria2: None,
         }),
         NodeProtocol::Trojan(trojan) => Some(ProxyEntry {
             vless: None,
             shadowsocks: None,
             trojan: Some(trojan_proxy(node, trojan, tag)?),
             vmess: None,
+            hysteria2: None,
         }),
         NodeProtocol::Vmess(vmess) => Some(ProxyEntry {
             vless: None,
             shadowsocks: None,
             trojan: None,
             vmess: Some(vmess_proxy(node, vmess, tag)?),
+            hysteria2: None,
+        }),
+        NodeProtocol::Hysteria2(hysteria2) => Some(ProxyEntry {
+            vless: None,
+            shadowsocks: None,
+            trojan: None,
+            vmess: None,
+            hysteria2: Some(hysteria2_proxy(node, hysteria2, tag)?),
         }),
     }
+}
+
+fn hysteria2_proxy(
+    node: &ProxyNode,
+    hysteria2: &crate::node::hysteria2::Hysteria2Node,
+    tag: &str,
+) -> Option<Hysteria2Proxy> {
+    if hysteria2
+        .obfs()
+        .is_some_and(crate::node::hysteria2::Hysteria2Obfs::is_gecko)
+    {
+        return None;
+    }
+    let pin = hysteria2.pin_sha256().map(|pin| encode_hex(pin));
+    let (obfs, obfs_password) = match hysteria2.obfs() {
+        Some(obfs) => (Some(obfs.token()), Some(obfs.password().to_owned())),
+        None => (None, None),
+    };
+    Some(Hysteria2Proxy {
+        name: tag.to_owned(),
+        server: render_host_plain(node.endpoint().host()),
+        port: node.endpoint().port().get(),
+        auth: hysteria2.auth().expose().to_owned(),
+        sni: hysteria2.sni().map(str::to_owned),
+        obfs,
+        obfs_password,
+        skip_tls_verify: pin.is_none().then_some(false),
+        fingerprint_sha256: pin,
+        port_hopping: hysteria2
+            .ports()
+            .is_hop()
+            .then(|| hysteria2.ports().render_official()),
+    })
 }
 
 fn vmess_proxy(
@@ -461,6 +505,28 @@ struct ProxyEntry {
     trojan: Option<TrojanProxy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     vmess: Option<VmessProxy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hysteria2: Option<Hysteria2Proxy>,
+}
+
+#[derive(Serialize)]
+struct Hysteria2Proxy {
+    name: String,
+    server: String,
+    port: u16,
+    auth: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sni: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    obfs: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    obfs_password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skip_tls_verify: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fingerprint_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port_hopping: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -846,6 +912,42 @@ mod tests {
         assert!(text.contains("public_key:"));
         assert!(!text.contains("name: Grpc"));
         assert!(!text.contains("fingerprint"));
+        assert_eq!(output.diagnostics().capability_skips(), 1);
+    }
+
+    #[test]
+    fn hysteria2_salamander_hop_and_pin_are_exact_gecko_is_skipped() {
+        const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let source = format!(
+            concat!(
+                "hysteria2://password@EXAMPLE.COM:443/?sni=example.com&obfs=salamander&obfs-password=gawrgura#Plain\n",
+                "hysteria2://password@example.com:123,5000-6000/#Hop\n",
+                "hysteria2://password@example.com/?pinSHA256={PIN}#Pin\n",
+                "hysteria2://password@example.com/?obfs=gecko&obfs-password=secret#Gecko\n",
+            ),
+            PIN = PIN
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_egern_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains(concat!(
+            "- hysteria2:\n",
+            "    name: Plain\n",
+            "    server: example.com\n",
+            "    port: 443\n",
+            "    auth: password\n",
+            "    sni: example.com\n",
+            "    obfs: salamander\n",
+            "    obfs_password: gawrgura\n",
+            "    skip_tls_verify: false\n",
+        )));
+        assert!(text.contains("name: Hop"));
+        assert!(text.contains("port_hopping:"));
+        assert!(text.contains("123,5000-6000"));
+        assert!(text.contains("name: Pin"));
+        assert!(text.contains("fingerprint_sha256:"));
+        assert!(text.contains(PIN));
+        assert!(!text.contains("name: Gecko"));
         assert_eq!(output.diagnostics().capability_skips(), 1);
     }
 

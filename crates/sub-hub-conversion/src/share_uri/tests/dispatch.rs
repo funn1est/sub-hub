@@ -187,6 +187,10 @@ fn supported_protocols_validate_shell_before_query_semantics() {
             "trojan://password@example.com:0?udp=true",
             NodeRejection::Invalid(InvalidNodeReason::Endpoint),
         ),
+        (
+            "hysteria2://letmein@example.com:0?sni=example.com",
+            NodeRejection::Invalid(InvalidNodeReason::Endpoint),
+        ),
     ];
 
     for (uri, expected) in fixtures {
@@ -206,6 +210,8 @@ fn dispatch_distinguishes_malformed_shells_from_unsupported_protocols() {
         "SS://payload",
         "TROJAN://payload",
         "VMESS://payload",
+        "Hysteria2://payload",
+        "HY2://payload",
         "://payload",
         "1scheme://payload",
         "unknown://",
@@ -218,7 +224,7 @@ fn dispatch_distinguishes_malformed_shells_from_unsupported_protocols() {
         );
     }
 
-    for input in ["hysteria2://payload", "unknown+v1://payload"] {
+    for input in ["tuic://payload", "unknown+v1://payload"] {
         assert_eq!(
             rejection(input),
             NodeRejection::Unsupported(UnsupportedCapability::Protocol),

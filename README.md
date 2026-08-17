@@ -1,7 +1,7 @@
 # Sub Hub
 
 Sub Hub is a work-in-progress subscription-conversion backend implemented in
-Rust. It accepts selected VLESS, Shadowsocks, Trojan, and VMess inputs, can load HTTPS
+Rust. It accepts selected VLESS, Shadowsocks, Trojan, VMess, and Hysteria2 inputs, can load HTTPS
 subscription resources and strict ACL4SSR configurations, and generates modern
 Mihomo YAML.
 
@@ -20,7 +20,8 @@ The current compatibility surface contains only:
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
 `quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), or `egern`
 (Egern YAML). Its `url` value accepts one to five ordered inputs separated by
-`|`: direct VLESS, Shadowsocks, Trojan, or v2rayN JSON v2 VMess share URIs, or
+`|`: direct VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess, or official
+Hysteria2 (`hysteria2://` / `hy2://`) share URIs, or
 HTTPS subscription URLs whose raw/Base64 contents contain supported share URIs.
 An optional HTTPS `config` value selects a supported strict ACL4SSR INI
 configuration and its remote Rule Sets. Quantumult X skips gRPC nodes and VLESS
@@ -33,11 +34,15 @@ omits process-name rules, and maps url-test to `auto_test`. Trojan TCP+TLS and
 WebSocket+TLS map on every target; Quantumult X and Egern skip Trojan gRPC; Loon
 skips Trojan Reality and gRPC. VMess accepts only JSON v2 (`vmess://` + Base64);
 Quantumult X skips `auto`/`zero` and gRPC; Loon keeps only `aes-128-gcm` TCP/WS;
-Egern skips cleartext gRPC. Import a generated Egern file in store Egern 2.20.0
+Egern skips cleartext gRPC. Hysteria2 maps salamander, hop, and certificate
+pins on Mihomo; Quantumult X skips every Hysteria2 node; sing-box 1.13.14
+skips gecko and `pinSHA256`; Loon keeps salamander on a single port and skips
+gecko, hop, and pins; Egern keeps salamander, hop, and pins and skips gecko.
+Import a generated Egern file in store Egern 2.20.0
 to confirm it parses; there is no official `egern check` CLI.
 
 The service does not currently expose POST conversion, capabilities, an
-administration API, or Hysteria2 / TUIC. An optional
+administration API, or TUIC. An optional
 `SUB_HUB_ACCESS_TOKEN` protects `GET`/`HEAD /sub/:token` when configured;
 `GET /version` stays public. Unsupported or invalid individual nodes are
 skipped, but source/container/config errors remain fatal and a request with no
