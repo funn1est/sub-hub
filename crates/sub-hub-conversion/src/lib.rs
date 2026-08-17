@@ -14,6 +14,8 @@ mod loon;
 
 mod quanx;
 
+mod render;
+
 mod singbox;
 
 #[cfg(test)]

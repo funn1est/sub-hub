@@ -1,0 +1,484 @@
+//! Target-neutral rendering seam shared by every client adapter.
+//!
+//! This module owns the request-wide output limit, the bounded serializer, the
+//! shared builtin (config-less) orchestration, and small formatting helpers
+//! whose behavior must stay identical across adapters.
+
+use std::{
+    fmt,
+    io::{self, Write},
+};
+
+use serde::Serialize;
+
+use crate::{
+    egern::render_egern_from_policy_v1,
+    loon::render_loon_from_policy_v1,
+    mihomo::render_mihomo_from_policy_v1,
+    node::shadowsocks::ShadowsocksCipher,
+    node::vless::ClientFingerprint,
+    node::{Host, ProxyNode},
+    node_name::{NamedNodeOccurrence, NodeNameDiagnostics, NodeNameError, resolve_node_names},
+    policy::{
+        BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, GroupStrategyV1, compile_builtin_policy_v1,
+    },
+    quanx::render_quanx_from_policy_v1,
+    share_uri::NodeRejection,
+    singbox::render_singbox_from_policy_v1,
+    subscription_source::{NodeOrigin, ParsedSubscriptionSources},
+};
+
+/// Request-wide serialized output limit shared by every target adapter.
+pub(crate) const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
+/// Closed policy-render error shared by every `render_*_from_policy_v1` adapter entry.
+#[derive(PartialEq, Eq)]
+pub(crate) enum AdapterRenderError {
+    NoValidNodes,
+    OutputTooLarge { limit_bytes: usize },
+    Internal,
+}
+
+impl fmt::Debug for AdapterRenderError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoValidNodes => formatter.write_str("NoValidNodes"),
+            Self::OutputTooLarge { limit_bytes } => formatter
+                .debug_struct("OutputTooLarge")
+                .field("limit_bytes", limit_bytes)
+                .finish(),
+            Self::Internal => formatter.write_str("Internal"),
+        }
+    }
+}
+
+/// A rendered target document plus per-target capability accounting.
+pub(crate) struct RenderedTargetV1 {
+    pub(crate) bytes: Vec<u8>,
+    /// Nodes that were accepted upstream but dropped by this target's
+    /// protocol/transport capability filter. Name-grammar skips (reserved or
+    /// unrepresentable node names) are not counted here.
+    pub(crate) capability_skips: u32,
+}
+
+impl fmt::Debug for RenderedTargetV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RenderedTargetV1")
+            .field("bytes", &"[REDACTED]")
+            .field("bytes_len", &self.bytes.len())
+            .field("capability_skips", &self.capability_skips)
+            .finish()
+    }
+}
+
+/// Signature shared by the five per-target policy renderers.
+pub(crate) type RenderFromPolicyFn =
+    fn(&[&ProxyNode], &CompiledPolicyV1, usize) -> Result<RenderedTargetV1, AdapterRenderError>;
+
+#[derive(PartialEq, Eq)]
+pub(crate) struct BuiltinRenderOutput {
+    config: Vec<u8>,
+    diagnostics: BuiltinRenderDiagnostics,
+}
+
+impl BuiltinRenderOutput {
+    pub(crate) fn config(&self) -> &[u8] {
+        &self.config
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
+    pub(crate) const fn diagnostics(&self) -> &BuiltinRenderDiagnostics {
+        &self.diagnostics
+    }
+}
+
+impl fmt::Debug for BuiltinRenderOutput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BuiltinRenderOutput")
+            .field("config", &"[REDACTED]")
+            .field("config_len", &self.config.len())
+            .field("diagnostics", &self.diagnostics)
+            .finish()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BuiltinRenderDiagnostics {
+    rejections: Vec<BuiltinRenderRejection>,
+    node_names: NodeNameDiagnostics,
+    capability_skips: u32,
+}
+
+impl BuiltinRenderDiagnostics {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
+    pub(crate) fn rejections(&self) -> &[BuiltinRenderRejection] {
+        &self.rejections
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
+    pub(crate) const fn node_names(&self) -> &NodeNameDiagnostics {
+        &self.node_names
+    }
+
+    /// Number of nodes dropped by the selected target's capability filter.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
+    pub(crate) const fn capability_skips(&self) -> u32 {
+        self.capability_skips
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct BuiltinRenderRejection {
+    origin: NodeOrigin,
+    rejection: NodeRejection,
+}
+
+impl BuiltinRenderRejection {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
+    pub(crate) const fn origin(&self) -> NodeOrigin {
+        self.origin
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "diagnostics stay behind the application facade")
+    )]
+    pub(crate) const fn rejection(&self) -> &NodeRejection {
+        &self.rejection
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum BuiltinRenderError {
+    NodeNaming(NodeNameError),
+    NoValidNodes {
+        diagnostics: BuiltinRenderDiagnostics,
+    },
+    OutputTooLarge {
+        limit_bytes: usize,
+    },
+    Serialization,
+}
+
+pub(crate) fn render_builtin_mihomo_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
+    render_builtin_with_limit(parsed, render_mihomo_from_policy_v1, MAX_OUTPUT_BYTES)
+}
+
+pub(crate) fn render_builtin_quanx_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
+    render_builtin_with_limit(parsed, render_quanx_from_policy_v1, MAX_OUTPUT_BYTES)
+}
+
+pub(crate) fn render_builtin_singbox_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
+    render_builtin_with_limit(parsed, render_singbox_from_policy_v1, MAX_OUTPUT_BYTES)
+}
+
+pub(crate) fn render_builtin_loon_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
+    render_builtin_with_limit(parsed, render_loon_from_policy_v1, MAX_OUTPUT_BYTES)
+}
+
+pub(crate) fn render_builtin_egern_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
+    render_builtin_with_limit(parsed, render_egern_from_policy_v1, MAX_OUTPUT_BYTES)
+}
+
+/// Names the accepted nodes, compiles the builtin topology, and renders one target.
+pub(crate) fn render_builtin_with_limit(
+    parsed: ParsedSubscriptionSources,
+    render: RenderFromPolicyFn,
+    limit_bytes: usize,
+) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
+    let named =
+        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinRenderError::NodeNaming)?;
+    let mut diagnostics = BuiltinRenderDiagnostics {
+        rejections: named
+            .occurrences()
+            .iter()
+            .filter_map(|occurrence| match occurrence {
+                NamedNodeOccurrence::Accepted { .. } => None,
+                NamedNodeOccurrence::Rejected { origin, rejection } => {
+                    Some(BuiltinRenderRejection {
+                        origin: *origin,
+                        rejection: rejection.clone(),
+                    })
+                }
+            })
+            .collect(),
+        node_names: named.diagnostics().clone(),
+        capability_skips: 0,
+    };
+    let nodes = named
+        .occurrences()
+        .iter()
+        .filter_map(|occurrence| match occurrence {
+            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
+            NamedNodeOccurrence::Rejected { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    if nodes.is_empty() {
+        return Err(BuiltinRenderError::NoValidNodes { diagnostics });
+    }
+
+    let policy = compile_builtin_policy_v1(&nodes);
+    match render(&nodes, &policy, limit_bytes) {
+        Ok(rendered) => {
+            diagnostics.capability_skips = rendered.capability_skips;
+            Ok(BuiltinRenderOutput {
+                config: rendered.bytes,
+                diagnostics,
+            })
+        }
+        Err(AdapterRenderError::NoValidNodes) => {
+            Err(BuiltinRenderError::NoValidNodes { diagnostics })
+        }
+        Err(AdapterRenderError::OutputTooLarge { limit_bytes }) => {
+            Err(BuiltinRenderError::OutputTooLarge { limit_bytes })
+        }
+        Err(AdapterRenderError::Internal) => Err(BuiltinRenderError::Serialization),
+    }
+}
+
+/// Renders an endpoint host with a bare (bracket-free) IPv6 form.
+///
+/// Used by targets whose host field is standalone (Mihomo, sing-box, Loon, Egern).
+pub(crate) fn render_host_plain(host: &Host) -> String {
+    match host {
+        Host::Domain(domain) => domain.clone(),
+        Host::Ipv4(address) => address.to_string(),
+        Host::Ipv6(address) => address.to_string(),
+    }
+}
+
+/// Renders an endpoint host with a bracketed IPv6 form.
+///
+/// Used by targets that join `host:port` in one field (Quantumult X).
+pub(crate) fn render_host_bracketed(host: &Host) -> String {
+    match host {
+        Host::Domain(domain) => domain.clone(),
+        Host::Ipv4(address) => address.to_string(),
+        Host::Ipv6(address) => format!("[{address}]"),
+    }
+}
+
+pub(crate) fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
+}
+
+pub(crate) const fn shadowsocks_method(cipher: &ShadowsocksCipher) -> &'static str {
+    match cipher {
+        ShadowsocksCipher::Aes128Gcm => "aes-128-gcm",
+        ShadowsocksCipher::Aes256Gcm => "aes-256-gcm",
+        ShadowsocksCipher::Chacha20IetfPoly1305 => "chacha20-ietf-poly1305",
+        ShadowsocksCipher::Blake3Aes128Gcm => "2022-blake3-aes-128-gcm",
+        ShadowsocksCipher::Blake3Aes256Gcm => "2022-blake3-aes-256-gcm",
+    }
+}
+
+pub(crate) const fn render_fingerprint(fingerprint: ClientFingerprint) -> &'static str {
+    match fingerprint {
+        ClientFingerprint::Chrome => "chrome",
+        ClientFingerprint::Firefox => "firefox",
+        ClientFingerprint::Safari => "safari",
+        ClientFingerprint::Ios => "ios",
+        ClientFingerprint::Android => "android",
+        ClientFingerprint::Edge => "edge",
+        ClientFingerprint::ThreeSixty => "360",
+        ClientFingerprint::Qq => "qq",
+        ClientFingerprint::Random => "random",
+    }
+}
+
+/// Injects the target's reject token when no member survived render-side filtering.
+///
+/// Compile-side empty groups are already degraded to `Select` + `Reject`; this
+/// guard only covers members dropped by a target's own tag/capability rules.
+pub(crate) fn reject_when_empty(members: &mut Vec<String>, reject_token: &str) {
+    if members.is_empty() {
+        members.push(reject_token.to_owned());
+    }
+}
+
+/// Substitutes the builtin probe URL for an empty health-check URL.
+pub(crate) fn probe_url_or_default(url: &str) -> &str {
+    if url.is_empty() {
+        BUILTIN_AUTO_PROBE_URL
+    } else {
+        url
+    }
+}
+
+/// Returns the single health URL shared by every automatic group, if exactly one exists.
+pub(crate) fn shared_probe_url(policy: &CompiledPolicyV1) -> Option<&str> {
+    let mut urls = Vec::new();
+    for group in policy.groups() {
+        let url = match group.strategy() {
+            GroupStrategyV1::UrlTest { url, .. }
+            | GroupStrategyV1::Fallback { url, .. }
+            | GroupStrategyV1::LoadBalance { url, .. } => probe_url_or_default(url),
+            GroupStrategyV1::Select => continue,
+        };
+        if urls.iter().all(|seen: &&str| *seen != url) {
+            urls.push(url);
+        }
+    }
+    (urls.len() == 1).then_some(urls[0])
+}
+
+/// Node-name validation shared by targets without their own separator grammar
+/// (sing-box, Egern): rejects empty names, ASCII control characters, and the
+/// reserved `direct`/`reject` policy tokens.
+pub(crate) fn plain_node_tag(name: &str) -> Option<&str> {
+    if name.is_empty()
+        || name.chars().any(|character| character.is_ascii_control())
+        || name.eq_ignore_ascii_case("direct")
+        || name.eq_ignore_ascii_case("reject")
+    {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// Group-name validation counterpart of [`plain_node_tag`]; reserved or
+/// malformed group names are internal errors because the compiler owns them.
+pub(crate) fn plain_group_tag(name: &str) -> Result<&str, AdapterRenderError> {
+    if name.is_empty() || name.chars().any(|character| character.is_ascii_control()) {
+        return Err(AdapterRenderError::Internal);
+    }
+    if name.eq_ignore_ascii_case("direct") || name.eq_ignore_ascii_case("reject") {
+        return Err(AdapterRenderError::Internal);
+    }
+    Ok(name)
+}
+
+struct BoundedVec {
+    bytes: Vec<u8>,
+    limit: usize,
+    overflowed: bool,
+}
+
+impl BoundedVec {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            limit,
+            overflowed: false,
+        }
+    }
+
+    fn into_inner(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+impl Write for BoundedVec {
+    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+        if self.overflowed {
+            return Err(io::Error::other("output limit exceeded"));
+        }
+        let Some(next_len) = self.bytes.len().checked_add(input.len()) else {
+            self.overflowed = true;
+            return Err(io::Error::other("output limit exceeded"));
+        };
+        if next_len > self.limit {
+            self.overflowed = true;
+            return Err(io::Error::other("output limit exceeded"));
+        }
+        self.bytes.extend_from_slice(input);
+        Ok(input.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if self.overflowed {
+            Err(io::Error::other("output limit exceeded"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Serializes a document as YAML while enforcing the inclusive byte limit atomically.
+pub(crate) fn serialize_bounded<T: Serialize>(
+    value: &T,
+    limit_bytes: usize,
+) -> Result<Vec<u8>, AdapterRenderError> {
+    let mut sink = BoundedVec::new(limit_bytes);
+    let serialization = serde_yaml_ng::to_writer(&mut sink, value);
+    if sink.overflowed {
+        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
+    }
+    serialization.map_err(|_| AdapterRenderError::Internal)?;
+    Ok(sink.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+
+    use serde::{Serialize, Serializer, ser::Error as _};
+
+    use super::{AdapterRenderError, BoundedVec, MAX_OUTPUT_BYTES, serialize_bounded};
+
+    #[test]
+    fn sixteen_mib_is_inclusive_and_a_crossing_chunk_is_never_partially_written() {
+        let mut sink = BoundedVec::new(MAX_OUTPUT_BYTES);
+        let exact = vec![b'x'; MAX_OUTPUT_BYTES];
+        sink.write_all(&exact).expect("exactly 16 MiB is allowed");
+        assert_eq!(sink.bytes.len(), MAX_OUTPUT_BYTES);
+
+        assert!(sink.write_all(b"!").is_err());
+        assert_eq!(sink.bytes.len(), MAX_OUTPUT_BYTES);
+        assert!(sink.overflowed);
+        assert!(sink.write(b"").is_err(), "overflow is sticky");
+    }
+
+    struct FailsToSerialize;
+
+    impl Serialize for FailsToSerialize {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            Err(S::Error::custom("deliberate test failure"))
+        }
+    }
+
+    #[test]
+    fn serializer_failures_are_not_misclassified_as_size_failures() {
+        assert_eq!(
+            serialize_bounded(&FailsToSerialize, 1_024),
+            Err(AdapterRenderError::Internal)
+        );
+    }
+}

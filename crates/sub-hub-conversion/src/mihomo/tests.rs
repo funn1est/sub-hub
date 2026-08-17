@@ -1,4 +1,4 @@
-use crate::{mihomo::render_builtin_mihomo_v1, subscription_source::parse_subscription_sources};
+use crate::{render::render_builtin_mihomo_v1, subscription_source::parse_subscription_sources};
 
 mod diagnostics;
 mod golden;

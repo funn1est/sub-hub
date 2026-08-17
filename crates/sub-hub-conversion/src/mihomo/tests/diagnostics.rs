@@ -1,6 +1,6 @@
 use crate::{
-    mihomo::{BuiltinMihomoError, render_builtin_mihomo_v1},
     node_name::NodeNameDiagnosticKind,
+    render::{BuiltinRenderError, render_builtin_mihomo_v1},
     share_uri::{NodeRejection, UnsupportedCapability},
     subscription_source::{NodeOrigin, parse_subscription_sources},
 };
@@ -37,6 +37,7 @@ fn success_preserves_rejections_origins_and_node_name_diagnostics() {
             .count(NodeNameDiagnosticKind::CollisionSuffixed),
         1
     );
+    assert_eq!(diagnostics.capability_skips(), 0);
 
     let document: serde_yaml_ng::Value =
         serde_yaml_ng::from_slice(output.config()).expect("valid YAML");
@@ -51,7 +52,7 @@ fn no_valid_nodes_returns_the_same_safe_diagnostics() {
             .expect("valid subscription container");
 
     let error = render_builtin_mihomo_v1(parsed).expect_err("all nodes are rejected");
-    let BuiltinMihomoError::NoValidNodes { diagnostics } = error else {
+    let BuiltinRenderError::NoValidNodes { diagnostics } = error else {
         panic!("expected NoValidNodes")
     };
 
@@ -75,7 +76,7 @@ fn empty_sources_return_no_valid_nodes_with_empty_diagnostics() {
     let parsed = parse_subscription_sources(&[b"".as_slice()]).expect("empty source is valid");
 
     let error = render_builtin_mihomo_v1(parsed).expect_err("there are no valid nodes");
-    let BuiltinMihomoError::NoValidNodes { diagnostics } = error else {
+    let BuiltinRenderError::NoValidNodes { diagnostics } = error else {
         panic!("expected NoValidNodes")
     };
 

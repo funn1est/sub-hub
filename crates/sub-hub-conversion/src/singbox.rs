@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt};
+use std::borrow::Cow;
 
 use base64::{
     Engine as _,
@@ -9,37 +9,33 @@ use serde::Serialize;
 use crate::{
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
-    node::{Host, NodeProtocol, ProxyNode},
-    policy::{
-        BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
-        RuleMatcherV1,
+    node::{NodeProtocol, ProxyNode},
+    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1},
+    render::{
+        AdapterRenderError, RenderedTargetV1, encode_hex, plain_group_tag, plain_node_tag,
+        probe_url_or_default, reject_when_empty, render_fingerprint, render_host_plain,
+        shadowsocks_method,
     },
 };
 
 const DEFAULT_URLTEST_TOLERANCE_MS: u16 = 50;
 
-pub(crate) enum SingboxRenderError {
-    NoValidNodes,
-    OutputTooLarge { limit_bytes: usize },
-    Internal,
-}
-
 pub(crate) fn render_singbox_from_policy_v1(
     named_nodes: &[&ProxyNode],
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
-) -> Result<Vec<u8>, SingboxRenderError> {
+) -> Result<RenderedTargetV1, AdapterRenderError> {
     let mut node_outbounds = Vec::new();
     let mut valid_tags = Vec::new();
     for node in named_nodes {
-        let Some(tag) = singbox_node_tag(node.name().as_str()) else {
+        let Some(tag) = plain_node_tag(node.name().as_str()) else {
             continue;
         };
         node_outbounds.push(node_outbound(node, tag));
         valid_tags.push(tag.to_owned());
     }
     if node_outbounds.is_empty() {
-        return Err(SingboxRenderError::NoValidNodes);
+        return Err(AdapterRenderError::NoValidNodes);
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
@@ -47,8 +43,8 @@ pub(crate) fn render_singbox_from_policy_v1(
     let first_group = policy
         .groups()
         .first()
-        .ok_or(SingboxRenderError::Internal)?;
-    let final_tag = singbox_group_tag(first_group.name())?.to_owned();
+        .ok_or(AdapterRenderError::Internal)?;
+    let final_tag = plain_group_tag(first_group.name())?.to_owned();
 
     let mut outbounds = node_outbounds;
     outbounds.extend(group_outbounds);
@@ -88,37 +84,12 @@ pub(crate) fn render_singbox_from_policy_v1(
             default_domain_resolver: "local",
         },
     };
-    serialize_pretty(&document, limit_bytes)
-}
-
-fn singbox_node_tag(name: &str) -> Option<&str> {
-    if name.is_empty()
-        || name.chars().any(|character| character.is_ascii_control())
-        || name.eq_ignore_ascii_case("direct")
-        || name.eq_ignore_ascii_case("reject")
-    {
-        None
-    } else {
-        Some(name)
-    }
-}
-
-fn singbox_group_tag(name: &str) -> Result<&str, SingboxRenderError> {
-    if name.is_empty() || name.chars().any(|character| character.is_ascii_control()) {
-        return Err(SingboxRenderError::Internal);
-    }
-    if name.eq_ignore_ascii_case("direct") || name.eq_ignore_ascii_case("reject") {
-        return Err(SingboxRenderError::Internal);
-    }
-    Ok(name)
-}
-
-fn render_host(host: &Host) -> String {
-    match host {
-        Host::Domain(domain) => domain.clone(),
-        Host::Ipv4(address) => address.to_string(),
-        Host::Ipv6(address) => address.to_string(),
-    }
+    let bytes = serialize_pretty(&document, limit_bytes)?;
+    // sing-box keeps every supported protocol/transport combination today.
+    Ok(RenderedTargetV1 {
+        bytes,
+        capability_skips: 0,
+    })
 }
 
 fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Outbound<'a> {
@@ -177,7 +148,7 @@ fn vless_outbound<'a>(
     VlessOutbound {
         kind: "vless",
         tag,
-        server: render_host(node.endpoint().host()),
+        server: render_host_plain(node.endpoint().host()),
         server_port: node.endpoint().port().get(),
         uuid: vless.id().as_uuid().hyphenated().to_string(),
         flow: vless.flow().map(|flow| match flow {
@@ -219,55 +190,21 @@ fn shadowsocks_outbound<'a>(
     ShadowsocksOutbound {
         kind: "shadowsocks",
         tag,
-        server: render_host(node.endpoint().host()),
+        server: render_host_plain(node.endpoint().host()),
         server_port: node.endpoint().port().get(),
         method: shadowsocks_method(cipher),
         password,
     }
 }
 
-fn shadowsocks_method(cipher: &ShadowsocksCipher) -> &'static str {
-    match cipher {
-        ShadowsocksCipher::Aes128Gcm => "aes-128-gcm",
-        ShadowsocksCipher::Aes256Gcm => "aes-256-gcm",
-        ShadowsocksCipher::Chacha20IetfPoly1305 => "chacha20-ietf-poly1305",
-        ShadowsocksCipher::Blake3Aes128Gcm => "2022-blake3-aes-128-gcm",
-        ShadowsocksCipher::Blake3Aes256Gcm => "2022-blake3-aes-256-gcm",
-    }
-}
-
-const fn render_fingerprint(fingerprint: ClientFingerprint) -> &'static str {
-    match fingerprint {
-        ClientFingerprint::Chrome => "chrome",
-        ClientFingerprint::Firefox => "firefox",
-        ClientFingerprint::Safari => "safari",
-        ClientFingerprint::Ios => "ios",
-        ClientFingerprint::Android => "android",
-        ClientFingerprint::Edge => "edge",
-        ClientFingerprint::ThreeSixty => "360",
-        ClientFingerprint::Qq => "qq",
-        ClientFingerprint::Random => "random",
-    }
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(char::from(HEX[usize::from(byte >> 4)]));
-        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    output
-}
-
 fn member_tag(
     member: &PolicyMemberV1,
     valid_nodes: &[&str],
-) -> Result<Option<String>, SingboxRenderError> {
+) -> Result<Option<String>, AdapterRenderError> {
     match member {
         PolicyMemberV1::Direct => Ok(Some("direct".to_owned())),
         PolicyMemberV1::Reject => Ok(Some("reject".to_owned())),
-        PolicyMemberV1::Group(name) => singbox_group_tag(name).map(|tag| Some(tag.to_owned())),
+        PolicyMemberV1::Group(name) => plain_group_tag(name).map(|tag| Some(tag.to_owned())),
         PolicyMemberV1::Node(name) => Ok(valid_nodes
             .iter()
             .any(|candidate| *candidate == name)
@@ -278,19 +215,17 @@ fn member_tag(
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
-) -> Result<Vec<Outbound<'static>>, SingboxRenderError> {
+) -> Result<Vec<Outbound<'static>>, AdapterRenderError> {
     let mut outbounds = Vec::new();
     for group in policy.groups() {
-        let tag = singbox_group_tag(group.name())?.to_owned();
+        let tag = plain_group_tag(group.name())?.to_owned();
         let mut members = Vec::new();
         for member in group.members() {
             if let Some(token) = member_tag(member, valid_nodes)? {
                 members.push(token);
             }
         }
-        if members.is_empty() {
-            members.push("reject".to_owned());
-        }
+        reject_when_empty(&mut members, "reject");
         let outbound = match group.strategy() {
             GroupStrategyV1::Select | GroupStrategyV1::LoadBalance { .. } => {
                 Outbound::Selector(SelectorOutbound {
@@ -325,11 +260,7 @@ fn urltest_outbound(
         kind: "urltest",
         tag,
         outbounds: members,
-        url: if url.is_empty() {
-            BUILTIN_AUTO_PROBE_URL.to_owned()
-        } else {
-            url.to_owned()
-        },
+        url: probe_url_or_default(url).to_owned(),
         interval: format!("{interval}s"),
         tolerance: tolerance.unwrap_or(DEFAULT_URLTEST_TOLERANCE_MS),
     }
@@ -338,7 +269,7 @@ fn urltest_outbound(
 fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
-) -> Result<Vec<RouteRule>, SingboxRenderError> {
+) -> Result<Vec<RouteRule>, AdapterRenderError> {
     let mut rendered = Vec::new();
     for rule in rules {
         let Some(outbound) = member_tag(rule.target(), valid_nodes)? else {
@@ -380,11 +311,11 @@ fn render_rules(
 fn serialize_pretty(
     document: &Document<'_>,
     limit_bytes: usize,
-) -> Result<Vec<u8>, SingboxRenderError> {
-    let mut body = serde_json::to_vec_pretty(document).map_err(|_| SingboxRenderError::Internal)?;
+) -> Result<Vec<u8>, AdapterRenderError> {
+    let mut body = serde_json::to_vec_pretty(document).map_err(|_| AdapterRenderError::Internal)?;
     body.push(b'\n');
     if body.len() > limit_bytes {
-        return Err(SingboxRenderError::OutputTooLarge { limit_bytes });
+        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
     }
     Ok(body)
 }
@@ -572,28 +503,15 @@ impl RouteRule {
     }
 }
 
-impl fmt::Debug for SingboxRenderError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NoValidNodes => formatter.write_str("NoValidNodes"),
-            Self::OutputTooLarge { limit_bytes } => formatter
-                .debug_struct("OutputTooLarge")
-                .field("limit_bytes", limit_bytes)
-                .finish(),
-            Self::Internal => formatter.write_str("Internal"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1,
-        SingboxRenderError, render_singbox_from_policy_v1,
+        AdapterRenderError, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
+        RuleMatcherV1, render_singbox_from_policy_v1,
     };
-    use crate::mihomo::{MAX_MIHOMO_OUTPUT_BYTES, render_builtin_singbox_v1};
     use crate::node_name::{NamedNodeOccurrence, resolve_node_names};
     use crate::policy::{CompiledGroupV1, PolicyReportV1};
+    use crate::render::{MAX_OUTPUT_BYTES, render_builtin_singbox_v1};
     use crate::subscription_source::parse_subscription_sources;
 
     const BUILTIN_TCP_VLESS: &str = concat!(
@@ -697,6 +615,7 @@ mod tests {
         assert!(text.contains("\"flow\": \"xtls-rprx-vision\""));
         assert!(text.contains("\"fingerprint\": \"chrome\""));
         assert!(text.contains("\"fingerprint\": \"safari\""));
+        assert_eq!(output.diagnostics().capability_skips(), 0);
     }
 
     #[test]
@@ -743,9 +662,8 @@ mod tests {
             vec![],
             PolicyReportV1::default(),
         );
-        let output =
-            render_singbox_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).expect("ok");
-        let text = std::str::from_utf8(&output).expect("utf8");
+        let output = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
+        let text = std::str::from_utf8(&output.bytes).expect("utf8");
         assert!(text.contains("\"tag\": \"Alpha\""));
         assert!(!text.contains("\"server\": \"example.com\""));
         assert!(text.contains("\"outbounds\": [\n        \"reject\"\n      ]"));
@@ -767,9 +685,9 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let policy = CompiledPolicyV1::new(vec![], vec![], PolicyReportV1::default());
-        let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES)
+        let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
             .expect_err("no valid nodes");
-        assert!(matches!(error, SingboxRenderError::NoValidNodes));
+        assert!(matches!(error, AdapterRenderError::NoValidNodes));
     }
 
     #[test]
@@ -825,9 +743,8 @@ mod tests {
             .filter(|rule| matches!(rule.matcher(), RuleMatcherV1::GeoIpCn))
             .count();
         assert_eq!(omitted, 1);
-        let output =
-            render_singbox_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).expect("ok");
-        let text = std::str::from_utf8(&output).expect("utf8");
+        let output = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
+        let text = std::str::from_utf8(&output.bytes).expect("utf8");
         assert!(text.contains("\"type\": \"urltest\""));
         assert!(text.contains("\"tag\": \"Fallback\""));
         assert!(text.contains("\"interval\": \"60s\""));
@@ -865,9 +782,9 @@ mod tests {
             vec![],
             PolicyReportV1::default(),
         );
-        let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES)
+        let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
             .expect_err("reserved group");
-        assert!(matches!(error, SingboxRenderError::Internal));
+        assert!(matches!(error, AdapterRenderError::Internal));
     }
 
     #[test]
@@ -889,7 +806,7 @@ mod tests {
         let error = render_singbox_from_policy_v1(&nodes, &policy, 8).expect_err("limit");
         assert!(matches!(
             error,
-            SingboxRenderError::OutputTooLarge { limit_bytes: 8 }
+            AdapterRenderError::OutputTooLarge { limit_bytes: 8 }
         ));
     }
 
@@ -905,7 +822,7 @@ mod tests {
         assert!(!debug.contains("gstatic"));
         let error_debug = format!(
             "{:?}",
-            SingboxRenderError::OutputTooLarge { limit_bytes: 4 }
+            AdapterRenderError::OutputTooLarge { limit_bytes: 4 }
         );
         assert!(!error_debug.contains("SecretCanary"));
     }

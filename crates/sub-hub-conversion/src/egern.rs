@@ -1,5 +1,3 @@
-use std::fmt;
-
 use base64::{
     Engine as _,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
@@ -7,97 +5,62 @@ use base64::{
 use serde::Serialize;
 
 use crate::{
-    mihomo::{BuiltinMihomoError, serialize_bounded},
-    node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
+    node::shadowsocks::ShadowsocksCredential,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
-    node::{Host, NodeProtocol, ProxyNode},
+    node::{NodeProtocol, ProxyNode},
     policy::{
-        BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
-        PolicyMemberV1, RuleMatcherV1,
+        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
+    },
+    render::{
+        AdapterRenderError, RenderedTargetV1, encode_hex, plain_group_tag, plain_node_tag,
+        probe_url_or_default, reject_when_empty, render_host_plain, serialize_bounded,
+        shadowsocks_method, shared_probe_url,
     },
 };
-
-pub(crate) enum EgernRenderError {
-    NoValidNodes,
-    OutputTooLarge { limit_bytes: usize },
-    Internal,
-}
 
 pub(crate) fn render_egern_from_policy_v1(
     named_nodes: &[&ProxyNode],
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
-) -> Result<Vec<u8>, EgernRenderError> {
+) -> Result<RenderedTargetV1, AdapterRenderError> {
     let mut proxies = Vec::new();
     let mut valid_tags = Vec::new();
+    let mut capability_skips = 0_u32;
     for node in named_nodes {
-        let Some(tag) = egern_node_tag(node.name().as_str()) else {
+        let Some(tag) = plain_node_tag(node.name().as_str()) else {
             continue;
         };
         let Some(entry) = proxy_entry(node, tag) else {
+            capability_skips = capability_skips.saturating_add(1);
             continue;
         };
         valid_tags.push(tag.to_owned());
         proxies.push(entry);
     }
     if proxies.is_empty() {
-        return Err(EgernRenderError::NoValidNodes);
+        return Err(AdapterRenderError::NoValidNodes);
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let policy_groups = render_groups(policy, &valid)?;
     let rules = render_rules(policy.rules(), &valid)?;
     let document = Document {
-        proxy_latency_test_url: shared_health_url(policy).map(str::to_owned),
+        proxy_latency_test_url: shared_probe_url(policy).map(str::to_owned),
         proxies,
         policy_groups,
         rules,
     };
-    let mut body = serialize_bounded(&document, limit_bytes).map_err(|error| match error {
-        BuiltinMihomoError::OutputTooLarge { limit_bytes } => {
-            EgernRenderError::OutputTooLarge { limit_bytes }
-        }
-        BuiltinMihomoError::NodeNaming(_)
-        | BuiltinMihomoError::NoValidNodes { .. }
-        | BuiltinMihomoError::Serialization => EgernRenderError::Internal,
-    })?;
+    let mut body = serialize_bounded(&document, limit_bytes)?;
     if !body.ends_with(b"\n") {
         if body.len() == limit_bytes {
-            return Err(EgernRenderError::OutputTooLarge { limit_bytes });
+            return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
         }
         body.push(b'\n');
     }
-    Ok(body)
-}
-
-fn egern_node_tag(name: &str) -> Option<&str> {
-    if name.is_empty()
-        || name.chars().any(|character| character.is_ascii_control())
-        || name.eq_ignore_ascii_case("direct")
-        || name.eq_ignore_ascii_case("reject")
-    {
-        None
-    } else {
-        Some(name)
-    }
-}
-
-fn egern_group_tag(name: &str) -> Result<&str, EgernRenderError> {
-    if name.is_empty() || name.chars().any(|character| character.is_ascii_control()) {
-        return Err(EgernRenderError::Internal);
-    }
-    if name.eq_ignore_ascii_case("direct") || name.eq_ignore_ascii_case("reject") {
-        return Err(EgernRenderError::Internal);
-    }
-    Ok(name)
-}
-
-fn render_host(host: &Host) -> String {
-    match host {
-        Host::Domain(domain) => domain.clone(),
-        Host::Ipv4(address) => address.to_string(),
-        Host::Ipv6(address) => address.to_string(),
-    }
+    Ok(RenderedTargetV1 {
+        bytes: body,
+        capability_skips,
+    })
 }
 
 fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
@@ -115,7 +78,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
                     ShadowsocksCredential::Password(password) => password.expose().to_owned(),
                     ShadowsocksCredential::Psk(psk) => STANDARD.encode(psk.expose()),
                 },
-                server: render_host(node.endpoint().host()),
+                server: render_host_plain(node.endpoint().host()),
                 port: node.endpoint().port().get(),
                 tfo: false,
                 udp_relay: true,
@@ -137,7 +100,7 @@ fn vless_proxy(
     }
     Some(VlessProxy {
         name: tag.to_owned(),
-        server: render_host(node.endpoint().host()),
+        server: render_host_plain(node.endpoint().host()),
         port: node.endpoint().port().get(),
         user_id: vless.id().as_uuid().hyphenated().to_string(),
         flow: vless.flow().map(|flow| match flow {
@@ -213,34 +176,14 @@ fn tls_block(security: &VlessSecurity) -> Option<TlsTransport> {
     }
 }
 
-fn shadowsocks_method(cipher: &ShadowsocksCipher) -> &'static str {
-    match cipher {
-        ShadowsocksCipher::Aes128Gcm => "aes-128-gcm",
-        ShadowsocksCipher::Aes256Gcm => "aes-256-gcm",
-        ShadowsocksCipher::Chacha20IetfPoly1305 => "chacha20-ietf-poly1305",
-        ShadowsocksCipher::Blake3Aes128Gcm => "2022-blake3-aes-128-gcm",
-        ShadowsocksCipher::Blake3Aes256Gcm => "2022-blake3-aes-256-gcm",
-    }
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(char::from(HEX[usize::from(byte >> 4)]));
-        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    output
-}
-
 fn member_token(
     member: &PolicyMemberV1,
     valid_nodes: &[&str],
-) -> Result<Option<String>, EgernRenderError> {
+) -> Result<Option<String>, AdapterRenderError> {
     match member {
         PolicyMemberV1::Direct => Ok(Some("DIRECT".to_owned())),
         PolicyMemberV1::Reject => Ok(Some("REJECT".to_owned())),
-        PolicyMemberV1::Group(name) => egern_group_tag(name).map(|tag| Some(tag.to_owned())),
+        PolicyMemberV1::Group(name) => plain_group_tag(name).map(|tag| Some(tag.to_owned())),
         PolicyMemberV1::Node(name) => Ok(valid_nodes
             .iter()
             .any(|candidate| *candidate == name)
@@ -251,19 +194,17 @@ fn member_token(
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
-) -> Result<Vec<GroupEntry>, EgernRenderError> {
+) -> Result<Vec<GroupEntry>, AdapterRenderError> {
     let mut groups = Vec::new();
     for group in policy.groups() {
-        let name = egern_group_tag(group.name())?.to_owned();
+        let name = plain_group_tag(group.name())?.to_owned();
         let mut policies = Vec::new();
         for member in group.members() {
             if let Some(token) = member_token(member, valid_nodes)? {
                 policies.push(token);
             }
         }
-        if policies.is_empty() {
-            policies.push("REJECT".to_owned());
-        }
+        reject_when_empty(&mut policies, "REJECT");
         groups.push(match group.strategy() {
             GroupStrategyV1::Select => GroupEntry {
                 select: Some(SelectGroup { name, policies }),
@@ -282,7 +223,7 @@ fn render_groups(
                     policies,
                     interval: *interval,
                     tolerance: *tolerance,
-                    latency_test_url: health_url(url).to_owned(),
+                    latency_test_url: probe_url_or_default(url).to_owned(),
                 }),
                 fallback: None,
                 load_balance: None,
@@ -294,7 +235,7 @@ fn render_groups(
                     name,
                     policies,
                     interval: *interval,
-                    latency_test_url: health_url(url).to_owned(),
+                    latency_test_url: probe_url_or_default(url).to_owned(),
                 }),
                 load_balance: None,
             },
@@ -307,7 +248,7 @@ fn render_groups(
                     policies,
                     algorithm: "hash",
                     interval: *interval,
-                    latency_test_url: health_url(url).to_owned(),
+                    latency_test_url: probe_url_or_default(url).to_owned(),
                 }),
             },
         });
@@ -315,34 +256,10 @@ fn render_groups(
     Ok(groups)
 }
 
-fn health_url(url: &str) -> &str {
-    if url.is_empty() {
-        BUILTIN_AUTO_PROBE_URL
-    } else {
-        url
-    }
-}
-
-fn shared_health_url(policy: &CompiledPolicyV1) -> Option<&str> {
-    let mut urls = Vec::new();
-    for group in policy.groups() {
-        let url = match group.strategy() {
-            GroupStrategyV1::UrlTest { url, .. }
-            | GroupStrategyV1::Fallback { url, .. }
-            | GroupStrategyV1::LoadBalance { url, .. } => health_url(url),
-            GroupStrategyV1::Select => continue,
-        };
-        if urls.iter().all(|seen: &&str| *seen != url) {
-            urls.push(url);
-        }
-    }
-    (urls.len() == 1).then_some(urls[0])
-}
-
 fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
-) -> Result<Vec<RuleEntry>, EgernRenderError> {
+) -> Result<Vec<RuleEntry>, AdapterRenderError> {
     let mut rendered = Vec::new();
     for rule in rules {
         let Some(policy) = member_token(rule.target(), valid_nodes)? else {
@@ -650,28 +567,15 @@ struct MatchPolicy {
     no_resolve: Option<bool>,
 }
 
-impl fmt::Debug for EgernRenderError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NoValidNodes => formatter.write_str("NoValidNodes"),
-            Self::OutputTooLarge { limit_bytes } => formatter
-                .debug_struct("OutputTooLarge")
-                .field("limit_bytes", limit_bytes)
-                .finish(),
-            Self::Internal => formatter.write_str("Internal"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        CompiledPolicyV1, CompiledRuleV1, EgernRenderError, GroupStrategyV1, PolicyMemberV1,
+        AdapterRenderError, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
         RuleMatcherV1, render_egern_from_policy_v1,
     };
-    use crate::mihomo::{MAX_MIHOMO_OUTPUT_BYTES, render_builtin_egern_v1};
     use crate::node_name::{NamedNodeOccurrence, resolve_node_names};
     use crate::policy::{CompiledGroupV1, IpVersion, PolicyReportV1, compile_builtin_policy_v1};
+    use crate::render::{MAX_OUTPUT_BYTES, render_builtin_egern_v1};
     use crate::subscription_source::parse_subscription_sources;
 
     #[test]
@@ -731,6 +635,10 @@ mod tests {
         assert!(text.contains("server: 2001:db8::1"));
         assert!(!text.contains("name: WsReality"));
         assert!(!text.contains("fingerprint"));
+        // WebSocket+Reality is already rejected by the share-URI parser, so it
+        // surfaces as an upstream rejection, not an adapter capability skip.
+        assert_eq!(output.diagnostics().rejections().len(), 1);
+        assert_eq!(output.diagnostics().capability_skips(), 0);
     }
 
     #[test]
@@ -780,9 +688,8 @@ mod tests {
             .filter(|rule| matches!(rule.matcher(), RuleMatcherV1::ProcessName(_)))
             .count();
         assert_eq!(omitted, 1);
-        let output =
-            render_egern_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).expect("ok");
-        let text = std::str::from_utf8(&output).expect("utf8");
+        let output = render_egern_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
+        let text = std::str::from_utf8(&output.bytes).expect("utf8");
         assert!(text.contains("load_balance:"));
         assert!(text.contains("algorithm: hash"));
         assert!(text.contains("ip_cidr:"));
@@ -811,7 +718,7 @@ mod tests {
         let error = render_egern_from_policy_v1(&nodes, &policy, 8).expect_err("limit");
         assert!(matches!(
             error,
-            EgernRenderError::OutputTooLarge { limit_bytes: 8 }
+            AdapterRenderError::OutputTooLarge { limit_bytes: 8 }
         ));
     }
 

@@ -1,5 +1,5 @@
 use crate::{
-    mihomo::{BuiltinMihomoError, render_builtin_mihomo_v1},
+    render::{BuiltinRenderError, render_builtin_mihomo_v1},
     subscription_source::parse_subscription_sources,
 };
 
@@ -24,7 +24,7 @@ fn all_rejected_error_debug_does_not_retain_attacker_controlled_input() {
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source container");
     let error = render_builtin_mihomo_v1(parsed).expect_err("unsupported node");
 
-    assert!(matches!(error, BuiltinMihomoError::NoValidNodes { .. }));
+    assert!(matches!(error, BuiltinRenderError::NoValidNodes { .. }));
     let debug = format!("{error:?}");
     for forbidden in [secret, "private.example", "Private Name"] {
         assert!(!debug.contains(forbidden));

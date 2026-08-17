@@ -1,37 +1,34 @@
-use std::fmt;
-
 use base64::{
     Engine as _,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 
 use crate::{
-    node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
+    node::shadowsocks::ShadowsocksCredential,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
-    node::{Host, NodeProtocol, ProxyNode},
+    node::{NodeProtocol, ProxyNode},
     policy::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
+    render::{
+        AdapterRenderError, RenderedTargetV1, encode_hex, render_host_bracketed, shadowsocks_method,
+    },
 };
-
-pub(crate) enum QuanxRenderError {
-    NoValidNodes,
-    OutputTooLarge { limit_bytes: usize },
-    Internal,
-}
 
 pub(crate) fn render_quanx_from_policy_v1(
     named_nodes: &[&ProxyNode],
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
-) -> Result<Vec<u8>, QuanxRenderError> {
+) -> Result<RenderedTargetV1, AdapterRenderError> {
     let mut servers = Vec::new();
     let mut valid_tags = Vec::new();
+    let mut capability_skips = 0_u32;
     for node in named_nodes {
         let Some(tag) = quanx_node_tag(node.name().as_str()) else {
             continue;
         };
         let Some(line) = render_server_line(node, tag) else {
+            capability_skips = capability_skips.saturating_add(1);
             continue;
         };
         valid_tags.push(tag.to_owned());
@@ -41,7 +38,7 @@ pub(crate) fn render_quanx_from_policy_v1(
         });
     }
     if servers.is_empty() {
-        return Err(QuanxRenderError::NoValidNodes);
+        return Err(AdapterRenderError::NoValidNodes);
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
@@ -53,7 +50,7 @@ pub(crate) fn render_quanx_from_policy_v1(
     let mut body = String::new();
     if let Some(url) = unique_urls.first() {
         if !is_safe_field(url) {
-            return Err(QuanxRenderError::Internal);
+            return Err(AdapterRenderError::Internal);
         }
         body.push_str("[general]\n");
         body.push_str("server_check_url=");
@@ -79,9 +76,12 @@ pub(crate) fn render_quanx_from_policy_v1(
         body.push('\n');
     }
     if body.len() > limit_bytes {
-        return Err(QuanxRenderError::OutputTooLarge { limit_bytes });
+        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
     }
-    Ok(body.into_bytes())
+    Ok(RenderedTargetV1 {
+        bytes: body.into_bytes(),
+        capability_skips,
+    })
 }
 
 struct ServerRecord {
@@ -113,18 +113,10 @@ fn is_safe_field(value: &str) -> bool {
     !value.is_empty() && !value.contains([',', '\r', '\n'])
 }
 
-fn render_host(host: &Host) -> String {
-    match host {
-        Host::Domain(domain) => domain.clone(),
-        Host::Ipv4(address) => address.to_string(),
-        Host::Ipv6(address) => format!("[{address}]"),
-    }
-}
-
 fn render_server_line(node: &ProxyNode, tag: &str) -> Option<String> {
     let endpoint = format!(
         "{}:{}",
-        render_host(node.endpoint().host()),
+        render_host_bracketed(node.endpoint().host()),
         node.endpoint().port()
     );
     if !is_safe_field(&endpoint) {
@@ -147,16 +139,6 @@ fn render_server_line(node: &ProxyNode, tag: &str) -> Option<String> {
         }
     };
     Some(line)
-}
-
-fn shadowsocks_method(cipher: &ShadowsocksCipher) -> &'static str {
-    match cipher {
-        ShadowsocksCipher::Aes128Gcm => "aes-128-gcm",
-        ShadowsocksCipher::Aes256Gcm => "aes-256-gcm",
-        ShadowsocksCipher::Chacha20IetfPoly1305 => "chacha20-ietf-poly1305",
-        ShadowsocksCipher::Blake3Aes128Gcm => "2022-blake3-aes-128-gcm",
-        ShadowsocksCipher::Blake3Aes256Gcm => "2022-blake3-aes-256-gcm",
-    }
 }
 
 fn render_vless_line(
@@ -291,16 +273,6 @@ fn encode_alpn_hex(protocols: &[String]) -> Option<String> {
     Some(encode_hex(&bytes))
 }
 
-fn encode_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    output
-}
-
 fn member_token(member: &PolicyMemberV1, valid_nodes: &[&str]) -> Option<String> {
     match member {
         PolicyMemberV1::Direct => Some("direct".to_owned()),
@@ -317,10 +289,10 @@ fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
     unique_urls: &[&str],
-) -> Result<Vec<String>, QuanxRenderError> {
+) -> Result<Vec<String>, AdapterRenderError> {
     let mut lines = Vec::new();
     for group in policy.groups() {
-        let name = quanx_group_tag(group.name()).ok_or(QuanxRenderError::Internal)?;
+        let name = quanx_group_tag(group.name()).ok_or(AdapterRenderError::Internal)?;
         let group_url = automatic_url(group.strategy());
         let mut members = Vec::new();
         for member in group.members() {
@@ -393,7 +365,7 @@ fn expand_servers(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
     unique_urls: &[&str],
-) -> Result<Vec<String>, QuanxRenderError> {
+) -> Result<Vec<String>, AdapterRenderError> {
     let mut lines = Vec::new();
     for server in servers {
         if !valid_nodes.contains(&server.original_tag.as_str()) {
@@ -418,7 +390,7 @@ fn expand_servers(
         }
         for url in urls {
             if !is_safe_field(url) {
-                return Err(QuanxRenderError::Internal);
+                return Err(AdapterRenderError::Internal);
             }
             let tag = health_tag(&server.original_tag, url, unique_urls);
             let mut line = replace_tag(&server.line, &server.original_tag, &tag);
@@ -482,22 +454,9 @@ fn render_rules(rules: &[CompiledRuleV1]) -> Vec<String> {
     lines
 }
 
-impl fmt::Debug for QuanxRenderError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NoValidNodes => formatter.write_str("NoValidNodes"),
-            Self::OutputTooLarge { limit_bytes } => formatter
-                .debug_struct("OutputTooLarge")
-                .field("limit_bytes", limit_bytes)
-                .finish(),
-            Self::Internal => formatter.write_str("Internal"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::mihomo::render_builtin_quanx_v1;
+    use crate::render::render_builtin_quanx_v1;
     use crate::subscription_source::parse_subscription_sources;
 
     #[test]
@@ -540,6 +499,7 @@ mod tests {
         assert!(!text.contains("tag=Reality"));
         assert!(!text.contains("tag=Vision"));
         assert!(!text.contains("grpc"));
+        assert_eq!(output.diagnostics().capability_skips(), 2);
     }
 
     #[test]

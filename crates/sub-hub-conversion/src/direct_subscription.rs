@@ -1,8 +1,8 @@
 use std::fmt;
 
 use crate::{
-    mihomo::{
-        BuiltinMihomoError, render_builtin_egern_v1, render_builtin_loon_v1,
+    render::{
+        BuiltinRenderError, BuiltinRenderOutput, render_builtin_egern_v1, render_builtin_loon_v1,
         render_builtin_mihomo_v1, render_builtin_quanx_v1, render_builtin_singbox_v1,
     },
     subscription_source::{
@@ -96,17 +96,17 @@ impl PreparedSubscriptionV1 {
 }
 
 fn map_builtin_render(
-    result: Result<crate::mihomo::BuiltinMihomoOutput, BuiltinMihomoError>,
+    result: Result<BuiltinRenderOutput, BuiltinRenderError>,
 ) -> Result<MihomoConfig, DirectRenderError> {
     match result {
         Ok(output) => Ok(MihomoConfig {
             bytes: output.config().to_vec(),
         }),
-        Err(BuiltinMihomoError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
+        Err(BuiltinRenderError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
         Err(
-            BuiltinMihomoError::NodeNaming(_)
-            | BuiltinMihomoError::NoValidNodes { .. }
-            | BuiltinMihomoError::Serialization,
+            BuiltinRenderError::NodeNaming(_)
+            | BuiltinRenderError::NoValidNodes { .. }
+            | BuiltinRenderError::Serialization,
         ) => Err(DirectRenderError::Internal),
     }
 }

@@ -1,8 +1,4 @@
-use std::{
-    borrow::Cow,
-    fmt,
-    io::{self, Write},
-};
+use std::borrow::Cow;
 
 use base64::{
     Engine as _,
@@ -11,20 +7,14 @@ use base64::{
 use serde::Serialize;
 
 use crate::{
-    egern::{EgernRenderError, render_egern_from_policy_v1},
-    loon::{LoonRenderError, render_loon_from_policy_v1},
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
-    node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
-    node::{Host, NodeProtocol, ProxyNode},
-    node_name::{NamedNodeOccurrence, NodeNameDiagnostics, NodeNameError, resolve_node_names},
-    policy::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1,
-        compile_builtin_policy_v1,
+    node::vless::{VlessFlow, VlessSecurity, VlessTransport},
+    node::{NodeProtocol, ProxyNode},
+    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
+    render::{
+        AdapterRenderError, RenderedTargetV1, encode_hex, render_fingerprint, render_host_plain,
+        serialize_bounded, shadowsocks_method,
     },
-    quanx::{QuanxRenderError, render_quanx_from_policy_v1},
-    share_uri::NodeRejection,
-    singbox::{SingboxRenderError, render_singbox_from_policy_v1},
-    subscription_source::{NodeOrigin, ParsedSubscriptionSources},
 };
 
 const LOSSY_COMMENT: &str =
@@ -32,376 +22,11 @@ const LOSSY_COMMENT: &str =
 const EMPTY_GROUP_COMMENT_PREFIX: &str =
     "# subconverter: warning; empty proxy groups downgraded to select + REJECT; count=";
 
-#[derive(PartialEq, Eq)]
-pub(crate) struct BuiltinMihomoOutput {
-    config: Vec<u8>,
-    diagnostics: BuiltinMihomoDiagnostics,
-}
-
-impl BuiltinMihomoOutput {
-    pub(crate) fn config(&self) -> &[u8] {
-        &self.config
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "diagnostics stay behind the application facade")
-    )]
-    pub(crate) const fn diagnostics(&self) -> &BuiltinMihomoDiagnostics {
-        &self.diagnostics
-    }
-}
-
-impl fmt::Debug for BuiltinMihomoOutput {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("BuiltinMihomoOutput")
-            .field("config", &"[REDACTED]")
-            .field("config_len", &self.config.len())
-            .field("diagnostics", &self.diagnostics)
-            .finish()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BuiltinMihomoDiagnostics {
-    rejections: Vec<BuiltinMihomoRejection>,
-    node_names: NodeNameDiagnostics,
-}
-
-impl BuiltinMihomoDiagnostics {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "diagnostics stay behind the application facade")
-    )]
-    pub(crate) fn rejections(&self) -> &[BuiltinMihomoRejection] {
-        &self.rejections
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "diagnostics stay behind the application facade")
-    )]
-    pub(crate) const fn node_names(&self) -> &NodeNameDiagnostics {
-        &self.node_names
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BuiltinMihomoRejection {
-    origin: NodeOrigin,
-    rejection: NodeRejection,
-}
-
-impl BuiltinMihomoRejection {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "diagnostics stay behind the application facade")
-    )]
-    pub(crate) const fn origin(&self) -> NodeOrigin {
-        self.origin
-    }
-
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "diagnostics stay behind the application facade")
-    )]
-    pub(crate) const fn rejection(&self) -> &NodeRejection {
-        &self.rejection
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum BuiltinMihomoError {
-    NodeNaming(NodeNameError),
-    NoValidNodes {
-        diagnostics: BuiltinMihomoDiagnostics,
-    },
-    OutputTooLarge {
-        limit_bytes: usize,
-    },
-    Serialization,
-}
-
-pub(crate) const MAX_MIHOMO_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
-
-pub(crate) fn render_builtin_mihomo_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    render_builtin_mihomo_v1_with_limit(parsed, MAX_MIHOMO_OUTPUT_BYTES)
-}
-
-fn render_builtin_mihomo_v1_with_limit(
-    parsed: ParsedSubscriptionSources,
-    limit_bytes: usize,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    let named =
-        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinMihomoError::NodeNaming)?;
-    let diagnostics = BuiltinMihomoDiagnostics {
-        rejections: named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { .. } => None,
-                NamedNodeOccurrence::Rejected { origin, rejection } => {
-                    Some(BuiltinMihomoRejection {
-                        origin: *origin,
-                        rejection: rejection.clone(),
-                    })
-                }
-            })
-            .collect(),
-        node_names: named.diagnostics().clone(),
-    };
-    let nodes = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    if nodes.is_empty() {
-        return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-    }
-
-    let policy = compile_builtin_policy_v1(&nodes);
-    let config = render_mihomo_from_policy_v1(&nodes, &policy, limit_bytes)?;
-    Ok(BuiltinMihomoOutput {
-        config,
-        diagnostics,
-    })
-}
-
-pub(crate) fn render_builtin_quanx_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    render_builtin_quanx_v1_with_limit(parsed, MAX_MIHOMO_OUTPUT_BYTES)
-}
-
-fn render_builtin_quanx_v1_with_limit(
-    parsed: ParsedSubscriptionSources,
-    limit_bytes: usize,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    let named =
-        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinMihomoError::NodeNaming)?;
-    let diagnostics = BuiltinMihomoDiagnostics {
-        rejections: named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { .. } => None,
-                NamedNodeOccurrence::Rejected { origin, rejection } => {
-                    Some(BuiltinMihomoRejection {
-                        origin: *origin,
-                        rejection: rejection.clone(),
-                    })
-                }
-            })
-            .collect(),
-        node_names: named.diagnostics().clone(),
-    };
-    let nodes = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    if nodes.is_empty() {
-        return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-    }
-    let policy = compile_builtin_policy_v1(&nodes);
-    let config = match render_quanx_from_policy_v1(&nodes, &policy, limit_bytes) {
-        Ok(config) => config,
-        Err(QuanxRenderError::NoValidNodes) => {
-            return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-        }
-        Err(QuanxRenderError::OutputTooLarge { limit_bytes }) => {
-            return Err(BuiltinMihomoError::OutputTooLarge { limit_bytes });
-        }
-        Err(QuanxRenderError::Internal) => return Err(BuiltinMihomoError::Serialization),
-    };
-    Ok(BuiltinMihomoOutput {
-        config,
-        diagnostics,
-    })
-}
-
-pub(crate) fn render_builtin_singbox_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    render_builtin_singbox_v1_with_limit(parsed, MAX_MIHOMO_OUTPUT_BYTES)
-}
-
-fn render_builtin_singbox_v1_with_limit(
-    parsed: ParsedSubscriptionSources,
-    limit_bytes: usize,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    let named =
-        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinMihomoError::NodeNaming)?;
-    let diagnostics = BuiltinMihomoDiagnostics {
-        rejections: named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { .. } => None,
-                NamedNodeOccurrence::Rejected { origin, rejection } => {
-                    Some(BuiltinMihomoRejection {
-                        origin: *origin,
-                        rejection: rejection.clone(),
-                    })
-                }
-            })
-            .collect(),
-        node_names: named.diagnostics().clone(),
-    };
-    let nodes = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    if nodes.is_empty() {
-        return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-    }
-    let policy = compile_builtin_policy_v1(&nodes);
-    let config = match render_singbox_from_policy_v1(&nodes, &policy, limit_bytes) {
-        Ok(config) => config,
-        Err(SingboxRenderError::NoValidNodes) => {
-            return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-        }
-        Err(SingboxRenderError::OutputTooLarge { limit_bytes }) => {
-            return Err(BuiltinMihomoError::OutputTooLarge { limit_bytes });
-        }
-        Err(SingboxRenderError::Internal) => return Err(BuiltinMihomoError::Serialization),
-    };
-    Ok(BuiltinMihomoOutput {
-        config,
-        diagnostics,
-    })
-}
-
-pub(crate) fn render_builtin_loon_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    render_builtin_loon_v1_with_limit(parsed, MAX_MIHOMO_OUTPUT_BYTES)
-}
-
-fn render_builtin_loon_v1_with_limit(
-    parsed: ParsedSubscriptionSources,
-    limit_bytes: usize,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    let named =
-        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinMihomoError::NodeNaming)?;
-    let diagnostics = BuiltinMihomoDiagnostics {
-        rejections: named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { .. } => None,
-                NamedNodeOccurrence::Rejected { origin, rejection } => {
-                    Some(BuiltinMihomoRejection {
-                        origin: *origin,
-                        rejection: rejection.clone(),
-                    })
-                }
-            })
-            .collect(),
-        node_names: named.diagnostics().clone(),
-    };
-    let nodes = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    if nodes.is_empty() {
-        return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-    }
-    let policy = compile_builtin_policy_v1(&nodes);
-    let config = match render_loon_from_policy_v1(&nodes, &policy, limit_bytes) {
-        Ok(config) => config,
-        Err(LoonRenderError::NoValidNodes) => {
-            return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-        }
-        Err(LoonRenderError::OutputTooLarge { limit_bytes }) => {
-            return Err(BuiltinMihomoError::OutputTooLarge { limit_bytes });
-        }
-        Err(LoonRenderError::Internal) => return Err(BuiltinMihomoError::Serialization),
-    };
-    Ok(BuiltinMihomoOutput {
-        config,
-        diagnostics,
-    })
-}
-
-pub(crate) fn render_builtin_egern_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    render_builtin_egern_v1_with_limit(parsed, MAX_MIHOMO_OUTPUT_BYTES)
-}
-
-fn render_builtin_egern_v1_with_limit(
-    parsed: ParsedSubscriptionSources,
-    limit_bytes: usize,
-) -> Result<BuiltinMihomoOutput, BuiltinMihomoError> {
-    let named =
-        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinMihomoError::NodeNaming)?;
-    let diagnostics = BuiltinMihomoDiagnostics {
-        rejections: named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { .. } => None,
-                NamedNodeOccurrence::Rejected { origin, rejection } => {
-                    Some(BuiltinMihomoRejection {
-                        origin: *origin,
-                        rejection: rejection.clone(),
-                    })
-                }
-            })
-            .collect(),
-        node_names: named.diagnostics().clone(),
-    };
-    let nodes = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    if nodes.is_empty() {
-        return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-    }
-    let policy = compile_builtin_policy_v1(&nodes);
-    let config = match render_egern_from_policy_v1(&nodes, &policy, limit_bytes) {
-        Ok(config) => config,
-        Err(EgernRenderError::NoValidNodes) => {
-            return Err(BuiltinMihomoError::NoValidNodes { diagnostics });
-        }
-        Err(EgernRenderError::OutputTooLarge { limit_bytes }) => {
-            return Err(BuiltinMihomoError::OutputTooLarge { limit_bytes });
-        }
-        Err(EgernRenderError::Internal) => return Err(BuiltinMihomoError::Serialization),
-    };
-    Ok(BuiltinMihomoOutput {
-        config,
-        diagnostics,
-    })
-}
-
 pub(crate) fn render_mihomo_from_policy_v1(
     named_nodes: &[&ProxyNode],
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
-) -> Result<Vec<u8>, BuiltinMihomoError> {
+) -> Result<RenderedTargetV1, AdapterRenderError> {
     let document = MihomoRenderedDocument {
         mode: "rule",
         proxies: named_nodes
@@ -417,15 +42,21 @@ pub(crate) fn render_mihomo_from_policy_v1(
     );
     let body_limit = limit_bytes
         .checked_sub(comments.len())
-        .ok_or(BuiltinMihomoError::OutputTooLarge { limit_bytes })?;
+        .ok_or(AdapterRenderError::OutputTooLarge { limit_bytes })?;
     let body = serialize_bounded(&document, body_limit)?;
     if comments.is_empty() {
-        return Ok(body);
+        return Ok(RenderedTargetV1 {
+            bytes: body,
+            capability_skips: 0,
+        });
     }
     let mut bytes = Vec::with_capacity(comments.len() + body.len());
     bytes.extend_from_slice(comments.as_bytes());
     bytes.extend_from_slice(&body);
-    Ok(bytes)
+    Ok(RenderedTargetV1 {
+        bytes,
+        capability_skips: 0,
+    })
 }
 
 pub(crate) fn render_clash_rule(rule: &CompiledRuleV1) -> String {
@@ -504,65 +135,6 @@ fn mihomo_group(group: &crate::policy::CompiledGroupV1) -> MihomoRenderedGroup {
         tolerance,
         strategy,
     }
-}
-
-struct BoundedVec {
-    bytes: Vec<u8>,
-    limit: usize,
-    overflowed: bool,
-}
-
-impl BoundedVec {
-    fn new(limit: usize) -> Self {
-        Self {
-            bytes: Vec::new(),
-            limit,
-            overflowed: false,
-        }
-    }
-
-    fn into_inner(self) -> Vec<u8> {
-        self.bytes
-    }
-}
-
-impl Write for BoundedVec {
-    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-        if self.overflowed {
-            return Err(io::Error::other("Mihomo output limit exceeded"));
-        }
-        let Some(next_len) = self.bytes.len().checked_add(input.len()) else {
-            self.overflowed = true;
-            return Err(io::Error::other("Mihomo output limit exceeded"));
-        };
-        if next_len > self.limit {
-            self.overflowed = true;
-            return Err(io::Error::other("Mihomo output limit exceeded"));
-        }
-        self.bytes.extend_from_slice(input);
-        Ok(input.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        if self.overflowed {
-            Err(io::Error::other("Mihomo output limit exceeded"))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-pub(crate) fn serialize_bounded<T: Serialize>(
-    value: &T,
-    limit_bytes: usize,
-) -> Result<Vec<u8>, BuiltinMihomoError> {
-    let mut sink = BoundedVec::new(limit_bytes);
-    let serialization = serde_yaml_ng::to_writer(&mut sink, value);
-    if sink.overflowed {
-        return Err(BuiltinMihomoError::OutputTooLarge { limit_bytes });
-    }
-    serialization.map_err(|_| BuiltinMihomoError::Serialization)?;
-    Ok(sink.into_inner())
 }
 
 #[derive(Serialize)]
@@ -679,14 +251,14 @@ impl<'a> MihomoVlessProxy<'a> {
                     public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
                     short_id: options
                         .short_id()
-                        .map(|short_id| render_hex(short_id.as_bytes())),
+                        .map(|short_id| encode_hex(short_id.as_bytes())),
                 }),
             ),
         };
         MihomoVlessProxy {
             name: node.name().as_str(),
             kind: "vless",
-            server: render_host(node.endpoint().host()),
+            server: render_host_plain(node.endpoint().host()),
             port: node.endpoint().port().get(),
             uuid: vless.id().as_uuid().hyphenated().to_string(),
             udp: true,
@@ -731,9 +303,9 @@ impl<'a> MihomoShadowsocksProxy<'a> {
         Self {
             name: node.name().as_str(),
             kind: "ss",
-            server: render_host(node.endpoint().host()),
+            server: render_host_plain(node.endpoint().host()),
             port: node.endpoint().port().get(),
-            cipher: render_shadowsocks_cipher(cipher),
+            cipher: shadowsocks_method(cipher),
             password,
             udp: true,
         }
@@ -765,48 +337,6 @@ struct MihomoRealityOptions {
     public_key: String,
     #[serde(rename = "short-id", skip_serializing_if = "Option::is_none")]
     short_id: Option<String>,
-}
-
-fn render_host(host: &Host) -> String {
-    match host {
-        Host::Domain(domain) => domain.clone(),
-        Host::Ipv4(address) => address.to_string(),
-        Host::Ipv6(address) => address.to_string(),
-    }
-}
-
-const fn render_fingerprint(fingerprint: ClientFingerprint) -> &'static str {
-    match fingerprint {
-        ClientFingerprint::Chrome => "chrome",
-        ClientFingerprint::Firefox => "firefox",
-        ClientFingerprint::Safari => "safari",
-        ClientFingerprint::Ios => "ios",
-        ClientFingerprint::Android => "android",
-        ClientFingerprint::Edge => "edge",
-        ClientFingerprint::ThreeSixty => "360",
-        ClientFingerprint::Qq => "qq",
-        ClientFingerprint::Random => "random",
-    }
-}
-
-fn render_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(char::from(HEX[usize::from(byte >> 4)]));
-        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    output
-}
-
-const fn render_shadowsocks_cipher(cipher: &ShadowsocksCipher) -> &'static str {
-    match cipher {
-        ShadowsocksCipher::Aes128Gcm => "aes-128-gcm",
-        ShadowsocksCipher::Aes256Gcm => "aes-256-gcm",
-        ShadowsocksCipher::Chacha20IetfPoly1305 => "chacha20-ietf-poly1305",
-        ShadowsocksCipher::Blake3Aes128Gcm => "2022-blake3-aes-128-gcm",
-        ShadowsocksCipher::Blake3Aes256Gcm => "2022-blake3-aes-256-gcm",
-    }
 }
 
 #[cfg(test)]

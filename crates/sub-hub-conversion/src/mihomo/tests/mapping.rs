@@ -186,7 +186,7 @@ fn yaml_scalars_round_trip_names_and_secrets_that_require_escaping() {
     let source = b"ss://aes-128-gcm:line%0Abreak@EXAMPLE.COM:8388#%3A%20%5Bnode%5D%20%23";
     let parsed = crate::subscription_source::parse_subscription_sources(&[source])
         .expect("valid subscription source");
-    let output = crate::mihomo::render_builtin_mihomo_v1(parsed).expect("rendered output");
+    let output = crate::render::render_builtin_mihomo_v1(parsed).expect("rendered output");
     let actual: serde_yaml_ng::Value =
         serde_yaml_ng::from_slice(output.config()).expect("valid YAML");
 

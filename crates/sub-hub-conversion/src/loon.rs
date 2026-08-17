@@ -1,17 +1,18 @@
-use std::fmt;
-
 use base64::{
     Engine as _,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 
 use crate::{
-    node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
+    node::shadowsocks::ShadowsocksCredential,
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
-    node::{Host, NodeProtocol, ProxyNode},
+    node::{NodeProtocol, ProxyNode},
     policy::{
-        BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
-        PolicyMemberV1, RuleMatcherV1,
+        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
+    },
+    render::{
+        AdapterRenderError, RenderedTargetV1, encode_hex, probe_url_or_default, reject_when_empty,
+        render_host_plain, shadowsocks_method, shared_probe_url,
     },
 };
 
@@ -25,31 +26,27 @@ const RESERVED_NODE_TAGS: [&str; 7] = [
     "proxy",
 ];
 
-pub(crate) enum LoonRenderError {
-    NoValidNodes,
-    OutputTooLarge { limit_bytes: usize },
-    Internal,
-}
-
 pub(crate) fn render_loon_from_policy_v1(
     named_nodes: &[&ProxyNode],
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
-) -> Result<Vec<u8>, LoonRenderError> {
+) -> Result<RenderedTargetV1, AdapterRenderError> {
     let mut proxies = Vec::new();
     let mut valid_tags = Vec::new();
+    let mut capability_skips = 0_u32;
     for node in named_nodes {
         let Some(tag) = loon_node_tag(node.name().as_str()) else {
             continue;
         };
         let Some(line) = render_proxy_line(node, tag) else {
+            capability_skips = capability_skips.saturating_add(1);
             continue;
         };
         valid_tags.push(tag.to_owned());
         proxies.push(line);
     }
     if proxies.is_empty() {
-        return Err(LoonRenderError::NoValidNodes);
+        return Err(AdapterRenderError::NoValidNodes);
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
@@ -57,9 +54,9 @@ pub(crate) fn render_loon_from_policy_v1(
     let rules = render_rules(policy.rules(), &valid)?;
 
     let mut body = String::new();
-    if let Some(url) = shared_health_url(policy) {
+    if let Some(url) = shared_probe_url(policy) {
         if !is_safe_field(url) {
-            return Err(LoonRenderError::Internal);
+            return Err(AdapterRenderError::Internal);
         }
         body.push_str("[General]\n");
         body.push_str("proxy-test-url = ");
@@ -85,9 +82,12 @@ pub(crate) fn render_loon_from_policy_v1(
         body.push('\n');
     }
     if body.len() > limit_bytes {
-        return Err(LoonRenderError::OutputTooLarge { limit_bytes });
+        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
     }
-    Ok(body.into_bytes())
+    Ok(RenderedTargetV1 {
+        bytes: body.into_bytes(),
+        capability_skips,
+    })
 }
 
 fn loon_node_tag(name: &str) -> Option<&str> {
@@ -104,12 +104,12 @@ fn loon_node_tag(name: &str) -> Option<&str> {
     }
 }
 
-fn loon_group_tag(name: &str) -> Result<&str, LoonRenderError> {
+fn loon_group_tag(name: &str) -> Result<&str, AdapterRenderError> {
     if name.is_empty()
         || name.chars().any(|character| character.is_ascii_control())
         || name.contains(',')
     {
-        return Err(LoonRenderError::Internal);
+        return Err(AdapterRenderError::Internal);
     }
     if name.eq_ignore_ascii_case("proxy") {
         return Ok(name);
@@ -118,7 +118,7 @@ fn loon_group_tag(name: &str) -> Result<&str, LoonRenderError> {
         .iter()
         .any(|reserved| name.eq_ignore_ascii_case(reserved))
     {
-        return Err(LoonRenderError::Internal);
+        return Err(AdapterRenderError::Internal);
     }
     Ok(name)
 }
@@ -133,16 +133,8 @@ fn quote(value: &str) -> Option<String> {
     is_safe_field(value).then(|| format!("\"{value}\""))
 }
 
-fn render_host(host: &Host) -> String {
-    match host {
-        Host::Domain(domain) => domain.clone(),
-        Host::Ipv4(address) => address.to_string(),
-        Host::Ipv6(address) => address.to_string(),
-    }
-}
-
 fn render_proxy_line(node: &ProxyNode, tag: &str) -> Option<String> {
-    let host = render_host(node.endpoint().host());
+    let host = render_host_plain(node.endpoint().host());
     if !is_safe_field(&host) {
         return None;
     }
@@ -280,30 +272,10 @@ fn render_shadowsocks_line(
     ))
 }
 
-fn shadowsocks_method(cipher: &ShadowsocksCipher) -> &'static str {
-    match cipher {
-        ShadowsocksCipher::Aes128Gcm => "aes-128-gcm",
-        ShadowsocksCipher::Aes256Gcm => "aes-256-gcm",
-        ShadowsocksCipher::Chacha20IetfPoly1305 => "chacha20-ietf-poly1305",
-        ShadowsocksCipher::Blake3Aes128Gcm => "2022-blake3-aes-128-gcm",
-        ShadowsocksCipher::Blake3Aes256Gcm => "2022-blake3-aes-256-gcm",
-    }
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(char::from(HEX[usize::from(byte >> 4)]));
-        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    output
-}
-
 fn member_token(
     member: &PolicyMemberV1,
     valid_nodes: &[&str],
-) -> Result<Option<String>, LoonRenderError> {
+) -> Result<Option<String>, AdapterRenderError> {
     match member {
         PolicyMemberV1::Direct => Ok(Some("DIRECT".to_owned())),
         PolicyMemberV1::Reject => Ok(Some("REJECT".to_owned())),
@@ -318,7 +290,7 @@ fn member_token(
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
-) -> Result<Vec<String>, LoonRenderError> {
+) -> Result<Vec<String>, AdapterRenderError> {
     let mut lines = Vec::new();
     for group in policy.groups() {
         let name = loon_group_tag(group.name())?;
@@ -328,9 +300,7 @@ fn render_groups(
                 members.push(token);
             }
         }
-        if members.is_empty() {
-            members.push("REJECT".to_owned());
-        }
+        reject_when_empty(&mut members, "REJECT");
         let joined = members.join(",");
         let line = match group.strategy() {
             GroupStrategyV1::Select => format!("{name} = select,{joined}"),
@@ -364,45 +334,19 @@ fn render_groups(
     Ok(lines)
 }
 
-fn health_url(url: &str) -> Result<&str, LoonRenderError> {
-    let url = if url.is_empty() {
-        BUILTIN_AUTO_PROBE_URL
-    } else {
-        url
-    };
+fn health_url(url: &str) -> Result<&str, AdapterRenderError> {
+    let url = probe_url_or_default(url);
     if is_safe_field(url) {
         Ok(url)
     } else {
-        Err(LoonRenderError::Internal)
+        Err(AdapterRenderError::Internal)
     }
-}
-
-fn shared_health_url(policy: &CompiledPolicyV1) -> Option<&str> {
-    let mut urls = Vec::new();
-    for group in policy.groups() {
-        let url = match group.strategy() {
-            GroupStrategyV1::UrlTest { url, .. }
-            | GroupStrategyV1::Fallback { url, .. }
-            | GroupStrategyV1::LoadBalance { url, .. } => {
-                if url.is_empty() {
-                    BUILTIN_AUTO_PROBE_URL
-                } else {
-                    url.as_str()
-                }
-            }
-            GroupStrategyV1::Select => continue,
-        };
-        if urls.iter().all(|seen: &&str| *seen != url) {
-            urls.push(url);
-        }
-    }
-    (urls.len() == 1).then_some(urls[0])
 }
 
 fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
-) -> Result<Vec<String>, LoonRenderError> {
+) -> Result<Vec<String>, AdapterRenderError> {
     let mut lines = Vec::new();
     for rule in rules {
         let Some(policy) = member_token(rule.target(), valid_nodes)? else {
@@ -446,28 +390,15 @@ fn render_rules(
     Ok(lines)
 }
 
-impl fmt::Debug for LoonRenderError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NoValidNodes => formatter.write_str("NoValidNodes"),
-            Self::OutputTooLarge { limit_bytes } => formatter
-                .debug_struct("OutputTooLarge")
-                .field("limit_bytes", limit_bytes)
-                .finish(),
-            Self::Internal => formatter.write_str("Internal"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, LoonRenderError, PolicyMemberV1,
+        AdapterRenderError, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
         RuleMatcherV1, render_loon_from_policy_v1,
     };
-    use crate::mihomo::{MAX_MIHOMO_OUTPUT_BYTES, render_builtin_loon_v1};
     use crate::node_name::{NamedNodeOccurrence, resolve_node_names};
     use crate::policy::{CompiledGroupV1, IpVersion, PolicyReportV1, compile_builtin_policy_v1};
+    use crate::render::{MAX_OUTPUT_BYTES, render_builtin_loon_v1};
     use crate::subscription_source::parse_subscription_sources;
 
     const BUILTIN_TCP_VLESS: &str = concat!(
@@ -514,6 +445,7 @@ mod tests {
         assert!(!text.contains("Vision ="));
         assert!(!text.contains("BareReality ="));
         assert!(!text.contains("grpc"));
+        assert_eq!(output.diagnostics().capability_skips(), 3);
     }
 
     #[test]
@@ -597,9 +529,8 @@ mod tests {
             .filter(|rule| matches!(rule.matcher(), RuleMatcherV1::ProcessName(_)))
             .count();
         assert_eq!(omitted, 1);
-        let output =
-            render_loon_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).expect("ok");
-        let text = std::str::from_utf8(&output).expect("utf8");
+        let output = render_loon_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
+        let text = std::str::from_utf8(&output.bytes).expect("utf8");
         assert!(text.contains(
             "Fallback = fallback,Alpha,url = https://www.gstatic.com/generate_204,interval = 60"
         ));
@@ -629,9 +560,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(nodes.len(), 2);
         let policy = compile_builtin_policy_v1(&nodes);
-        let output =
-            render_loon_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES).expect("ok");
-        let text = std::str::from_utf8(&output).expect("utf8");
+        let output = render_loon_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
+        let text = std::str::from_utf8(&output.bytes).expect("utf8");
         assert!(text.contains("Alpha = VLESS"));
         assert!(!text.contains("reject = VLESS"));
         assert!(!text.contains("example.com"));
@@ -661,9 +591,9 @@ mod tests {
             vec![],
             PolicyReportV1::default(),
         );
-        let error = render_loon_from_policy_v1(&nodes, &policy, MAX_MIHOMO_OUTPUT_BYTES)
+        let error = render_loon_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
             .expect_err("reserved group");
-        assert!(matches!(error, LoonRenderError::Internal));
+        assert!(matches!(error, AdapterRenderError::Internal));
     }
 
     #[test]
@@ -685,7 +615,7 @@ mod tests {
         let error = render_loon_from_policy_v1(&nodes, &policy, 8).expect_err("limit");
         assert!(matches!(
             error,
-            LoonRenderError::OutputTooLarge { limit_bytes: 8 }
+            AdapterRenderError::OutputTooLarge { limit_bytes: 8 }
         ));
     }
 
