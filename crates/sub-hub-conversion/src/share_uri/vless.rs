@@ -225,7 +225,7 @@ fn unsupported_parameter(key: &str) -> NodeRejection {
     NodeRejection::Unsupported(capability)
 }
 
-fn parse_transport_kind(value: &str) -> Result<VlessTransportKind, NodeRejection> {
+pub(super) fn parse_transport_kind(value: &str) -> Result<VlessTransportKind, NodeRejection> {
     require_nonempty(value)?;
     match value {
         "tcp" => Ok(VlessTransportKind::Tcp),
@@ -245,7 +245,7 @@ fn parse_security_kind(value: &str) -> Result<VlessSecurityKind, NodeRejection> 
     }
 }
 
-fn parse_grpc_mode(value: &str) -> Result<GrpcMode, NodeRejection> {
+pub(super) fn parse_grpc_mode(value: &str) -> Result<GrpcMode, NodeRejection> {
     match value {
         "gun" => Ok(GrpcMode::Gun),
         _ => Err(NodeRejection::Unsupported(
@@ -261,14 +261,14 @@ fn parse_flow(value: &str) -> Result<VlessFlow, NodeRejection> {
     }
 }
 
-fn parameter_value<'a>(pairs: &'a [super::QueryPair<'_>], key: &str) -> Option<&'a str> {
+pub(super) fn parameter_value<'a>(pairs: &'a [super::QueryPair<'_>], key: &str) -> Option<&'a str> {
     pairs
         .iter()
         .find(|pair| pair.key == key)
         .map(|pair| pair.value.as_ref())
 }
 
-fn require_nonempty(value: &str) -> Result<(), NodeRejection> {
+pub(super) fn require_nonempty(value: &str) -> Result<(), NodeRejection> {
     if value.is_empty() {
         Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue))
     } else {
@@ -276,7 +276,7 @@ fn require_nonempty(value: &str) -> Result<(), NodeRejection> {
     }
 }
 
-fn require_compatible(is_compatible: bool) -> Result<(), NodeRejection> {
+pub(super) fn require_compatible(is_compatible: bool) -> Result<(), NodeRejection> {
     if is_compatible {
         Ok(())
     } else {
@@ -286,7 +286,7 @@ fn require_compatible(is_compatible: bool) -> Result<(), NodeRejection> {
     }
 }
 
-fn nonempty_owned(value: Cow<'_, str>) -> Result<String, NodeRejection> {
+pub(super) fn nonempty_owned(value: Cow<'_, str>) -> Result<String, NodeRejection> {
     if value.is_empty() {
         Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue))
     } else {
@@ -380,7 +380,7 @@ fn build_components(
     Ok((transport, security, flow))
 }
 
-fn build_tls_options(
+pub(super) fn build_tls_options(
     server_name: Option<String>,
     alpn: Option<Vec<String>>,
     endpoint: &Endpoint,
@@ -394,7 +394,7 @@ fn build_tls_options(
     .ok_or(NodeRejection::Invalid(InvalidNodeReason::ParameterValue))
 }
 
-fn parse_public_key(input: &str) -> Result<RealityPublicKey, NodeRejection> {
+pub(super) fn parse_public_key(input: &str) -> Result<RealityPublicKey, NodeRejection> {
     if input.len() != 43
         || !input
             .bytes()
@@ -411,7 +411,7 @@ fn parse_public_key(input: &str) -> Result<RealityPublicKey, NodeRejection> {
     Ok(RealityPublicKey::new(bytes))
 }
 
-fn parse_short_id(input: &str) -> Result<RealityShortId, NodeRejection> {
+pub(super) fn parse_short_id(input: &str) -> Result<RealityShortId, NodeRejection> {
     if !(2..=16).contains(&input.len())
         || !input.len().is_multiple_of(2)
         || !input
@@ -437,7 +437,7 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-fn parse_alpn(input: &str) -> Result<Vec<String>, NodeRejection> {
+pub(super) fn parse_alpn(input: &str) -> Result<Vec<String>, NodeRejection> {
     let values = input.split(',').map(str::to_owned).collect::<Vec<_>>();
     if values
         .iter()
@@ -448,7 +448,7 @@ fn parse_alpn(input: &str) -> Result<Vec<String>, NodeRejection> {
     Ok(values)
 }
 
-fn parse_fingerprint(input: &str) -> Result<ClientFingerprint, NodeRejection> {
+pub(super) fn parse_fingerprint(input: &str) -> Result<ClientFingerprint, NodeRejection> {
     match input {
         "chrome" => Ok(ClientFingerprint::Chrome),
         "firefox" => Ok(ClientFingerprint::Firefox),
@@ -463,7 +463,7 @@ fn parse_fingerprint(input: &str) -> Result<ClientFingerprint, NodeRejection> {
     }
 }
 
-fn canonical_host(host: &Host) -> String {
+pub(super) fn canonical_host(host: &Host) -> String {
     match host {
         Host::Domain(domain) => domain.clone(),
         Host::Ipv4(address) => address.to_string(),

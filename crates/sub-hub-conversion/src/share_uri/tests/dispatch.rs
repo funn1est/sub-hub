@@ -183,6 +183,10 @@ fn supported_protocols_validate_shell_before_query_semantics() {
             "ss://aes-128-gcm:password@example.com:0?plugin=v2ray-plugin",
             NodeRejection::Invalid(InvalidNodeReason::Endpoint),
         ),
+        (
+            "trojan://password@example.com:0?udp=true",
+            NodeRejection::Invalid(InvalidNodeReason::Endpoint),
+        ),
     ];
 
     for (uri, expected) in fixtures {
@@ -200,6 +204,7 @@ fn dispatch_distinguishes_malformed_shells_from_unsupported_protocols() {
         "ss:payload",
         "VLESS://payload",
         "SS://payload",
+        "TROJAN://payload",
         "://payload",
         "1scheme://payload",
         "unknown://",
@@ -214,7 +219,7 @@ fn dispatch_distinguishes_malformed_shells_from_unsupported_protocols() {
 
     for input in [
         "vmess://payload",
-        "trojan://payload",
+        "hysteria2://payload",
         "unknown+v1://payload",
     ] {
         assert_eq!(

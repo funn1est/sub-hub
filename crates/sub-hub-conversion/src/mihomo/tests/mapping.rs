@@ -182,6 +182,65 @@ client-fingerprint: chrome
 }
 
 #[test]
+fn trojan_tcp_tls_and_ws_reality_project_supported_fields() {
+    let actual = rendered_yaml(
+        concat!(
+            "trojan://p%40ss@EXAMPLE.COM:443#TcpTls\n",
+            "trojan://password@[2001:db8::1]:443?type=ws&path=%2Fws&host=cdn.example&security=reality&sni=edge.example&fp=safari&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#WsReality\n",
+            "trojan://password@example.net:8443?type=grpc&serviceName=svc%2Fprod&security=tls#Grpc\n",
+        )
+        .as_bytes(),
+    );
+
+    let tcp: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        r"
+name: TcpTls
+type: trojan
+server: example.com
+port: 443
+password: p@ss
+udp: true
+sni: example.com
+client-fingerprint: chrome
+network: tcp
+",
+    )
+    .expect("expected YAML");
+    let ws: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        r"
+name: WsReality
+type: trojan
+server: 2001:db8::1
+port: 443
+password: password
+udp: true
+sni: edge.example
+client-fingerprint: safari
+network: ws
+ws-opts:
+  path: /ws
+  headers:
+    Host: cdn.example
+reality-opts:
+  public-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  short-id: 0a1b
+",
+    )
+    .expect("expected YAML");
+
+    assert_eq!(actual["proxies"][0], tcp);
+    assert_eq!(actual["proxies"][1], ws);
+    assert_eq!(actual["proxies"][2]["type"], "trojan");
+    assert_eq!(actual["proxies"][2]["network"], "grpc");
+    assert_eq!(
+        actual["proxies"][2]["grpc-opts"]["grpc-service-name"],
+        "svc/prod"
+    );
+    assert!(actual["proxies"][0]["skip-cert-verify"].is_null());
+    assert!(actual["proxies"][0]["ss-opts"].is_null());
+}
+
+#[test]
 fn yaml_scalars_round_trip_names_and_secrets_that_require_escaping() {
     let source = b"ss://aes-128-gcm:line%0Abreak@EXAMPLE.COM:8388#%3A%20%5Bnode%5D%20%23";
     let parsed = crate::subscription_source::parse_subscription_sources(&[source])

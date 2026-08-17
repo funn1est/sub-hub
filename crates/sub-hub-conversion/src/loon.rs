@@ -5,6 +5,7 @@ use base64::{
 
 use crate::{
     node::shadowsocks::ShadowsocksCredential,
+    node::trojan::TrojanSecurity,
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
     node::{NodeProtocol, ProxyNode},
     policy::{
@@ -144,7 +145,71 @@ fn render_proxy_line(node: &ProxyNode, tag: &str) -> Option<String> {
         NodeProtocol::Shadowsocks(shadowsocks) => {
             render_shadowsocks_line(tag, &host, port, shadowsocks)
         }
+        NodeProtocol::Trojan(trojan) => render_trojan_line(tag, &host, port, trojan),
     }
+}
+
+fn render_trojan_line(
+    tag: &str,
+    host: &str,
+    port: u16,
+    trojan: &crate::node::trojan::TrojanNode,
+) -> Option<String> {
+    if matches!(trojan.transport(), VlessTransport::Grpc { .. }) {
+        return None;
+    }
+    if matches!(trojan.security(), TrojanSecurity::Reality(_)) {
+        return None;
+    }
+
+    let password = quote(trojan.password().expose())?;
+    let mut fields = vec![
+        format!("{tag} = trojan"),
+        host.to_owned(),
+        port.to_string(),
+        password,
+    ];
+
+    match trojan.transport() {
+        VlessTransport::Tcp => {}
+        VlessTransport::WebSocket {
+            path,
+            host: ws_host,
+        } => {
+            if !is_safe_field(path) {
+                return None;
+            }
+            fields.push("transport=ws".to_owned());
+            fields.push(format!("path={path}"));
+            if let Some(ws_host) = ws_host {
+                if !is_safe_field(ws_host) {
+                    return None;
+                }
+                fields.push(format!("host={ws_host}"));
+            }
+        }
+        VlessTransport::Grpc { .. } => return None,
+    }
+
+    let TrojanSecurity::Tls(options) = trojan.security() else {
+        return None;
+    };
+    if let Some(alpn) = options.alpn()
+        && alpn.len() == 1
+        && is_safe_field(&alpn[0])
+    {
+        fields.push(format!("alpn={}", alpn[0]));
+    }
+    if !is_safe_field(options.server_name()) {
+        return None;
+    }
+    fields.push(format!("sni={}", options.server_name()));
+    fields.push("skip-cert-verify=false".to_owned());
+    if let Some(profile) = tls_profile(options.fingerprint()) {
+        fields.push(format!("tls-profile={profile}"));
+    }
+    fields.push("udp=true".to_owned());
+    Some(fields.join(","))
 }
 
 fn render_vless_line(
@@ -446,6 +511,30 @@ mod tests {
         assert!(!text.contains("BareReality ="));
         assert!(!text.contains("grpc"));
         assert_eq!(output.diagnostics().capability_skips(), 3);
+    }
+
+    #[test]
+    fn trojan_tcp_tls_is_exact_and_reality_grpc_are_skipped() {
+        let source = concat!(
+            "trojan://password@EXAMPLE.COM:443#TcpTls\n",
+            "trojan://password@example.com:443?type=ws&path=%2Fws&host=cdn.example&fp=safari#Ws\n",
+            "trojan://password@example.com:443?security=reality&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA#Reality\n",
+            "trojan://password@example.com:443?type=grpc&serviceName=svc#Grpc\n",
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_loon_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains(
+            "TcpTls = trojan,example.com,443,\"password\",sni=example.com,skip-cert-verify=false,tls-profile=chrome,udp=true"
+        ));
+        assert!(text.contains("transport=ws"));
+        assert!(text.contains("path=/ws"));
+        assert!(text.contains("host=cdn.example"));
+        assert!(text.contains("tls-profile=safari"));
+        assert!(!text.contains("Reality ="));
+        assert!(!text.contains("Grpc ="));
+        assert!(!text.contains("fast-open"));
+        assert_eq!(output.diagnostics().capability_skips(), 2);
     }
 
     #[test]

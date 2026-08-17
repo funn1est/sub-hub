@@ -226,6 +226,47 @@ fn get_sub_converts_a_direct_share_uri_to_exact_mihomo_bytes() {
 }
 
 #[test]
+fn get_sub_converts_a_direct_trojan_share_uri_to_exact_mihomo_bytes() {
+    let query = concat!(
+        "target=clash&",
+        "url=trojan%3A%2F%2Fpassword%40EXAMPLE.COM%3A443%23Alpha",
+    );
+    let response = handle(HttpRequest::new(Method::GET, "/sub", Some(query)));
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        std::str::from_utf8(response.body()).expect("utf8"),
+        concat!(
+            "mode: rule\n",
+            "proxies:\n",
+            "- name: Alpha\n",
+            "  type: trojan\n",
+            "  server: example.com\n",
+            "  port: 443\n",
+            "  password: password\n",
+            "  udp: true\n",
+            "  sni: example.com\n",
+            "  client-fingerprint: chrome\n",
+            "  network: tcp\n",
+            "proxy-groups:\n",
+            "- name: PROXY\n",
+            "  type: select\n",
+            "  proxies:\n",
+            "  - AUTO\n",
+            "  - Alpha\n",
+            "  - DIRECT\n",
+            "- name: AUTO\n",
+            "  type: url-test\n",
+            "  proxies:\n",
+            "  - Alpha\n",
+            "  url: https://www.gstatic.com/generate_204\n",
+            "  interval: 300\n",
+            "rules:\n",
+            "- MATCH,PROXY\n",
+        )
+    );
+}
+
+#[test]
 fn get_sub_accepts_mihomo_as_a_clash_synonym() {
     let query = concat!(
         "target=mihomo&",
@@ -641,12 +682,11 @@ fn five_duplicate_sources_are_accepted_without_http_layer_deduplication() {
 #[test]
 fn unsupported_nodes_are_local_rejections_until_no_valid_nodes_remain() {
     assert_sub_error(
-        Some("target=clash&url=trojan%3A%2F%2Fexample.com%3A443"),
+        Some("target=clash&url=vmess%3A%2F%2Fexample.com%3A443"),
         b"No nodes were found!",
     );
 
-    let mixed_query =
-        format!("target=clash&url=trojan%3A%2F%2Fexample.com%3A443%7C{ENCODED_VLESS}");
+    let mixed_query = format!("target=clash&url=vmess%3A%2F%2Fexample.com%3A443%7C{ENCODED_VLESS}");
     let mixed = handle(HttpRequest::new(Method::GET, "/sub", Some(&mixed_query)));
     assert_eq!(mixed.status(), StatusCode::OK);
     assert_eq!(mixed.body(), SINGLE_VLESS_YAML);
@@ -713,7 +753,7 @@ fn get_and_head_share_early_error_statuses_while_head_suppresses_bodies() {
         (None, b"Invalid target!".as_slice()),
         (Some("target=clash&url"), b"Invalid request!".as_slice()),
         (
-            Some("target=clash&url=trojan%3A%2F%2Fexample.com%3A443"),
+            Some("target=clash&url=vmess%3A%2F%2Fexample.com%3A443"),
             b"No nodes were found!".as_slice(),
         ),
     ] {

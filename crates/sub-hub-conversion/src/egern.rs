@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::{
     node::shadowsocks::ShadowsocksCredential,
+    node::trojan::TrojanSecurity,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
     node::{NodeProtocol, ProxyNode},
     policy::{
@@ -68,6 +69,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
         NodeProtocol::Vless(vless) => Some(ProxyEntry {
             vless: Some(Box::new(vless_proxy(node, vless, tag)?)),
             shadowsocks: None,
+            trojan: None,
         }),
         NodeProtocol::Shadowsocks(shadowsocks) => Some(ProxyEntry {
             vless: None,
@@ -83,8 +85,54 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
                 tfo: false,
                 udp_relay: true,
             }),
+            trojan: None,
+        }),
+        NodeProtocol::Trojan(trojan) => Some(ProxyEntry {
+            vless: None,
+            shadowsocks: None,
+            trojan: Some(trojan_proxy(node, trojan, tag)?),
         }),
     }
+}
+
+fn trojan_proxy(
+    node: &ProxyNode,
+    trojan: &crate::node::trojan::TrojanNode,
+    tag: &str,
+) -> Option<TrojanProxy> {
+    if matches!(trojan.transport(), VlessTransport::Grpc { .. }) {
+        return None;
+    }
+    let tls = trojan.security().tls_options();
+    let reality = match trojan.security() {
+        TrojanSecurity::Tls(_) => None,
+        TrojanSecurity::Reality(options) => Some(Reality {
+            public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
+            short_id: options
+                .short_id()
+                .map(|short_id| encode_hex(short_id.as_bytes())),
+        }),
+    };
+    let websocket = match trojan.transport() {
+        VlessTransport::Tcp => None,
+        VlessTransport::WebSocket { path, host } => Some(TrojanWebsocket {
+            path: path.clone(),
+            host: host.clone(),
+        }),
+        VlessTransport::Grpc { .. } => return None,
+    };
+    Some(TrojanProxy {
+        name: tag.to_owned(),
+        server: render_host_plain(node.endpoint().host()),
+        port: node.endpoint().port().get(),
+        password: trojan.password().expose().to_owned(),
+        sni: tls.server_name().to_owned(),
+        tfo: false,
+        udp_relay: true,
+        skip_tls_verify: false,
+        reality,
+        websocket,
+    })
 }
 
 fn vless_proxy(
@@ -324,6 +372,31 @@ struct ProxyEntry {
     vless: Option<Box<VlessProxy>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     shadowsocks: Option<ShadowsocksProxy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trojan: Option<TrojanProxy>,
+}
+
+#[derive(Serialize)]
+struct TrojanProxy {
+    name: String,
+    server: String,
+    port: u16,
+    password: String,
+    sni: String,
+    tfo: bool,
+    udp_relay: bool,
+    skip_tls_verify: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reality: Option<Reality>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    websocket: Option<TrojanWebsocket>,
+}
+
+#[derive(Serialize)]
+struct TrojanWebsocket {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -615,6 +688,38 @@ mod tests {
                 "    policy: PROXY\n",
             )
         );
+    }
+
+    #[test]
+    fn trojan_tcp_tls_is_exact_and_grpc_is_skipped() {
+        let source = concat!(
+            "trojan://password@EXAMPLE.COM:443#TcpTls\n",
+            "trojan://password@example.com:443?type=ws&path=%2Fws&host=cdn.example&security=reality&sni=edge.example&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#WsReality\n",
+            "trojan://password@example.com:443?type=grpc&serviceName=svc#Grpc\n",
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_egern_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains(concat!(
+            "- trojan:\n",
+            "    name: TcpTls\n",
+            "    server: example.com\n",
+            "    port: 443\n",
+            "    password: password\n",
+            "    sni: example.com\n",
+            "    tfo: false\n",
+            "    udp_relay: true\n",
+            "    skip_tls_verify: false\n",
+        )));
+        assert!(text.contains("name: WsReality"));
+        assert!(text.contains("websocket:"));
+        assert!(text.contains("path: /ws"));
+        assert!(text.contains("host: cdn.example"));
+        assert!(text.contains("reality:"));
+        assert!(text.contains("public_key:"));
+        assert!(!text.contains("name: Grpc"));
+        assert!(!text.contains("fingerprint"));
+        assert_eq!(output.diagnostics().capability_skips(), 1);
     }
 
     #[test]

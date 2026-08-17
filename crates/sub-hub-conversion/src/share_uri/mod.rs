@@ -1,6 +1,7 @@
 mod error;
 mod percent;
 mod shadowsocks;
+mod trojan;
 mod vless;
 
 use std::{
@@ -32,11 +33,14 @@ pub(crate) fn parse_share_uri(input: &str) -> Result<ProxyNodeDraft, NodeRejecti
         vless::parse(input)
     } else if let Some(input) = input.strip_prefix("ss://") {
         shadowsocks::parse(input)
+    } else if let Some(input) = input.strip_prefix("trojan://") {
+        trojan::parse(input)
     } else if let Some((scheme, payload)) = input.split_once("://") {
         if payload.is_empty()
             || !is_valid_scheme(scheme)
             || scheme.eq_ignore_ascii_case("vless")
             || scheme.eq_ignore_ascii_case("ss")
+            || scheme.eq_ignore_ascii_case("trojan")
         {
             Err(NodeRejection::Invalid(InvalidNodeReason::Uri))
         } else {

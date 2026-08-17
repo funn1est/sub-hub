@@ -4,6 +4,7 @@ mod dispatch;
 mod privacy;
 mod properties;
 mod shadowsocks;
+mod trojan;
 mod vless;
 
 fn rejection(input: &str) -> NodeRejection {

@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::{
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
+    node::trojan::TrojanSecurity,
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1},
@@ -101,6 +102,54 @@ fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Outbound<'a> {
             shadowsocks.credential(),
             tag,
         )),
+        NodeProtocol::Trojan(trojan) => Outbound::Trojan(trojan_outbound(node, trojan, tag)),
+    }
+}
+
+fn trojan_outbound<'a>(
+    node: &'a ProxyNode,
+    trojan: &'a crate::node::trojan::TrojanNode,
+    tag: &'a str,
+) -> TrojanOutbound<'a> {
+    let transport = match trojan.transport() {
+        VlessTransport::Tcp => None,
+        VlessTransport::WebSocket { path, host } => Some(Transport {
+            kind: "ws",
+            path: Some(path.as_str()),
+            headers: host.as_deref().map(|host| TransportHeaders { host }),
+            service_name: None,
+        }),
+        VlessTransport::Grpc { service_name, .. } => Some(Transport {
+            kind: "grpc",
+            path: None,
+            headers: None,
+            service_name: service_name.as_deref(),
+        }),
+    };
+    let tls_options = trojan.security().tls_options();
+    let reality = match trojan.security() {
+        TrojanSecurity::Tls(_) => None,
+        TrojanSecurity::Reality(options) => Some(Reality {
+            enabled: true,
+            public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
+            short_id: options
+                .short_id()
+                .map(|short_id| encode_hex(short_id.as_bytes())),
+        }),
+    };
+    TrojanOutbound {
+        kind: "trojan",
+        tag,
+        server: render_host_plain(node.endpoint().host()),
+        server_port: node.endpoint().port().get(),
+        password: trojan.password().expose(),
+        tls: tls_object(
+            tls_options.server_name(),
+            tls_options.alpn(),
+            tls_options.fingerprint(),
+            reality,
+        ),
+        transport,
     }
 }
 
@@ -365,9 +414,23 @@ struct Inbound {
 enum Outbound<'a> {
     Vless(VlessOutbound<'a>),
     Shadowsocks(ShadowsocksOutbound<'a>),
+    Trojan(TrojanOutbound<'a>),
     Selector(SelectorOutbound),
     Urltest(UrltestOutbound),
     Simple(SimpleOutbound),
+}
+
+#[derive(Serialize)]
+struct TrojanOutbound<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    tag: &'a str,
+    server: String,
+    server_port: u16,
+    password: &'a str,
+    tls: Tls<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transport: Option<Transport<'a>>,
 }
 
 #[derive(Serialize)]
@@ -615,6 +678,27 @@ mod tests {
         assert!(text.contains("\"flow\": \"xtls-rprx-vision\""));
         assert!(text.contains("\"fingerprint\": \"chrome\""));
         assert!(text.contains("\"fingerprint\": \"safari\""));
+        assert_eq!(output.diagnostics().capability_skips(), 0);
+    }
+
+    #[test]
+    fn trojan_tcp_tls_and_grpc_are_kept() {
+        let source = concat!(
+            "trojan://password@EXAMPLE.COM:443#Alpha\n",
+            "trojan://password@example.com:443?type=grpc&serviceName=svc&security=tls#Grpc\n",
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_singbox_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains("\"type\": \"trojan\""));
+        assert!(text.contains("\"tag\": \"Alpha\""));
+        assert!(text.contains("\"password\": \"password\""));
+        assert!(text.contains("\"enabled\": true"));
+        assert!(text.contains("\"server_name\": \"example.com\""));
+        assert!(text.contains("\"fingerprint\": \"chrome\""));
+        assert!(text.contains("\"tag\": \"Grpc\""));
+        assert!(text.contains("\"type\": \"grpc\""));
+        assert!(!text.contains("multiplex"));
         assert_eq!(output.diagnostics().capability_skips(), 0);
     }
 

@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::{
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
+    node::trojan::TrojanSecurity,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
@@ -167,6 +168,7 @@ struct MihomoRenderedGroup {
 pub(crate) enum MihomoProxy<'a> {
     Vless(MihomoVlessProxy<'a>),
     Shadowsocks(MihomoShadowsocksProxy<'a>),
+    Trojan(MihomoTrojanProxy<'a>),
 }
 
 #[derive(Serialize)]
@@ -208,6 +210,9 @@ impl<'a> From<&'a ProxyNode> for MihomoProxy<'a> {
                     shadowsocks.cipher(),
                     shadowsocks.credential(),
                 ))
+            }
+            NodeProtocol::Trojan(trojan) => {
+                Self::Trojan(MihomoTrojanProxy::from_node(node, trojan))
             }
         }
     }
@@ -288,6 +293,78 @@ pub(crate) struct MihomoShadowsocksProxy<'a> {
     cipher: &'static str,
     password: Cow<'a, str>,
     udp: bool,
+}
+
+#[derive(Serialize)]
+pub(crate) struct MihomoTrojanProxy<'a> {
+    name: &'a str,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    server: String,
+    port: u16,
+    password: &'a str,
+    udp: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sni: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alpn: Option<&'a [String]>,
+    #[serde(rename = "client-fingerprint", skip_serializing_if = "Option::is_none")]
+    client_fingerprint: Option<&'static str>,
+    network: &'static str,
+    #[serde(rename = "ws-opts", skip_serializing_if = "Option::is_none")]
+    ws_opts: Option<MihomoWebSocketOptions<'a>>,
+    #[serde(rename = "grpc-opts", skip_serializing_if = "Option::is_none")]
+    grpc_opts: Option<MihomoGrpcOptions<'a>>,
+    #[serde(rename = "reality-opts", skip_serializing_if = "Option::is_none")]
+    reality_opts: Option<MihomoRealityOptions>,
+}
+
+impl<'a> MihomoTrojanProxy<'a> {
+    fn from_node(node: &'a ProxyNode, trojan: &'a crate::node::trojan::TrojanNode) -> Self {
+        let (network, ws_opts, grpc_opts) = match trojan.transport() {
+            VlessTransport::Tcp => ("tcp", None, None),
+            VlessTransport::WebSocket { path, host } => (
+                "ws",
+                Some(MihomoWebSocketOptions {
+                    path,
+                    headers: host.as_deref().map(|host| MihomoWebSocketHeaders { host }),
+                }),
+                None,
+            ),
+            VlessTransport::Grpc { service_name, .. } => (
+                "grpc",
+                None,
+                service_name
+                    .as_deref()
+                    .map(|service_name| MihomoGrpcOptions { service_name }),
+            ),
+        };
+        let tls = trojan.security().tls_options();
+        let reality_opts = match trojan.security() {
+            TrojanSecurity::Tls(_) => None,
+            TrojanSecurity::Reality(options) => Some(MihomoRealityOptions {
+                public_key: URL_SAFE_NO_PAD.encode(options.public_key().as_bytes()),
+                short_id: options
+                    .short_id()
+                    .map(|short_id| encode_hex(short_id.as_bytes())),
+            }),
+        };
+        Self {
+            name: node.name().as_str(),
+            kind: "trojan",
+            server: render_host_plain(node.endpoint().host()),
+            port: node.endpoint().port().get(),
+            password: trojan.password().expose(),
+            udp: true,
+            sni: Some(tls.server_name()),
+            alpn: tls.alpn(),
+            client_fingerprint: Some(render_fingerprint(tls.fingerprint())),
+            network,
+            ws_opts,
+            grpc_opts,
+            reality_opts,
+        }
+    }
 }
 
 impl<'a> MihomoShadowsocksProxy<'a> {

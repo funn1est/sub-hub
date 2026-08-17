@@ -189,10 +189,25 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
         format!("{short_id:?}"),
     ];
 
+    let trojan = parse_share_uri(
+        "trojan://CANARY_PASSWORD@canary-host.example:443?security=reality&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#CANARY_REMARK",
+    )
+    .expect("valid canary Trojan node");
+    let NodeProtocol::Trojan(trojan_protocol) = &trojan.protocol else {
+        panic!("expected Trojan")
+    };
+    let trojan_representations = [
+        format!("{trojan:?}"),
+        format!("{:?}", trojan.protocol),
+        format!("{trojan_protocol:?}"),
+        format!("{:?}", trojan_protocol.password()),
+    ];
+
     assert_redacted(
         ss_representations
             .into_iter()
             .chain(ss_2022_representations)
-            .chain(secret_representations),
+            .chain(secret_representations)
+            .chain(trojan_representations),
     );
 }

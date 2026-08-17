@@ -1,11 +1,13 @@
 mod endpoint;
 pub(crate) mod shadowsocks;
+pub(crate) mod trojan;
 pub(crate) mod vless;
 
 use std::fmt;
 
 use crate::node_name::NodeNameV1;
 use shadowsocks::ShadowsocksNode;
+use trojan::TrojanNode;
 use vless::VlessNode;
 
 pub(crate) use endpoint::{Endpoint, Host};
@@ -64,6 +66,7 @@ impl fmt::Debug for ProxyNode {
 pub(crate) enum NodeProtocol {
     Vless(VlessNode),
     Shadowsocks(ShadowsocksNode),
+    Trojan(TrojanNode),
 }
 
 impl fmt::Debug for NodeProtocol {
@@ -71,6 +74,7 @@ impl fmt::Debug for NodeProtocol {
         match self {
             Self::Vless(_) => formatter.write_str("Vless([REDACTED])"),
             Self::Shadowsocks(_) => formatter.write_str("Shadowsocks([REDACTED])"),
+            Self::Trojan(_) => formatter.write_str("Trojan([REDACTED])"),
         }
     }
 }

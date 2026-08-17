@@ -209,7 +209,7 @@ impl TlsOptions {
         self.fingerprint
     }
 
-    fn invariants_hold(&self) -> bool {
+    pub(crate) fn invariants_hold(&self) -> bool {
         !self.server_name().is_empty()
             && self.alpn().is_none_or(|values| {
                 !values.is_empty()

@@ -5,6 +5,7 @@ use base64::{
 
 use crate::{
     node::shadowsocks::ShadowsocksCredential,
+    node::trojan::TrojanSecurity,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
     node::{NodeProtocol, ProxyNode},
     policy::{
@@ -137,6 +138,7 @@ fn render_server_line(node: &ProxyNode, tag: &str) -> Option<String> {
                 shadowsocks_method(shadowsocks.cipher())
             )
         }
+        NodeProtocol::Trojan(trojan) => render_trojan_line(&endpoint, trojan, tag)?,
     };
     Some(line)
 }
@@ -216,6 +218,96 @@ fn render_vless_line(
     fields.push("fast-open=false".to_owned());
     fields.push(format!("tag={tag}"));
     Some(fields.join(", "))
+}
+
+fn render_trojan_line(
+    endpoint: &str,
+    trojan: &crate::node::trojan::TrojanNode,
+    tag: &str,
+) -> Option<String> {
+    if matches!(trojan.transport(), VlessTransport::Grpc { .. }) {
+        return None;
+    }
+    let password = trojan.password().expose();
+    if !is_safe_field(password) {
+        return None;
+    }
+
+    let mut fields = vec![format!("trojan={endpoint}"), format!("password={password}")];
+    match trojan.transport() {
+        VlessTransport::Tcp => match trojan.security() {
+            TrojanSecurity::Tls(options) => {
+                push_trojan_tls_fields(&mut fields, options.server_name(), options.alpn())?;
+            }
+            TrojanSecurity::Reality(options) => {
+                push_trojan_tls_fields(&mut fields, options.tls().server_name(), None)?;
+                push_trojan_reality_fields(&mut fields, options);
+            }
+        },
+        VlessTransport::WebSocket { path, host } => {
+            if !is_safe_field(path) {
+                return None;
+            }
+            let sni = trojan.security().tls_options().server_name();
+            let host = host.as_deref().unwrap_or(sni);
+            if !is_safe_field(host) {
+                return None;
+            }
+            fields.push("obfs=wss".to_owned());
+            fields.push(format!("obfs-host={host}"));
+            fields.push(format!("obfs-uri={path}"));
+            match trojan.security() {
+                TrojanSecurity::Tls(options) => {
+                    fields.push("tls-verification=true".to_owned());
+                    if let Some(alpn) = options.alpn() {
+                        fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
+                    }
+                }
+                TrojanSecurity::Reality(options) => {
+                    fields.push("tls-verification=true".to_owned());
+                    push_trojan_reality_fields(&mut fields, options);
+                }
+            }
+        }
+        VlessTransport::Grpc { .. } => return None,
+    }
+    fields.push("udp-relay=true".to_owned());
+    fields.push("fast-open=false".to_owned());
+    fields.push(format!("tag={tag}"));
+    Some(fields.join(", "))
+}
+
+fn push_trojan_tls_fields(
+    fields: &mut Vec<String>,
+    server_name: &str,
+    alpn: Option<&[String]>,
+) -> Option<()> {
+    if !is_safe_field(server_name) {
+        return None;
+    }
+    fields.push("over-tls=true".to_owned());
+    fields.push(format!("tls-host={server_name}"));
+    fields.push("tls-verification=true".to_owned());
+    if let Some(alpn) = alpn {
+        fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
+    }
+    Some(())
+}
+
+fn push_trojan_reality_fields(
+    fields: &mut Vec<String>,
+    options: &crate::node::vless::RealityOptions,
+) {
+    fields.push(format!(
+        "reality-base64-pubkey={}",
+        URL_SAFE_NO_PAD.encode(options.public_key().as_bytes())
+    ));
+    if let Some(short_id) = options.short_id() {
+        fields.push(format!(
+            "reality-hex-shortid={}",
+            encode_hex(short_id.as_bytes())
+        ));
+    }
 }
 
 fn push_tls_fields(
@@ -500,6 +592,30 @@ mod tests {
         assert!(!text.contains("tag=Vision"));
         assert!(!text.contains("grpc"));
         assert_eq!(output.diagnostics().capability_skips(), 2);
+    }
+
+    #[test]
+    fn trojan_exact_combos_and_grpc_skip() {
+        let source = concat!(
+            "trojan://password@EXAMPLE.COM:443#TcpTls\n",
+            "trojan://password@example.com:443?security=reality&sni=apple.com&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#Reality\n",
+            "trojan://password@example.com:443?type=ws&path=%2Fpath&host=example.com#Wss\n",
+            "trojan://password@example.com:443?type=grpc&serviceName=svc#Grpc\n",
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_quanx_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains(
+            "trojan=example.com:443, password=password, over-tls=true, tls-host=example.com, tls-verification=true, udp-relay=true, fast-open=false, tag=TcpTls"
+        ));
+        assert!(text.contains("tag=Reality"));
+        assert!(text.contains("reality-base64-pubkey="));
+        assert!(text.contains("obfs=wss"));
+        assert!(text.contains("obfs-uri=/path"));
+        assert!(text.contains("tag=Wss"));
+        assert!(!text.contains("tag=Grpc"));
+        assert!(!text.contains("grpc"));
+        assert_eq!(output.diagnostics().capability_skips(), 1);
     }
 
     #[test]
