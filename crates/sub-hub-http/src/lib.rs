@@ -393,36 +393,23 @@ impl<A: RemoteAdapter> Application<A> {
             });
             loaded.push(response.body);
         }
-        let bodies = parsed
+        let source_plan = parsed
             .sources
             .iter()
             .zip(canonical_sources.iter())
             .map(|(source, canonical)| {
                 canonical.as_ref().map_or_else(
-                    || Ok::<_, ApplicationError>(source.as_bytes().to_vec()),
+                    || Ok::<_, ApplicationError>(SubscriptionSourceV1::Direct(source)),
                     |canonical| {
                         let index = unique_urls
                             .iter()
                             .position(|url| url.as_str() == canonical)
                             .ok_or(ApplicationError::Internal)?;
-                        Ok::<_, ApplicationError>(loaded[index].clone())
+                        Ok(SubscriptionSourceV1::Remote(loaded[index].as_slice()))
                     },
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let source_plan = parsed
-            .sources
-            .iter()
-            .zip(canonical_sources.iter())
-            .zip(&bodies)
-            .map(|((source, canonical), body)| {
-                canonical
-                    .as_ref()
-                    .map_or(SubscriptionSourceV1::Direct(source), |_| {
-                        SubscriptionSourceV1::Remote(body)
-                    })
-            })
-            .collect::<Vec<_>>();
         let prepared = prepare_subscription_v1(&source_plan).map_err(map_subscription_error)?;
         account_decoded_sources(
             &mut broker,

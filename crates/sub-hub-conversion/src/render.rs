@@ -89,8 +89,17 @@ pub(crate) struct BuiltinRenderOutput {
 }
 
 impl BuiltinRenderOutput {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "borrowing accessor kept for test assertions")
+    )]
     pub(crate) fn config(&self) -> &[u8] {
         &self.config
+    }
+
+    /// Consumes the output, yielding the rendered document without copying.
+    pub(crate) fn into_config(self) -> Vec<u8> {
+        self.config
     }
 
     #[cfg_attr(

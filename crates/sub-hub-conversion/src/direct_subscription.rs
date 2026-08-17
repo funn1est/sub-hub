@@ -100,7 +100,7 @@ fn map_builtin_render(
 ) -> Result<MihomoConfig, DirectRenderError> {
     match result {
         Ok(output) => Ok(MihomoConfig {
-            bytes: output.config().to_vec(),
+            bytes: output.into_config(),
         }),
         Err(BuiltinRenderError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
         Err(
