@@ -23,21 +23,33 @@ request arriving on one alias cannot fetch another.
 
 ## Access token
 
-`SUB_HUB_ACCESS_TOKEN` is optional. When it is unset, anyone who knows the
-Worker URL can convert subscriptions and ask the Worker to fetch HTTPS
-resources through the shared SSRF broker. Do not send a real subscription URL
-to a public Worker until the token is set.
+`SUB_HUB_ACCESS_TOKEN` is a Cloudflare **secret** (never a `[vars]` value or a
+committed `.dev.vars` file). The blob is a comma- or newline-separated list of
+at most eight equivalent tokens. Each token is 1–128 bytes from
+`A–Z a–z 0–9 - . _ ~`. Any configured token authorizes `GET`/`HEAD /sub/<token>`.
+`GET /sub` then returns `401 Unauthorized!`. `GET /version` stays public.
 
-Configure it as a secret, not a committed `[vars]` value:
+Cloudflare cannot show the value after save. Keep the full list in a password
+manager or an uncommitted file. The Dashboard field can only **replace** that
+blob; it is not a viewer. Do not create a `SUB_HUB_ACCESS_TOKEN` **var** — a var
+shadows the secret.
+
+`pnpm run deploy` will:
+
+- put the list you pass with `--tokens-file`, `--tokens`, or `--from-env`;
+- leave an existing secret unchanged;
+- or, when `wrangler secret list` proves the name is absent, generate one
+  32-character hex token, put it with the same deploy, and print it once.
+
+It never treats an ambient `SUB_HUB_ACCESS_TOKEN` as a put. If it cannot tell
+whether the secret exists, it aborts instead of generating.
 
 ```sh
-corepack pnpm exec wrangler secret put SUB_HUB_ACCESS_TOKEN
+corepack pnpm run deploy -- --tokens-file tokens.txt
+corepack pnpm run deploy -- --replace
 ```
 
-The value must be 1–128 bytes from `A–Z a–z 0–9 - . _ ~`. After it is set,
-clients must call `GET /sub/<token>`; `GET /sub` returns `401 Unauthorized!`.
-`GET /version` stays public. A malformed secret makes every request return
-`500`.
+A present-but-empty or malformed secret makes every request return `500`.
 
 Do not log complete request URLs. Query strings commonly contain credentials.
 
@@ -69,9 +81,10 @@ corepack pnpm run test:host
 corepack pnpm run deploy
 ```
 
-`pnpm run deploy` runs `wrangler deploy`, which rebuilds through the
-`worker-build --release` command in `wrangler.toml`. The first successful
-deploy prints a `*.workers.dev` URL.
+`pnpm run deploy` runs the access-token ensure script, then `wrangler deploy
+--keep-vars` (rebuilds through `worker-build --release` in `wrangler.toml`).
+The first successful deploy prints a `*.workers.dev` URL. Save any generated
+token immediately; Cloudflare cannot show it again.
 
 If the account already has a Worker named `sub-hub`, change `name` in
 `wrangler.toml` locally so the deploy does not collide. Do not commit that
@@ -107,8 +120,7 @@ curl --get "$WORKER_URL/sub" \
   --output sub-hub-mihomo.yaml
 ```
 
-If `SUB_HUB_ACCESS_TOKEN` is set, replace `/sub` with `/sub/<token>` in the
-second command.
+After deploy, replace `/sub` with `/sub/<token>` in the second command.
 
 `GET /version` must print `sub-hub v0.1.0 backend`. The `/sub` response must
 be Mihomo YAML that contains that VLESS node.

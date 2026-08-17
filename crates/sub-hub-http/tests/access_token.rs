@@ -1,6 +1,6 @@
 use http::{Method, StatusCode, header};
 use sub_hub_http::{
-    AccessToken, Application, HttpRequest, HttpResponse, RemoteAdapter, RemoteAttempt,
+    AccessTokens, Application, HttpRequest, HttpResponse, RemoteAdapter, RemoteAttempt,
     RemoteFetchError, RemoteResponse, SelfHosts,
 };
 
@@ -37,7 +37,16 @@ fn protected(request: HttpRequest<'_>) -> HttpResponse {
         UnreachableRemote,
         SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
     )
-    .with_access_token(AccessToken::parse(TOKEN).expect("valid token"));
+    .with_access_tokens(AccessTokens::parse_list(TOKEN).expect("valid token"));
+    futures::executor::block_on(application.handle(request))
+}
+
+fn protected_list(raw: &str, request: HttpRequest<'_>) -> HttpResponse {
+    let application = Application::new(
+        UnreachableRemote,
+        SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
+    )
+    .with_access_tokens(AccessTokens::parse_list(raw).expect("valid token list"));
     futures::executor::block_on(application.handle(request))
 }
 
@@ -151,8 +160,33 @@ fn application_debug_does_not_retain_the_token() {
         UnreachableRemote,
         SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
     )
-    .with_access_token(AccessToken::parse(TOKEN).expect("valid token"));
+    .with_access_tokens(AccessTokens::parse_list(TOKEN).expect("valid token"));
     let debug = format!("{application:?}");
     assert!(!debug.contains(TOKEN));
-    assert!(debug.contains("access_token: true"));
+    assert!(debug.contains("access_tokens_configured: true"));
+}
+
+#[test]
+fn any_configured_token_authorizes_and_the_wrong_one_does_not() {
+    let first = protected_list(
+        "alpha,bravo",
+        HttpRequest::new(Method::GET, "/sub/alpha", Some(DIRECT_QUERY)),
+    );
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let second = protected_list(
+        "alpha\nbravo",
+        HttpRequest::new(Method::GET, "/sub/bravo", Some(DIRECT_QUERY)),
+    );
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let wrong = protected_list(
+        "alpha,bravo",
+        HttpRequest::new(Method::GET, "/sub/charlie", Some(DIRECT_QUERY)),
+    );
+    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(wrong.body(), b"Unauthorized!");
+    assert!(!String::from_utf8_lossy(wrong.body()).contains("alpha"));
+    assert!(!String::from_utf8_lossy(wrong.body()).contains("bravo"));
+    assert!(!String::from_utf8_lossy(wrong.body()).contains("charlie"));
 }

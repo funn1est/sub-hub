@@ -3,7 +3,7 @@ use std::{fmt, future::Future, pin::Pin, time::Duration};
 use futures::{StreamExt, future::Either, pin_mut};
 use http::{HeaderName, StatusCode};
 use sub_hub_http::{
-    AccessToken, Application, HttpRequest as ApplicationRequest, RemoteAdapter, RemoteAttempt,
+    AccessTokens, Application, HttpRequest as ApplicationRequest, RemoteAdapter, RemoteAttempt,
     RemoteFetchError, RemoteResponse, SelfHosts,
 };
 use url::Host;
@@ -82,13 +82,11 @@ async fn handle_request(
     let Ok(self_hosts) = self_hosts_from_environment(environment, &inbound_host) else {
         return Err(HostFailure::InvalidConfiguration);
     };
-    let Ok(access_token) = access_token_from_environment(environment) else {
+    let Ok(access_tokens) = access_tokens_from_environment(environment) else {
         return Err(HostFailure::InvalidConfiguration);
     };
-    let mut application = Application::new(CloudflareRemoteAdapter, self_hosts);
-    if let Some(access_token) = access_token {
-        application = application.with_access_token(access_token);
-    }
+    let application =
+        Application::new(CloudflareRemoteAdapter, self_hosts).with_access_tokens(access_tokens);
 
     Ok(application
         .handle(ApplicationRequest::new_with_inbound_host(
@@ -266,9 +264,9 @@ fn optional_metadata(headers: &Headers) -> Option<Vec<u8>> {
     .then(|| value.as_bytes().to_vec())
 }
 
-fn access_token_from_environment(environment: &Env) -> Result<Option<AccessToken>, ()> {
+fn access_tokens_from_environment(environment: &Env) -> Result<AccessTokens, ()> {
     let raw = optional_binding(environment, ACCESS_TOKEN_BINDING)?;
-    AccessToken::parse_optional(raw.as_deref()).map_err(|_| ())
+    AccessTokens::parse_optional(raw.as_deref()).map_err(|_| ())
 }
 
 fn optional_binding(environment: &Env, name: &str) -> Result<Option<String>, ()> {

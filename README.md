@@ -47,8 +47,8 @@ to confirm it parses; there is no official `egern check` CLI.
 
 The service does not currently expose POST conversion, capabilities, or an
 administration API. An optional
-`SUB_HUB_ACCESS_TOKEN` protects `GET`/`HEAD /sub/:token` when configured;
-`GET /version` stays public. Unsupported or invalid individual nodes are
+`SUB_HUB_ACCESS_TOKEN` may hold up to eight equivalent path tokens and
+protects `GET`/`HEAD /sub/:token` when configured; `GET /version` stays public. Unsupported or invalid individual nodes are
 skipped, but source/container/config errors remain fatal and a request with no
 valid nodes fails. All remote resources pass through the shared bounded SSRF
 broker.
@@ -115,9 +115,11 @@ The native host reads three optional environment variables:
 - `SUB_HUB_BIND` sets the listener and defaults to `127.0.0.1:25500`.
 - `SUB_HUB_SELF_HOSTS` is a comma-separated list of canonical DNS aliases that
   remote loading must reject as self-targets.
-- `SUB_HUB_ACCESS_TOKEN` is a single unreserved path token (`A–Z a–z 0–9 - . _ ~`,
-  1–128 bytes). When unset, `GET /sub` stays anonymous and the process prints a
-  warning. When set, clients must call `GET /sub/<token>`.
+- `SUB_HUB_ACCESS_TOKEN` is a comma- or newline-separated list of at most eight
+  unreserved path tokens (`A–Z a–z 0–9 - . _ ~`, 1–128 bytes each). When unset
+  on loopback, `GET /sub` stays anonymous and the process prints a warning. A
+  non-loopback bind with an empty list refuses to start. When set, clients must
+  call `GET /sub/<token>`.
 
 A non-loopback `SUB_HUB_BIND` is rejected unless `SUB_HUB_SELF_HOSTS` contains
 at least one hostname. List every additional deployment alias even when a
@@ -154,17 +156,18 @@ The first deploy prints a `*.workers.dev` URL. Put that hostname in the
 an `account_id`, API tokens, a local `name` rename, or a `.dev.vars` file with
 real values.
 
-Set `SUB_HUB_ACCESS_TOKEN` with `wrangler secret put SUB_HUB_ACCESS_TOKEN`
-before sending a real subscription URL to a public Worker. Clients then use
-`GET /sub/<token>?target=clash&url=...`. `GET /version` stays public. Do not
-write the token into the committed `wrangler.toml`.
+`pnpm run deploy` leaves an existing `SUB_HUB_ACCESS_TOKEN` secret, puts a list
+you pass with `--tokens-file`, or generates one token and prints it once. Keep
+that value in a password manager; Cloudflare cannot show it again. Do not write
+tokens into the committed `wrangler.toml`. Clients use
+`GET /sub/<token>?target=clash&url=...`. `GET /version` stays public.
 
 Smoke the deployed origin without fetching an external subscription:
 
 ```sh
 curl "$WORKER_URL/version"
 
-curl --get "$WORKER_URL/sub" \
+curl --get "$WORKER_URL/sub/<token>" \
   --data-urlencode 'target=clash' \
   --data-urlencode 'url=vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha' \
   --output sub-hub-mihomo.yaml

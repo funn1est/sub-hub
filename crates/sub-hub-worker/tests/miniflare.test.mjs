@@ -338,6 +338,34 @@ test("invalid access token binding returns the fixed application 500", async (t)
   assert.equal(await response.text(), "Internal Server Error");
 });
 
+test("comma-separated access tokens each authorize /sub and empty blobs fail closed", async (t) => {
+  const mf = runtime({ SUB_HUB_ACCESS_TOKEN: "alpha,bravo" });
+  t.after(() => mf.dispose());
+
+  const first = await mf.dispatchFetch(
+    `https://worker.example/sub/alpha?target=clash&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(first.status, 200);
+  assert.equal(await first.text(), SINGLE_VLESS_YAML);
+
+  const second = await mf.dispatchFetch(
+    `https://worker.example/sub/bravo?target=clash&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(second.status, 200);
+
+  const wrong = await mf.dispatchFetch(
+    `https://worker.example/sub/charlie?target=clash&url=${encodeURIComponent(VLESS)}`,
+  );
+  assert.equal(wrong.status, 401);
+  assert.equal(await wrong.text(), "Unauthorized!");
+
+  const empty = runtime({ SUB_HUB_ACCESS_TOKEN: "," });
+  t.after(() => empty.dispose());
+  const rejected = await empty.dispatchFetch("https://worker.example/version");
+  assert.equal(rejected.status, 500);
+  assert.equal(await rejected.text(), "Internal Server Error");
+});
+
 test("non-443 remote source is rejected before fetch", async (t) => {
   const mf = runtime();
   t.after(() => mf.dispose());

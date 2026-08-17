@@ -2,6 +2,10 @@ use std::fmt;
 
 const MIN_TOKEN_BYTES: usize = 1;
 const MAX_TOKEN_BYTES: usize = 128;
+/// Maximum number of unique deployer tokens in one binding.
+pub const MAX_ACCESS_TOKENS: usize = 8;
+/// Maximum UTF-8 byte length of a present `SUB_HUB_ACCESS_TOKEN` blob.
+pub const MAX_ACCESS_TOKEN_LIST_BYTES: usize = 2048;
 
 /// A single deployer access token used as the `/sub/:token` path segment.
 #[derive(Clone)]
@@ -43,6 +47,100 @@ impl AccessToken {
     pub(crate) fn matches(&self, provided: &str) -> bool {
         constant_time_eq(self.value.as_bytes(), provided.as_bytes())
     }
+
+    fn as_str(&self) -> &str {
+        &self.value
+    }
+}
+
+/// Closed set of equivalent deployer tokens. Empty = anonymous `/sub`.
+#[derive(Clone)]
+pub struct AccessTokens {
+    tokens: Vec<AccessToken>,
+}
+
+impl AccessTokens {
+    /// An empty set: `GET /sub` stays anonymous.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self { tokens: Vec::new() }
+    }
+
+    /// Parses a **present** dashboard or environment blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessTokenError`] when the blob is too long, yields zero unique tokens,
+    /// contains a ninth unique token, or any item fails [`AccessToken::parse`].
+    pub fn parse_list(raw: &str) -> Result<Self, AccessTokenError> {
+        let raw = raw.strip_prefix('\u{FEFF}').unwrap_or(raw);
+        if raw.len() > MAX_ACCESS_TOKEN_LIST_BYTES {
+            return Err(AccessTokenError);
+        }
+
+        let mut tokens = Vec::new();
+        for piece in raw.split([',', '\n', '\r']) {
+            let piece = piece.trim_matches(|byte| byte == ' ' || byte == '\t');
+            if piece.is_empty() {
+                continue;
+            }
+            let token = AccessToken::parse(piece)?;
+            if tokens
+                .iter()
+                .any(|existing: &AccessToken| existing.as_str() == piece)
+            {
+                continue;
+            }
+            if tokens.len() >= MAX_ACCESS_TOKENS {
+                return Err(AccessTokenError);
+            }
+            tokens.push(token);
+        }
+        if tokens.is_empty() {
+            return Err(AccessTokenError);
+        }
+        Ok(Self { tokens })
+    }
+
+    /// `None` is an empty anonymous set. `Some` is always [`Self::parse_list`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessTokenError`] when a present blob fails [`Self::parse_list`].
+    pub fn parse_optional(raw: Option<&str>) -> Result<Self, AccessTokenError> {
+        match raw {
+            None => Ok(Self::empty()),
+            Some(raw) => Self::parse_list(raw),
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.tokens.is_empty()
+    }
+
+    pub(crate) fn authorizes(&self, provided: Option<&str>) -> bool {
+        match (self.tokens.is_empty(), provided) {
+            (true, None) => true,
+            (true, Some(_)) | (false, None) => false,
+            (false, Some(provided)) => {
+                let mut authorized = false;
+                for token in &self.tokens {
+                    authorized |= token.matches(provided);
+                }
+                authorized
+            }
+        }
+    }
+}
+
+impl fmt::Debug for AccessTokens {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AccessTokens")
+            .field("configured", &!self.tokens.is_empty())
+            .finish()
+    }
 }
 
 impl fmt::Debug for AccessToken {
@@ -78,7 +176,7 @@ fn constant_time_eq(expected: &[u8], provided: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{AccessToken, constant_time_eq};
+    use super::{AccessToken, AccessTokens, constant_time_eq};
 
     #[test]
     fn parse_rejects_empty_slash_and_non_unreserved_bytes() {
@@ -106,5 +204,66 @@ mod tests {
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"ab"));
         assert!(!constant_time_eq(b"ab", b"abc"));
+    }
+
+    #[test]
+    fn parse_list_accepts_s15_single_token_and_comma_or_newline_lists() {
+        let single = AccessTokens::parse_list("deployer-token").expect("S15 value");
+        assert!(!single.is_empty());
+        assert!(single.authorizes(Some("deployer-token")));
+
+        let comma = AccessTokens::parse_list("alpha,bravo").expect("comma list");
+        assert!(comma.authorizes(Some("alpha")));
+        assert!(comma.authorizes(Some("bravo")));
+        assert!(!comma.authorizes(Some("charlie")));
+        assert!(!comma.authorizes(None));
+
+        let lines = AccessTokens::parse_list("alpha\nbravo\n").expect("newline list");
+        assert!(lines.authorizes(Some("alpha")));
+        assert!(lines.authorizes(Some("bravo")));
+
+        let mixed = AccessTokens::parse_list("alpha,\n,bravo").expect("empty pieces skipped");
+        assert!(mixed.authorizes(Some("alpha")));
+        assert!(mixed.authorizes(Some("bravo")));
+
+        let deduped = AccessTokens::parse_list("alpha, alpha").expect("first-seen dedupe");
+        assert!(deduped.authorizes(Some("alpha")));
+        assert_eq!(format!("{deduped:?}"), "AccessTokens { configured: true }");
+        assert!(!format!("{deduped:?}").contains("alpha"));
+    }
+
+    #[test]
+    fn parse_list_rejects_empty_present_blobs_and_ninth_unique_token() {
+        assert!(
+            AccessTokens::parse_optional(None)
+                .expect("absent")
+                .is_empty()
+        );
+        assert!(AccessTokens::parse_list("").is_err());
+        assert!(AccessTokens::parse_list("   ").is_err());
+        assert!(AccessTokens::parse_list(",").is_err());
+        assert!(AccessTokens::parse_list("\n").is_err());
+        assert!(AccessTokens::parse_list("has space").is_err());
+
+        let at_cap = format!("alpha{}", ",".repeat(2043));
+        assert_eq!(at_cap.len(), 2048);
+        assert!(AccessTokens::parse_list(&at_cap).is_ok());
+        assert!(AccessTokens::parse_list(&format!("{at_cap},")).is_err());
+
+        let eight = (0..8)
+            .map(|index| format!("token{index}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(AccessTokens::parse_list(&eight).is_ok());
+        assert!(AccessTokens::parse_list(&format!("{eight},token8")).is_err());
+    }
+
+    #[test]
+    fn empty_set_authorizes_only_a_missing_path_token() {
+        let empty = AccessTokens::empty();
+        assert!(empty.is_empty());
+        assert!(empty.authorizes(None));
+        assert!(!empty.authorizes(Some("deployer-token")));
+        assert_eq!(format!("{empty:?}"), "AccessTokens { configured: false }");
     }
 }

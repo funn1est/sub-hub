@@ -9,9 +9,9 @@ use axum::{
     http::{Method, Request, Response, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use sub_hub_http::{AccessToken, Application, SelfHosts};
+use sub_hub_http::{AccessTokens, Application, SelfHosts};
 use sub_hub_native::{
-    DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router,
+    DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router, serve,
 };
 use tower::ServiceExt;
 
@@ -158,7 +158,7 @@ fn service_defaults_to_the_safe_loopback_address() {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25_500)
     );
     assert!(config.self_hosts().is_empty());
-    assert!(config.access_token().is_none());
+    assert!(config.access_tokens().is_empty());
 }
 
 #[test]
@@ -327,7 +327,7 @@ async fn configured_access_token_protects_sub_and_leaves_version_public() {
         NativeRemoteAdapter::new(),
         SelfHosts::new(["subscriptions.example"]).expect("valid self host"),
     )
-    .with_access_token(AccessToken::parse("deployer-token").expect("valid token"));
+    .with_access_tokens(AccessTokens::parse_list("deployer-token").expect("valid token"));
     let router = build_router(application);
 
     let version = router
@@ -376,6 +376,17 @@ async fn configured_access_token_protects_sub_and_leaves_version_public() {
         .await
         .expect("router is infallible");
     assert_eq!(ok.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn serve_refuses_an_anonymous_non_loopback_bind() {
+    let config = NativeConfig::from_values(Some("0.0.0.0:25500"), Some("host.example"))
+        .expect("self-hosts gate still allows constructing the config");
+    assert!(config.access_tokens().is_empty());
+    let error = serve(config)
+        .await
+        .expect_err("anonymous public bind must not start");
+    assert_eq!(error.to_string(), "invalid native host configuration");
 }
 
 fn test_router() -> axum::Router {

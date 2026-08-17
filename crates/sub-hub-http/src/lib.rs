@@ -13,7 +13,7 @@ mod public_destination;
 mod query;
 mod response;
 
-pub use access_token::{AccessToken, AccessTokenError};
+pub use access_token::{AccessToken, AccessTokenError, AccessTokens};
 pub use broker::{RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, ResourceKind};
 pub use public_destination::is_globally_reachable;
 pub use response::HttpResponse;
@@ -154,7 +154,7 @@ fn is_canonical_dns_name(host: &str) -> bool {
 pub struct Application<A> {
     adapter: A,
     self_hosts: SelfHosts,
-    access_token: Option<AccessToken>,
+    access_tokens: AccessTokens,
 }
 
 impl<A: RemoteAdapter> Application<A> {
@@ -163,14 +163,14 @@ impl<A: RemoteAdapter> Application<A> {
         Self {
             adapter,
             self_hosts,
-            access_token: None,
+            access_tokens: AccessTokens::empty(),
         }
     }
 
-    /// Requires `GET`/`HEAD /sub/:token` when a deployer token is configured.
+    /// Requires `GET`/`HEAD /sub/:token` when the set is non-empty.
     #[must_use]
-    pub fn with_access_token(mut self, access_token: AccessToken) -> Self {
-        self.access_token = Some(access_token);
+    pub fn with_access_tokens(mut self, access_tokens: AccessTokens) -> Self {
+        self.access_tokens = access_tokens;
         self
     }
 
@@ -188,13 +188,13 @@ impl<A: RemoteAdapter> Application<A> {
         if request_target_too_long(&method, path, raw_query) {
             return error_response(ApplicationError::UriTooLong);
         }
-        match classify_path(path, self.access_token.is_some()) {
+        match classify_path(path, !self.access_tokens.is_empty()) {
             RequestPath::Version => handle_version(&method, raw_query),
             RequestPath::Sub { .. } if method != Method::GET && method != Method::HEAD => {
                 error_response(ApplicationError::SubMethodNotAllowed)
             }
             RequestPath::Sub { provided_token }
-                if !sub_authorized(self.access_token.as_ref(), provided_token) =>
+                if !self.access_tokens.authorizes(provided_token) =>
             {
                 error_response(ApplicationError::Unauthorized)
             }
@@ -996,7 +996,7 @@ impl<A> fmt::Debug for Application<A> {
             .debug_struct("Application")
             .field("adapter", &"[REDACTED]")
             .field("self_hosts", &self.self_hosts)
-            .field("access_token", &self.access_token.is_some())
+            .field("access_tokens_configured", &!self.access_tokens.is_empty())
             .finish()
     }
 }
@@ -1023,13 +1023,6 @@ fn classify_path(path: &str, token_configured: bool) -> RequestPath<'_> {
         }
     } else {
         RequestPath::Unknown
-    }
-}
-
-fn sub_authorized(expected: Option<&AccessToken>, provided: Option<&str>) -> bool {
-    match expected {
-        None => provided.is_none(),
-        Some(token) => provided.is_some_and(|provided| token.matches(provided)),
     }
 }
 

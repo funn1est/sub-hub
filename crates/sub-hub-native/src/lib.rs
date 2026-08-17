@@ -7,7 +7,7 @@ use axum::{
 use http::{HeaderMap, HeaderValue};
 use std::{fmt, future::Future, net::SocketAddr, pin::Pin, sync::Arc, time::Instant};
 use sub_hub_http::{
-    AccessToken, Application, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError,
+    AccessTokens, Application, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError,
     RemoteResponse, SelfHosts, is_globally_reachable,
 };
 use url::{Host, Url};
@@ -20,7 +20,7 @@ const SUBSCRIPTION_USER_INFO: &str = "subscription-userinfo";
 pub struct NativeConfig {
     bind_address: SocketAddr,
     self_hosts: Vec<String>,
-    access_token: Option<AccessToken>,
+    access_tokens: AccessTokens,
 }
 
 impl NativeConfig {
@@ -46,7 +46,7 @@ impl NativeConfig {
         Ok(Self {
             bind_address,
             self_hosts,
-            access_token: None,
+            access_tokens: AccessTokens::empty(),
         })
     }
 
@@ -55,14 +55,30 @@ impl NativeConfig {
     /// # Errors
     ///
     /// Returns [`ConfigError`] when a value is not Unicode or does not satisfy
-    /// [`NativeConfig::from_values`] / [`AccessToken::parse_optional`].
+    /// [`NativeConfig::from_values`] / [`AccessTokens::parse_optional`], or when a
+    /// non-loopback bind has an empty token set.
     pub fn from_environment() -> Result<Self, ConfigError> {
         let bind_address = unicode_environment_value("SUB_HUB_BIND")?;
         let self_hosts = unicode_environment_value("SUB_HUB_SELF_HOSTS")?;
         let access_token = unicode_environment_value("SUB_HUB_ACCESS_TOKEN")?;
-        let mut config = Self::from_values(bind_address.as_deref(), self_hosts.as_deref())?;
-        config.access_token =
-            AccessToken::parse_optional(access_token.as_deref()).map_err(|_| ConfigError)?;
+        Self::from_environment_parts(
+            bind_address.as_deref(),
+            self_hosts.as_deref(),
+            access_token.as_deref(),
+        )
+    }
+
+    fn from_environment_parts(
+        bind_address: Option<&str>,
+        self_hosts: Option<&str>,
+        access_token: Option<&str>,
+    ) -> Result<Self, ConfigError> {
+        let mut config = Self::from_values(bind_address, self_hosts)?;
+        config.access_tokens =
+            AccessTokens::parse_optional(access_token).map_err(|_| ConfigError)?;
+        if !config.bind_address.ip().is_loopback() && config.access_tokens.is_empty() {
+            return Err(ConfigError);
+        }
         Ok(config)
     }
 
@@ -77,8 +93,8 @@ impl NativeConfig {
     }
 
     #[must_use]
-    pub fn access_token(&self) -> Option<&AccessToken> {
-        self.access_token.as_ref()
+    pub fn access_tokens(&self) -> &AccessTokens {
+        &self.access_tokens
     }
 }
 
@@ -88,7 +104,7 @@ impl fmt::Debug for NativeConfig {
             .debug_struct("NativeConfig")
             .field("bind_address", &self.bind_address)
             .field("self_host_count", &self.self_hosts.len())
-            .field("access_token", &self.access_token.is_some())
+            .field("access_tokens_configured", &!self.access_tokens.is_empty())
             .finish()
     }
 }
@@ -430,14 +446,15 @@ pub fn build_router(application: Application<NativeRemoteAdapter>) -> Router {
 ///
 /// Returns [`RunError`] if configuration validation, binding, or serving fails.
 pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
-    if config.access_token.is_none() {
+    if !config.bind_address.ip().is_loopback() && config.access_tokens.is_empty() {
+        return Err(RunError::from(ConfigError));
+    }
+    if config.access_tokens.is_empty() {
         eprintln!("sub-hub-native: SUB_HUB_ACCESS_TOKEN is unset; GET /sub is anonymous");
     }
     let self_hosts = SelfHosts::new(config.self_hosts.iter()).map_err(|_| ConfigError)?;
-    let mut application = Application::new(NativeRemoteAdapter::new(), self_hosts);
-    if let Some(token) = config.access_token {
-        application = application.with_access_token(token);
-    }
+    let application = Application::new(NativeRemoteAdapter::new(), self_hosts)
+        .with_access_tokens(config.access_tokens);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
     axum::serve(listener, build_router(application)).await?;
     Ok(())
@@ -597,5 +614,29 @@ mod tests {
         );
 
         assert_eq!(optional_metadata(&headers), None);
+    }
+
+    #[test]
+    fn from_environment_refuses_anonymous_non_loopback() {
+        assert!(NativeConfig::from_environment_parts(
+            Some("0.0.0.0:25500"),
+            Some("host.example"),
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn from_environment_loopback_unset_stays_anonymous() {
+        let config = NativeConfig::from_environment_parts(None, None, None)
+            .expect("loopback may start without a token");
+        assert!(config.access_tokens().is_empty());
+    }
+
+    #[test]
+    fn from_environment_present_empty_blob_is_invalid() {
+        assert!(NativeConfig::from_environment_parts(None, None, Some("")).is_err());
+        assert!(NativeConfig::from_environment_parts(None, None, Some("   ")).is_err());
+        assert!(NativeConfig::from_environment_parts(None, None, Some(",")).is_err());
     }
 }
