@@ -316,6 +316,37 @@ fn hysteria2_single_hop_obfs_and_pin_project_supported_fields() {
 }
 
 #[test]
+fn tuic_v5_defaults_and_options_project_supported_fields() {
+    const UUID: &str = "01234567-89ab-cdef-0123-456789abcdef";
+    let actual = rendered_yaml(
+        format!(
+            concat!(
+                "tuic://{UUID}:pass@EXAMPLE.COM:443#Plain\n",
+                "tuic://{UUID}:pass@example.com:8443/?sni=real.example&alpn=h3&congestion_control=bbr&udp_relay_mode=quic#Opts\n",
+            ),
+            UUID = UUID
+        )
+        .as_bytes(),
+    );
+
+    assert_eq!(actual["proxies"][0]["type"], "tuic");
+    assert_eq!(actual["proxies"][0]["server"], "example.com");
+    assert_eq!(actual["proxies"][0]["port"], 443);
+    assert_eq!(actual["proxies"][0]["uuid"], UUID);
+    assert_eq!(actual["proxies"][0]["password"], "pass");
+    assert_eq!(actual["proxies"][0]["udp"], true);
+    assert!(actual["proxies"][0]["congestion-controller"].is_null());
+    assert!(actual["proxies"][0]["udp-relay-mode"].is_null());
+    assert!(actual["proxies"][0]["token"].is_null());
+    assert!(actual["proxies"][0]["skip-cert-verify"].is_null());
+
+    assert_eq!(actual["proxies"][1]["congestion-controller"], "bbr");
+    assert_eq!(actual["proxies"][1]["udp-relay-mode"], "quic");
+    assert_eq!(actual["proxies"][1]["sni"], "real.example");
+    assert_eq!(actual["proxies"][1]["alpn"][0], "h3");
+}
+
+#[test]
 fn yaml_scalars_round_trip_names_and_secrets_that_require_escaping() {
     let source = b"ss://aes-128-gcm:line%0Abreak@EXAMPLE.COM:8388#%3A%20%5Bnode%5D%20%23";
     let parsed = crate::subscription_source::parse_subscription_sources(&[source])

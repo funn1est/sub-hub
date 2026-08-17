@@ -20,6 +20,8 @@ const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example
 const VALID_TROJAN: &str = "trojan://password@example.com:443#Alpha";
 const VALID_VMESS: &str = "vmess://eyJ2IjoyLCJwcyI6IkFscGhhIiwiYWRkIjoiRVhBTVBMRS5DT00iLCJwb3J0Ijo0NDMsImlkIjoiMDEyMzQ1NjctODlhYi1jZGVmLTAxMjMtNDU2Nzg5YWJjZGVmIiwic2N5IjoiYWVzLTEyOC1nY20ifQ==";
 const VALID_HYSTERIA2: &str = "hysteria2://password@example.com:443#Alpha";
+const VALID_TUIC: &str =
+    "tuic://01234567-89ab-cdef-0123-456789abcdef:password@example.com:443#Alpha";
 
 static NEXT_SANDBOX_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -97,6 +99,25 @@ fn configured_official_sing_box_accepts_builtin_hysteria2() {
     fs::write(&sandbox.config_file, rendered)
         .unwrap_or_else(|_| panic!("failed to prepare the Hysteria2 sing-box acceptance fixture"));
     verify_sing_box_config(&binary, &sandbox, "builtin Hysteria2");
+}
+
+#[test]
+fn configured_official_sing_box_accepts_builtin_tuic() {
+    let Some(binary) = configured_sing_box_binary() else {
+        return;
+    };
+    let sandbox = TestSandbox::create()
+        .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
+
+    verify_sing_box_version(&binary, &sandbox);
+    let rendered = prepare_direct_subscription_v1(&[VALID_TUIC])
+        .expect("fixed TUIC subscription must be valid")
+        .render_builtin_singbox_v1()
+        .expect("builtin TUIC sing-box render must succeed")
+        .into_bytes();
+    fs::write(&sandbox.config_file, rendered)
+        .unwrap_or_else(|_| panic!("failed to prepare the TUIC sing-box acceptance fixture"));
+    verify_sing_box_config(&binary, &sandbox, "builtin TUIC");
 }
 
 fn configured_sing_box_binary() -> Option<PathBuf> {

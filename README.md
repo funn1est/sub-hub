@@ -1,7 +1,7 @@
 # Sub Hub
 
 Sub Hub is a work-in-progress subscription-conversion backend implemented in
-Rust. It accepts selected VLESS, Shadowsocks, Trojan, VMess, and Hysteria2 inputs, can load HTTPS
+Rust. It accepts selected VLESS, Shadowsocks, Trojan, VMess, Hysteria2, and TUIC v5 inputs, can load HTTPS
 subscription resources and strict ACL4SSR configurations, and generates modern
 Mihomo YAML.
 
@@ -21,7 +21,8 @@ The current compatibility surface contains only:
 `quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), or `egern`
 (Egern YAML). Its `url` value accepts one to five ordered inputs separated by
 `|`: direct VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess, or official
-Hysteria2 (`hysteria2://` / `hy2://`) share URIs, or
+Hysteria2 (`hysteria2://` / `hy2://`), or TUIC v5 (`tuic://uuid:password@host:port`)
+share URIs, or
 HTTPS subscription URLs whose raw/Base64 contents contain supported share URIs.
 An optional HTTPS `config` value selects a supported strict ACL4SSR INI
 configuration and its remote Rule Sets. Quantumult X skips gRPC nodes and VLESS
@@ -38,11 +39,13 @@ Egern skips cleartext gRPC. Hysteria2 maps salamander, hop, and certificate
 pins on Mihomo; Quantumult X skips every Hysteria2 node; sing-box 1.13.14
 skips gecko and `pinSHA256`; Loon keeps salamander on a single port and skips
 gecko, hop, and pins; Egern keeps salamander, hop, and pins and skips gecko.
-Import a generated Egern file in store Egern 2.20.0
+TUIC v5 maps uuid+password on Mihomo, sing-box, and Egern; Quantumult X and Loon
+skip every TUIC node; Egern skips non-default congestion control. Import a
+generated Egern file in store Egern 2.20.0
 to confirm it parses; there is no official `egern check` CLI.
 
-The service does not currently expose POST conversion, capabilities, an
-administration API, or TUIC. An optional
+The service does not currently expose POST conversion, capabilities, or an
+administration API. An optional
 `SUB_HUB_ACCESS_TOKEN` protects `GET`/`HEAD /sub/:token` when configured;
 `GET /version` stays public. Unsupported or invalid individual nodes are
 skipped, but source/container/config errors remain fatal and a request with no

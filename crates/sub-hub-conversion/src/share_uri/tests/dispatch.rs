@@ -191,6 +191,10 @@ fn supported_protocols_validate_shell_before_query_semantics() {
             "hysteria2://letmein@example.com:0?sni=example.com",
             NodeRejection::Invalid(InvalidNodeReason::Endpoint),
         ),
+        (
+            "tuic://01234567-89ab-cdef-0123-456789abcdef:pass@example.com:0",
+            NodeRejection::Invalid(InvalidNodeReason::Endpoint),
+        ),
     ];
 
     for (uri, expected) in fixtures {
@@ -212,6 +216,7 @@ fn dispatch_distinguishes_malformed_shells_from_unsupported_protocols() {
         "VMESS://payload",
         "Hysteria2://payload",
         "HY2://payload",
+        "TUIC://payload",
         "://payload",
         "1scheme://payload",
         "unknown://",
@@ -224,7 +229,7 @@ fn dispatch_distinguishes_malformed_shells_from_unsupported_protocols() {
         );
     }
 
-    for input in ["tuic://payload", "unknown+v1://payload"] {
+    for input in ["anytls://payload", "unknown+v1://payload"] {
         assert_eq!(
             rejection(input),
             NodeRejection::Unsupported(UnsupportedCapability::Protocol),

@@ -231,6 +231,7 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
             .chain(vmess_representations),
     );
     assert_redacted(hysteria2_debug_representations());
+    assert_redacted(tuic_debug_representations());
 }
 
 fn hysteria2_debug_representations() -> [String; 5] {
@@ -247,5 +248,22 @@ fn hysteria2_debug_representations() -> [String; 5] {
         format!("{hysteria2_protocol:?}"),
         format!("{:?}", hysteria2_protocol.auth()),
         format!("{:?}", hysteria2_protocol.obfs()),
+    ]
+}
+
+fn tuic_debug_representations() -> [String; 5] {
+    let tuic = parse_share_uri(
+        "tuic://aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:CANARY_PASSWORD@canary-host.example:443#CANARY_REMARK",
+    )
+    .expect("valid canary TUIC node");
+    let NodeProtocol::Tuic(tuic_protocol) = &tuic.protocol else {
+        panic!("expected TUIC")
+    };
+    [
+        format!("{tuic:?}"),
+        format!("{:?}", tuic.protocol),
+        format!("{tuic_protocol:?}"),
+        format!("{:?}", tuic_protocol.id()),
+        format!("{:?}", tuic_protocol.password()),
     ]
 }

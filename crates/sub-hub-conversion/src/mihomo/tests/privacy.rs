@@ -20,7 +20,7 @@ fn successful_output_debug_redacts_yaml_names_endpoints_and_credentials() {
 #[test]
 fn all_rejected_error_debug_does_not_retain_attacker_controlled_input() {
     let secret = "do-not-log-this-credential";
-    let source = format!("tuic://{secret}@private.example:443#Private Name");
+    let source = format!("anytls://{secret}@private.example:443#Private Name");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source container");
     let error = render_builtin_mihomo_v1(parsed).expect_err("unsupported node");
 

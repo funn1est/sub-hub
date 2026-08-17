@@ -334,6 +334,7 @@ fn fallback_name(node: &ProxyNodeDraft) -> String {
         NodeProtocol::Trojan(_) => "Trojan",
         NodeProtocol::Vmess(_) => "VMess",
         NodeProtocol::Hysteria2(_) => "Hysteria2",
+        NodeProtocol::Tuic(_) => "TUIC",
     };
     let host = match node.endpoint.host() {
         Host::Domain(domain) => domain.clone(),

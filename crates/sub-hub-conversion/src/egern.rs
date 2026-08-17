@@ -73,6 +73,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             trojan: None,
             vmess: None,
             hysteria2: None,
+            tuic: None,
         }),
         NodeProtocol::Shadowsocks(shadowsocks) => Some(ProxyEntry {
             vless: None,
@@ -91,6 +92,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             trojan: None,
             vmess: None,
             hysteria2: None,
+            tuic: None,
         }),
         NodeProtocol::Trojan(trojan) => Some(ProxyEntry {
             vless: None,
@@ -98,6 +100,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             trojan: Some(trojan_proxy(node, trojan, tag)?),
             vmess: None,
             hysteria2: None,
+            tuic: None,
         }),
         NodeProtocol::Vmess(vmess) => Some(ProxyEntry {
             vless: None,
@@ -105,6 +108,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             trojan: None,
             vmess: Some(vmess_proxy(node, vmess, tag)?),
             hysteria2: None,
+            tuic: None,
         }),
         NodeProtocol::Hysteria2(hysteria2) => Some(ProxyEntry {
             vless: None,
@@ -112,8 +116,38 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             trojan: None,
             vmess: None,
             hysteria2: Some(hysteria2_proxy(node, hysteria2, tag)?),
+            tuic: None,
+        }),
+        NodeProtocol::Tuic(tuic) => Some(ProxyEntry {
+            vless: None,
+            shadowsocks: None,
+            trojan: None,
+            vmess: None,
+            hysteria2: None,
+            tuic: Some(tuic_proxy(node, tuic, tag)?),
         }),
     }
+}
+
+fn tuic_proxy(
+    node: &ProxyNode,
+    tuic: &crate::node::tuic::TuicNode,
+    tag: &str,
+) -> Option<TuicProxy> {
+    if !tuic.congestion().is_default() {
+        return None;
+    }
+    Some(TuicProxy {
+        name: tag.to_owned(),
+        server: render_host_plain(node.endpoint().host()),
+        port: node.endpoint().port().get(),
+        uuid: tuic.id().as_uuid().hyphenated().to_string(),
+        password: tuic.password().expose().to_owned(),
+        udp_relay_mode: (!tuic.udp_relay().is_default()).then(|| tuic.udp_relay().as_token()),
+        sni: tuic.sni().map(str::to_owned),
+        alpn: tuic.alpn().map(<[String]>::to_vec),
+        skip_tls_verify: false,
+    })
 }
 
 fn hysteria2_proxy(
@@ -507,6 +541,24 @@ struct ProxyEntry {
     vmess: Option<VmessProxy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     hysteria2: Option<Hysteria2Proxy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tuic: Option<TuicProxy>,
+}
+
+#[derive(Serialize)]
+struct TuicProxy {
+    name: String,
+    server: String,
+    port: u16,
+    uuid: String,
+    password: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    udp_relay_mode: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sni: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alpn: Option<Vec<String>>,
+    skip_tls_verify: bool,
 }
 
 #[derive(Serialize)]
@@ -948,6 +1000,36 @@ mod tests {
         assert!(text.contains("fingerprint_sha256:"));
         assert!(text.contains(PIN));
         assert!(!text.contains("name: Gecko"));
+        assert_eq!(output.diagnostics().capability_skips(), 1);
+    }
+
+    #[test]
+    fn tuic_defaults_and_quic_are_exact_and_bbr_is_skipped() {
+        const UUID: &str = "01234567-89ab-cdef-0123-456789abcdef";
+        let source = format!(
+            concat!(
+                "tuic://{UUID}:pass@EXAMPLE.COM:443/?sni=example.com#Plain\n",
+                "tuic://{UUID}:pass@example.com:443/?udp_relay_mode=quic#Quic\n",
+                "tuic://{UUID}:pass@example.com:443/?congestion_control=bbr#Bbr\n",
+            ),
+            UUID = UUID
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_egern_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains(concat!(
+            "- tuic:\n",
+            "    name: Plain\n",
+            "    server: example.com\n",
+            "    port: 443\n",
+            "    uuid: 01234567-89ab-cdef-0123-456789abcdef\n",
+            "    password: pass\n",
+            "    sni: example.com\n",
+            "    skip_tls_verify: false\n",
+        )));
+        assert!(text.contains("name: Quic"));
+        assert!(text.contains("udp_relay_mode: quic"));
+        assert!(!text.contains("name: Bbr"));
         assert_eq!(output.diagnostics().capability_skips(), 1);
     }
 

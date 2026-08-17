@@ -3,6 +3,7 @@ mod hysteria2;
 mod percent;
 mod shadowsocks;
 mod trojan;
+mod tuic;
 mod vless;
 mod vmess;
 
@@ -43,6 +44,8 @@ pub(crate) fn parse_share_uri(input: &str) -> Result<ProxyNodeDraft, NodeRejecti
         hysteria2::parse(input)
     } else if let Some(input) = input.strip_prefix("hy2://") {
         hysteria2::parse(input)
+    } else if let Some(input) = input.strip_prefix("tuic://") {
+        tuic::parse(input)
     } else if let Some((scheme, payload)) = input.split_once("://") {
         if payload.is_empty()
             || !is_valid_scheme(scheme)
@@ -52,6 +55,7 @@ pub(crate) fn parse_share_uri(input: &str) -> Result<ProxyNodeDraft, NodeRejecti
             || scheme.eq_ignore_ascii_case("vmess")
             || scheme.eq_ignore_ascii_case("hysteria2")
             || scheme.eq_ignore_ascii_case("hy2")
+            || scheme.eq_ignore_ascii_case("tuic")
         {
             Err(NodeRejection::Invalid(InvalidNodeReason::Uri))
         } else {

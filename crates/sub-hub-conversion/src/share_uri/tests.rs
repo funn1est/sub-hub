@@ -6,6 +6,7 @@ mod privacy;
 mod properties;
 mod shadowsocks;
 mod trojan;
+mod tuic;
 mod vless;
 mod vmess;
 

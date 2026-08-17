@@ -149,6 +149,7 @@ fn render_proxy_line(node: &ProxyNode, tag: &str) -> Option<String> {
         NodeProtocol::Trojan(trojan) => render_trojan_line(tag, &host, port, trojan),
         NodeProtocol::Vmess(vmess) => render_vmess_line(tag, &host, port, vmess),
         NodeProtocol::Hysteria2(hysteria2) => render_hysteria2_line(tag, &host, port, hysteria2),
+        NodeProtocol::Tuic(_) => None,
     }
 }
 
@@ -690,6 +691,21 @@ mod tests {
         assert!(!text.contains("Pin ="));
         assert!(!text.contains("fast-open"));
         assert_eq!(output.diagnostics().capability_skips(), 3);
+    }
+
+    #[test]
+    fn tuic_is_skipped_on_every_combo() {
+        let source = concat!(
+            "tuic://01234567-89ab-cdef-0123-456789abcdef:pass@EXAMPLE.COM:443#Plain\n",
+            "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha\n",
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_loon_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains("Alpha = VLESS"));
+        assert!(!text.contains("Plain ="));
+        assert!(!text.contains("tuic"));
+        assert_eq!(output.diagnostics().capability_skips(), 1);
     }
 
     #[test]

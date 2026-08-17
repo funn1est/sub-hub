@@ -172,6 +172,49 @@ pub(crate) enum MihomoProxy<'a> {
     Trojan(MihomoTrojanProxy<'a>),
     Vmess(MihomoVmessProxy<'a>),
     Hysteria2(MihomoHysteria2Proxy<'a>),
+    Tuic(MihomoTuicProxy<'a>),
+}
+
+#[derive(Serialize)]
+pub(crate) struct MihomoTuicProxy<'a> {
+    name: &'a str,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    server: String,
+    port: u16,
+    uuid: String,
+    password: &'a str,
+    udp: bool,
+    #[serde(
+        rename = "congestion-controller",
+        skip_serializing_if = "Option::is_none"
+    )]
+    congestion_controller: Option<&'static str>,
+    #[serde(rename = "udp-relay-mode", skip_serializing_if = "Option::is_none")]
+    udp_relay_mode: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sni: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alpn: Option<&'a [String]>,
+}
+
+impl<'a> MihomoTuicProxy<'a> {
+    fn from_node(node: &'a ProxyNode, tuic: &'a crate::node::tuic::TuicNode) -> Self {
+        Self {
+            name: node.name().as_str(),
+            kind: "tuic",
+            server: render_host_plain(node.endpoint().host()),
+            port: node.endpoint().port().get(),
+            uuid: tuic.id().as_uuid().hyphenated().to_string(),
+            password: tuic.password().expose(),
+            udp: true,
+            congestion_controller: (!tuic.congestion().is_default())
+                .then(|| tuic.congestion().as_token()),
+            udp_relay_mode: (!tuic.udp_relay().is_default()).then(|| tuic.udp_relay().as_token()),
+            sni: tuic.sni(),
+            alpn: tuic.alpn(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -270,6 +313,7 @@ impl<'a> From<&'a ProxyNode> for MihomoProxy<'a> {
             NodeProtocol::Hysteria2(hysteria2) => {
                 Self::Hysteria2(MihomoHysteria2Proxy::from_node(node, hysteria2))
             }
+            NodeProtocol::Tuic(tuic) => Self::Tuic(MihomoTuicProxy::from_node(node, tuic)),
         }
     }
 }

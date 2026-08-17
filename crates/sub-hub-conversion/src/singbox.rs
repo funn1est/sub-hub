@@ -112,7 +112,30 @@ fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Option<Outbound<'a>> 
         NodeProtocol::Hysteria2(hysteria2) => {
             Outbound::Hysteria2(hysteria2_outbound(node, hysteria2, tag)?)
         }
+        NodeProtocol::Tuic(tuic) => Outbound::Tuic(tuic_outbound(node, tuic, tag)),
     })
+}
+
+fn tuic_outbound<'a>(
+    node: &'a ProxyNode,
+    tuic: &'a crate::node::tuic::TuicNode,
+    tag: &'a str,
+) -> TuicOutbound<'a> {
+    TuicOutbound {
+        kind: "tuic",
+        tag,
+        server: render_host_plain(node.endpoint().host()),
+        server_port: node.endpoint().port().get(),
+        uuid: tuic.id().as_uuid().hyphenated().to_string(),
+        password: tuic.password().expose(),
+        congestion_control: (!tuic.congestion().is_default()).then(|| tuic.congestion().as_token()),
+        udp_relay_mode: (!tuic.udp_relay().is_default()).then(|| tuic.udp_relay().as_token()),
+        tls: TuicTls {
+            enabled: true,
+            server_name: tuic.sni(),
+            alpn: tuic.alpn(),
+        },
+    }
 }
 
 fn hysteria2_outbound<'a>(
@@ -504,6 +527,7 @@ enum Outbound<'a> {
     Trojan(TrojanOutbound<'a>),
     Vmess(VmessOutbound<'a>),
     Hysteria2(Hysteria2Outbound<'a>),
+    Tuic(TuicOutbound<'a>),
     Selector(SelectorOutbound),
     Urltest(UrltestOutbound),
     Simple(SimpleOutbound),
@@ -537,6 +561,31 @@ struct Hysteria2Tls<'a> {
     enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     server_name: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct TuicOutbound<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    tag: &'a str,
+    server: String,
+    server_port: u16,
+    uuid: String,
+    password: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    congestion_control: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    udp_relay_mode: Option<&'static str>,
+    tls: TuicTls<'a>,
+}
+
+#[derive(Serialize)]
+struct TuicTls<'a> {
+    enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alpn: Option<&'a [String]>,
 }
 
 #[derive(Serialize)]
@@ -899,6 +948,37 @@ mod tests {
         assert!(!text.contains("certificate_public_key_sha256"));
         assert!(!text.contains("insecure"));
         assert_eq!(output.diagnostics().capability_skips(), 2);
+    }
+
+    #[test]
+    fn tuic_v5_defaults_and_options_are_kept() {
+        const UUID: &str = "01234567-89ab-cdef-0123-456789abcdef";
+        let source = format!(
+            concat!(
+                "tuic://{UUID}:pass@EXAMPLE.COM:443#Plain\n",
+                "tuic://{UUID}:pass@example.com:8443/?sni=real.example&alpn=h3&congestion_control=bbr&udp_relay_mode=quic#Opts\n",
+            ),
+            UUID = UUID
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_singbox_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains("\"type\": \"tuic\""));
+        assert!(text.contains("\"tag\": \"Plain\""));
+        assert!(text.contains(&format!("\"uuid\": \"{UUID}\"")));
+        assert!(text.contains("\"password\": \"pass\""));
+        assert!(text.contains("\"enabled\": true"));
+        assert!(!text.contains("\"congestion_control\": \"cubic\""));
+        assert!(!text.contains("\"udp_relay_mode\": \"native\""));
+        assert!(text.contains("\"tag\": \"Opts\""));
+        assert!(text.contains("\"congestion_control\": \"bbr\""));
+        assert!(text.contains("\"udp_relay_mode\": \"quic\""));
+        assert!(text.contains("\"server_name\": \"real.example\""));
+        assert!(text.contains("\"h3\""));
+        assert!(!text.contains("insecure"));
+        assert!(!text.contains("disable_sni"));
+        assert!(!text.contains("udp_over_stream"));
+        assert_eq!(output.diagnostics().capability_skips(), 0);
     }
 
     #[test]
