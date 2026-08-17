@@ -182,6 +182,46 @@ client-fingerprint: chrome
 }
 
 #[test]
+fn vmess_tcp_tls_and_grpc_project_supported_fields() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let id = "01234567-89ab-cdef-0123-456789abcdef";
+    let tcp = format!(
+        "vmess://{}",
+        STANDARD.encode(
+            format!(
+                r#"{{"v":2,"ps":"TcpTls","add":"EXAMPLE.COM","port":443,"id":"{id}","scy":"aes-128-gcm","tls":"tls","sni":"edge.example","fp":"firefox"}}"#
+            )
+            .as_bytes()
+        )
+    );
+    let grpc = format!(
+        "vmess://{}",
+        STANDARD.encode(
+            format!(
+                r#"{{"v":2,"ps":"Grpc","add":"example.net","port":8443,"id":"{id}","scy":"auto","net":"grpc","path":"svc/prod","tls":"tls"}}"#
+            )
+            .as_bytes()
+        )
+    );
+    let actual = rendered_yaml(format!("{tcp}\n{grpc}").as_bytes());
+    assert_eq!(actual["proxies"][0]["type"], "vmess");
+    assert_eq!(actual["proxies"][0]["name"], "TcpTls");
+    assert_eq!(actual["proxies"][0]["cipher"], "aes-128-gcm");
+    assert_eq!(actual["proxies"][0]["alterId"], 0);
+    assert_eq!(actual["proxies"][0]["udp"], true);
+    assert_eq!(actual["proxies"][0]["tls"], true);
+    assert_eq!(actual["proxies"][0]["servername"], "edge.example");
+    assert_eq!(actual["proxies"][0]["client-fingerprint"], "firefox");
+    assert!(actual["proxies"][0]["skip-cert-verify"].is_null());
+    assert_eq!(actual["proxies"][1]["network"], "grpc");
+    assert_eq!(actual["proxies"][1]["cipher"], "auto");
+    assert_eq!(
+        actual["proxies"][1]["grpc-opts"]["grpc-service-name"],
+        "svc/prod"
+    );
+}
+
+#[test]
 fn trojan_tcp_tls_and_ws_reality_project_supported_fields() {
     let actual = rendered_yaml(
         concat!(

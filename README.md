@@ -1,7 +1,7 @@
 # Sub Hub
 
 Sub Hub is a work-in-progress subscription-conversion backend implemented in
-Rust. It accepts selected VLESS, Shadowsocks, and Trojan inputs, can load HTTPS
+Rust. It accepts selected VLESS, Shadowsocks, Trojan, and VMess inputs, can load HTTPS
 subscription resources and strict ACL4SSR configurations, and generates modern
 Mihomo YAML.
 
@@ -20,22 +20,24 @@ The current compatibility surface contains only:
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
 `quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), or `egern`
 (Egern YAML). Its `url` value accepts one to five ordered inputs separated by
-`|`: direct VLESS, Shadowsocks, or Trojan share URIs, or HTTPS subscription URLs
-whose raw/Base64 contents contain supported share URIs. An optional HTTPS
-`config` value selects a supported strict ACL4SSR INI configuration and its
-remote Rule Sets. Quantumult X skips gRPC nodes and VLESS Vision without Reality.
-sing-box keeps those combinations, omits GeoIP CN rules, and normalizes fallback
-groups to `urltest` and load-balance groups to `selector`. Loon keeps TCP
-Reality+Vision and WebSocket, skips gRPC and unpaired Vision/Reality, omits
-process-name rules, and normalizes load-balance groups to `pcc`. Egern keeps
-gRPC and Vision without Reality, skips WebSocket+Reality, omits process-name
-rules, and maps url-test to `auto_test`. Trojan TCP+TLS and WebSocket+TLS map
-on every target; Quantumult X and Egern skip Trojan gRPC; Loon skips Trojan
-Reality and gRPC. Import a generated Egern file in store Egern 2.20.0 to
-confirm it parses; there is no official `egern check` CLI.
+`|`: direct VLESS, Shadowsocks, Trojan, or v2rayN JSON v2 VMess share URIs, or
+HTTPS subscription URLs whose raw/Base64 contents contain supported share URIs.
+An optional HTTPS `config` value selects a supported strict ACL4SSR INI
+configuration and its remote Rule Sets. Quantumult X skips gRPC nodes and VLESS
+Vision without Reality. sing-box keeps those combinations, omits GeoIP CN rules,
+and normalizes fallback groups to `urltest` and load-balance groups to
+`selector`. Loon keeps TCP Reality+Vision and WebSocket, skips gRPC and unpaired
+Vision/Reality, omits process-name rules, and normalizes load-balance groups to
+`pcc`. Egern keeps gRPC and Vision without Reality, skips WebSocket+Reality,
+omits process-name rules, and maps url-test to `auto_test`. Trojan TCP+TLS and
+WebSocket+TLS map on every target; Quantumult X and Egern skip Trojan gRPC; Loon
+skips Trojan Reality and gRPC. VMess accepts only JSON v2 (`vmess://` + Base64);
+Quantumult X skips `auto`/`zero` and gRPC; Loon keeps only `aes-128-gcm` TCP/WS;
+Egern skips cleartext gRPC. Import a generated Egern file in store Egern 2.20.0
+to confirm it parses; there is no official `egern check` CLI.
 
 The service does not currently expose POST conversion, capabilities, an
-administration API, or VMess / Hysteria2 / TUIC. An optional
+administration API, or Hysteria2 / TUIC. An optional
 `SUB_HUB_ACCESS_TOKEN` protects `GET`/`HEAD /sub/:token` when configured;
 `GET /version` stays public. Unsupported or invalid individual nodes are
 skipped, but source/container/config errors remain fatal and a request with no

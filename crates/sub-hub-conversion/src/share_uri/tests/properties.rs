@@ -69,6 +69,17 @@ fn selected_cross_field_invariants_hold(node: &ProxyNodeDraft) -> bool {
             };
             password_ok && transport_ok
         }
+        NodeProtocol::Vmess(vmess) => {
+            let transport_ok = match vmess.transport() {
+                crate::node::vless::VlessTransport::WebSocket { path, .. } => !path.is_empty(),
+                _ => true,
+            };
+            transport_ok
+                && !matches!(
+                    vmess.security(),
+                    crate::node::vmess::VmessSecurity::Tls(options) if options.server_name().is_empty()
+                )
+        }
     }
 }
 
@@ -162,6 +173,14 @@ fn valid_share_uri_strategy() -> impl Strategy<Value = String> {
             let public_key = URL_SAFE_NO_PAD.encode(public_key);
             format!("trojan://{password}@{domain}.example:{port}?security=reality&pbk={public_key}")
         });
+    let json_v2_tcp =
+        (any::<[u8; 16]>(), lowercase_token(12), 1u16..=u16::MAX).prop_map(|(id, domain, port)| {
+            let json = format!(
+                r#"{{"add":"{domain}.example","port":{port},"id":"{}"}}"#,
+                Uuid::from_bytes(id).hyphenated()
+            );
+            format!("vmess://{}", STANDARD.encode(json.as_bytes()))
+        });
 
     prop_oneof![
         vless_tcp,
@@ -172,6 +191,7 @@ fn valid_share_uri_strategy() -> impl Strategy<Value = String> {
         trojan_tcp,
         trojan_websocket,
         trojan_reality,
+        json_v2_tcp,
     ]
 }
 
@@ -183,6 +203,7 @@ fn parser_input_strategy() -> impl Strategy<Value = String> {
         2 => any::<String>().prop_map(|tail| format!("vless://{tail}")),
         2 => any::<String>().prop_map(|tail| format!("ss://{tail}")),
         2 => any::<String>().prop_map(|tail| format!("trojan://{tail}")),
+        2 => any::<String>().prop_map(|tail| format!("vmess://{tail}")),
         2 => (any::<String>(), any::<String>()).prop_map(|(query, fragment)| format!(
             "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443?{query}#{fragment}"
         )),

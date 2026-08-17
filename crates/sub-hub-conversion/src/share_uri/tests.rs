@@ -6,6 +6,7 @@ mod properties;
 mod shadowsocks;
 mod trojan;
 mod vless;
+mod vmess;
 
 fn rejection(input: &str) -> NodeRejection {
     match parse_share_uri(input) {

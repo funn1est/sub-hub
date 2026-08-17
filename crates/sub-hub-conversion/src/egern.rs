@@ -8,6 +8,7 @@ use crate::{
     node::shadowsocks::ShadowsocksCredential,
     node::trojan::TrojanSecurity,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
+    node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
     policy::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
@@ -70,6 +71,7 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
             vless: Some(Box::new(vless_proxy(node, vless, tag)?)),
             shadowsocks: None,
             trojan: None,
+            vmess: None,
         }),
         NodeProtocol::Shadowsocks(shadowsocks) => Some(ProxyEntry {
             vless: None,
@@ -86,12 +88,95 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
                 udp_relay: true,
             }),
             trojan: None,
+            vmess: None,
         }),
         NodeProtocol::Trojan(trojan) => Some(ProxyEntry {
             vless: None,
             shadowsocks: None,
             trojan: Some(trojan_proxy(node, trojan, tag)?),
+            vmess: None,
         }),
+        NodeProtocol::Vmess(vmess) => Some(ProxyEntry {
+            vless: None,
+            shadowsocks: None,
+            trojan: None,
+            vmess: Some(vmess_proxy(node, vmess, tag)?),
+        }),
+    }
+}
+
+fn vmess_proxy(
+    node: &ProxyNode,
+    vmess: &crate::node::vmess::VmessNode,
+    tag: &str,
+) -> Option<VmessProxy> {
+    if matches!(
+        (vmess.transport(), vmess.security()),
+        (VlessTransport::Grpc { .. }, VmessSecurity::None)
+    ) {
+        return None;
+    }
+    Some(VmessProxy {
+        name: tag.to_owned(),
+        server: render_host_plain(node.endpoint().host()),
+        port: node.endpoint().port().get(),
+        user_id: vmess.id().as_uuid().hyphenated().to_string(),
+        security: vmess.cipher().as_token(),
+        legacy: false,
+        tfo: false,
+        udp_relay: true,
+        transport: vmess_transport(vmess),
+    })
+}
+
+fn vmess_transport(vmess: &crate::node::vmess::VmessNode) -> Option<Transport> {
+    match vmess.transport() {
+        VlessTransport::Tcp => match vmess.security() {
+            VmessSecurity::None => None,
+            VmessSecurity::Tls(options) => Some(Transport {
+                tls: Some(TlsTransport {
+                    sni: Some(options.server_name().to_owned()),
+                    skip_tls_verify: Some(false),
+                    reality: None,
+                }),
+                ..Transport::empty()
+            }),
+        },
+        VlessTransport::WebSocket { path, host } => {
+            let headers = host.as_deref().map(|host| WsHeaders {
+                host: host.to_owned(),
+            });
+            match vmess.security() {
+                VmessSecurity::None => Some(Transport {
+                    ws: Some(WsTransport {
+                        path: path.clone(),
+                        headers,
+                    }),
+                    ..Transport::empty()
+                }),
+                VmessSecurity::Tls(options) => Some(Transport {
+                    wss: Some(WssTransport {
+                        path: path.clone(),
+                        headers,
+                        sni: Some(options.server_name().to_owned()),
+                        skip_tls_verify: Some(false),
+                    }),
+                    ..Transport::empty()
+                }),
+            }
+        }
+        VlessTransport::Grpc { service_name, .. } => match vmess.security() {
+            VmessSecurity::None => None,
+            VmessSecurity::Tls(options) => Some(Transport {
+                grpc: Some(GrpcTransport {
+                    service_name: service_name.clone(),
+                    sni: Some(options.server_name().to_owned()),
+                    skip_tls_verify: Some(false),
+                    reality: None,
+                }),
+                ..Transport::empty()
+            }),
+        },
     }
 }
 
@@ -374,6 +459,22 @@ struct ProxyEntry {
     shadowsocks: Option<ShadowsocksProxy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     trojan: Option<TrojanProxy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vmess: Option<VmessProxy>,
+}
+
+#[derive(Serialize)]
+struct VmessProxy {
+    name: String,
+    server: String,
+    port: u16,
+    user_id: String,
+    security: &'static str,
+    legacy: bool,
+    tfo: bool,
+    udp_relay: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transport: Option<Transport>,
 }
 
 #[derive(Serialize)]
@@ -688,6 +789,32 @@ mod tests {
                 "    policy: PROXY\n",
             )
         );
+    }
+
+    #[test]
+    fn vmess_tcp_tls_is_exact_and_cleartext_grpc_is_skipped() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let id = "01234567-89ab-cdef-0123-456789abcdef";
+        let encode = |json: &str| format!("vmess://{}", STANDARD.encode(json.as_bytes()));
+        let source = [
+            encode(&format!(
+                r#"{{"ps":"TcpTls","add":"EXAMPLE.COM","port":443,"id":"{id}","scy":"auto","tls":"tls"}}"#
+            )),
+            encode(&format!(
+                r#"{{"ps":"Grpc","add":"example.com","port":443,"id":"{id}","scy":"none","net":"grpc"}}"#
+            )),
+        ]
+        .join("\n");
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_egern_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains("name: TcpTls"));
+        assert!(text.contains("user_id: 01234567-89ab-cdef-0123-456789abcdef"));
+        assert!(text.contains("security: auto"));
+        assert!(text.contains("legacy: false"));
+        assert!(text.contains("skip_tls_verify: false"));
+        assert!(!text.contains("name: Grpc"));
+        assert_eq!(output.diagnostics().capability_skips(), 1);
     }
 
     #[test]

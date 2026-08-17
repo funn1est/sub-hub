@@ -471,7 +471,7 @@ pub(super) fn canonical_host(host: &Host) -> String {
     }
 }
 
-fn is_canonical_uuid(input: &str) -> bool {
+pub(super) fn is_canonical_uuid(input: &str) -> bool {
     input.len() == 36
         && input.bytes().enumerate().all(|(index, byte)| match index {
             8 | 13 | 18 | 23 => byte == b'-',

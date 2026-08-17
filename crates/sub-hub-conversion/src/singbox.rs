@@ -10,6 +10,7 @@ use crate::{
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::trojan::TrojanSecurity,
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
+    node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1},
     render::{
@@ -103,6 +104,49 @@ fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Outbound<'a> {
             tag,
         )),
         NodeProtocol::Trojan(trojan) => Outbound::Trojan(trojan_outbound(node, trojan, tag)),
+        NodeProtocol::Vmess(vmess) => Outbound::Vmess(vmess_outbound(node, vmess, tag)),
+    }
+}
+
+fn vmess_outbound<'a>(
+    node: &'a ProxyNode,
+    vmess: &'a crate::node::vmess::VmessNode,
+    tag: &'a str,
+) -> VmessOutbound<'a> {
+    let transport = match vmess.transport() {
+        VlessTransport::Tcp => None,
+        VlessTransport::WebSocket { path, host } => Some(Transport {
+            kind: "ws",
+            path: Some(path.as_str()),
+            headers: host.as_deref().map(|host| TransportHeaders { host }),
+            service_name: None,
+        }),
+        VlessTransport::Grpc { service_name, .. } => Some(Transport {
+            kind: "grpc",
+            path: None,
+            headers: None,
+            service_name: service_name.as_deref(),
+        }),
+    };
+    let tls = match vmess.security() {
+        VmessSecurity::None => None,
+        VmessSecurity::Tls(options) => Some(tls_object(
+            options.server_name(),
+            options.alpn(),
+            options.fingerprint(),
+            None,
+        )),
+    };
+    VmessOutbound {
+        kind: "vmess",
+        tag,
+        server: render_host_plain(node.endpoint().host()),
+        server_port: node.endpoint().port().get(),
+        uuid: vmess.id().as_uuid().hyphenated().to_string(),
+        security: vmess.cipher().as_token(),
+        alter_id: 0,
+        tls,
+        transport,
     }
 }
 
@@ -415,9 +459,26 @@ enum Outbound<'a> {
     Vless(VlessOutbound<'a>),
     Shadowsocks(ShadowsocksOutbound<'a>),
     Trojan(TrojanOutbound<'a>),
+    Vmess(VmessOutbound<'a>),
     Selector(SelectorOutbound),
     Urltest(UrltestOutbound),
     Simple(SimpleOutbound),
+}
+
+#[derive(Serialize)]
+struct VmessOutbound<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    tag: &'a str,
+    server: String,
+    server_port: u16,
+    uuid: String,
+    security: &'static str,
+    alter_id: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tls: Option<Tls<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transport: Option<Transport<'a>>,
 }
 
 #[derive(Serialize)]
@@ -678,6 +739,39 @@ mod tests {
         assert!(text.contains("\"flow\": \"xtls-rprx-vision\""));
         assert!(text.contains("\"fingerprint\": \"chrome\""));
         assert!(text.contains("\"fingerprint\": \"safari\""));
+        assert_eq!(output.diagnostics().capability_skips(), 0);
+    }
+
+    #[test]
+    fn vmess_tcp_and_grpc_are_kept() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let id = "01234567-89ab-cdef-0123-456789abcdef";
+        let source = format!(
+            "vmess://{}\nvmess://{}",
+            STANDARD.encode(
+                format!(
+                    r#"{{"ps":"Alpha","add":"EXAMPLE.COM","port":443,"id":"{id}","scy":"auto"}}"#
+                )
+                .as_bytes()
+            ),
+            STANDARD.encode(
+                format!(
+                    r#"{{"ps":"Grpc","add":"example.com","port":443,"id":"{id}","scy":"zero","net":"grpc","path":"svc"}}"#
+                )
+                .as_bytes()
+            )
+        );
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_singbox_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains("\"type\": \"vmess\""));
+        assert!(text.contains("\"tag\": \"Alpha\""));
+        assert!(text.contains("\"security\": \"auto\""));
+        assert!(text.contains("\"alter_id\": 0"));
+        assert!(text.contains("\"tag\": \"Grpc\""));
+        assert!(text.contains("\"type\": \"grpc\""));
+        assert!(!text.contains("packet_encoding"));
+        assert!(!text.contains("multiplex"));
         assert_eq!(output.diagnostics().capability_skips(), 0);
     }
 

@@ -7,6 +7,7 @@ use crate::{
     node::shadowsocks::ShadowsocksCredential,
     node::trojan::TrojanSecurity,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
+    node::vmess::{VmessCipher, VmessSecurity},
     node::{NodeProtocol, ProxyNode},
     policy::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
@@ -139,6 +140,7 @@ fn render_server_line(node: &ProxyNode, tag: &str) -> Option<String> {
             )
         }
         NodeProtocol::Trojan(trojan) => render_trojan_line(&endpoint, trojan, tag)?,
+        NodeProtocol::Vmess(vmess) => render_vmess_line(&endpoint, vmess, tag)?,
     };
     Some(line)
 }
@@ -213,6 +215,73 @@ fn render_vless_line(
 
     if let Some(VlessFlow::Vision) = vless.flow() {
         fields.push("vless-flow=xtls-rprx-vision".to_owned());
+    }
+    fields.push("udp-relay=true".to_owned());
+    fields.push("fast-open=false".to_owned());
+    fields.push(format!("tag={tag}"));
+    Some(fields.join(", "))
+}
+
+fn render_vmess_line(
+    endpoint: &str,
+    vmess: &crate::node::vmess::VmessNode,
+    tag: &str,
+) -> Option<String> {
+    if matches!(vmess.transport(), VlessTransport::Grpc { .. }) {
+        return None;
+    }
+    if matches!(vmess.cipher(), VmessCipher::Auto | VmessCipher::Zero) {
+        return None;
+    }
+
+    let mut fields = vec![
+        format!("vmess={endpoint}"),
+        format!("method={}", vmess.cipher().as_token()),
+        format!("password={}", vmess.id().as_uuid().hyphenated()),
+    ];
+    match vmess.transport() {
+        VlessTransport::Tcp => match vmess.security() {
+            VmessSecurity::None => {}
+            VmessSecurity::Tls(options) => {
+                push_tls_fields(
+                    &mut fields,
+                    "over-tls",
+                    options.server_name(),
+                    options.alpn(),
+                )?;
+            }
+        },
+        VlessTransport::WebSocket { path, host } => {
+            if !is_safe_field(path) {
+                return None;
+            }
+            match vmess.security() {
+                VmessSecurity::None => {
+                    fields.push("obfs=ws".to_owned());
+                    if let Some(host) = host {
+                        if !is_safe_field(host) {
+                            return None;
+                        }
+                        fields.push(format!("obfs-host={host}"));
+                    }
+                    fields.push(format!("obfs-uri={path}"));
+                }
+                VmessSecurity::Tls(options) => {
+                    fields.push("obfs=wss".to_owned());
+                    let host = host.as_deref().unwrap_or(options.server_name());
+                    if !is_safe_field(host) {
+                        return None;
+                    }
+                    fields.push(format!("obfs-host={host}"));
+                    fields.push(format!("obfs-uri={path}"));
+                    fields.push("tls-verification=true".to_owned());
+                    if let Some(alpn) = options.alpn() {
+                        fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
+                    }
+                }
+            }
+        }
+        VlessTransport::Grpc { .. } => return None,
     }
     fields.push("udp-relay=true".to_owned());
     fields.push("fast-open=false".to_owned());
@@ -591,6 +660,33 @@ mod tests {
         assert!(!text.contains("tag=Reality"));
         assert!(!text.contains("tag=Vision"));
         assert!(!text.contains("grpc"));
+        assert_eq!(output.diagnostics().capability_skips(), 2);
+    }
+
+    #[test]
+    fn vmess_exact_ciphers_and_auto_grpc_skip() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let id = "01234567-89ab-cdef-0123-456789abcdef";
+        let encode = |json: &str| format!("vmess://{}", STANDARD.encode(json.as_bytes()));
+        let source = [
+            encode(&format!(
+                r#"{{"ps":"Aes","add":"example.com","port":443,"id":"{id}","scy":"aes-128-gcm"}}"#
+            )),
+            encode(&format!(
+                r#"{{"ps":"Auto","add":"example.com","port":443,"id":"{id}","scy":"auto"}}"#
+            )),
+            encode(&format!(
+                r#"{{"ps":"Grpc","add":"example.com","port":443,"id":"{id}","scy":"none","net":"grpc","tls":"tls"}}"#
+            )),
+        ]
+        .join("\n");
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_quanx_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains("vmess=example.com:443, method=aes-128-gcm, password=01234567-89ab-cdef-0123-456789abcdef"));
+        assert!(text.contains("tag=Aes"));
+        assert!(!text.contains("tag=Auto"));
+        assert!(!text.contains("tag=Grpc"));
         assert_eq!(output.diagnostics().capability_skips(), 2);
     }
 

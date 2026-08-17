@@ -7,6 +7,7 @@ use crate::{
     node::shadowsocks::ShadowsocksCredential,
     node::trojan::TrojanSecurity,
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
+    node::vmess::{VmessCipher, VmessSecurity},
     node::{NodeProtocol, ProxyNode},
     policy::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
@@ -146,7 +147,67 @@ fn render_proxy_line(node: &ProxyNode, tag: &str) -> Option<String> {
             render_shadowsocks_line(tag, &host, port, shadowsocks)
         }
         NodeProtocol::Trojan(trojan) => render_trojan_line(tag, &host, port, trojan),
+        NodeProtocol::Vmess(vmess) => render_vmess_line(tag, &host, port, vmess),
     }
+}
+
+fn render_vmess_line(
+    tag: &str,
+    host: &str,
+    port: u16,
+    vmess: &crate::node::vmess::VmessNode,
+) -> Option<String> {
+    if matches!(vmess.transport(), VlessTransport::Grpc { .. }) {
+        return None;
+    }
+    if !matches!(vmess.cipher(), VmessCipher::Aes128Gcm) {
+        return None;
+    }
+    let uuid = quote(&vmess.id().as_uuid().hyphenated().to_string())?;
+    let mut fields = vec![
+        format!("{tag} = vmess"),
+        host.to_owned(),
+        port.to_string(),
+        vmess.cipher().as_token().to_owned(),
+        uuid,
+    ];
+    match vmess.transport() {
+        VlessTransport::Tcp => fields.push("transport=tcp".to_owned()),
+        VlessTransport::WebSocket {
+            path,
+            host: ws_host,
+        } => {
+            if !is_safe_field(path) {
+                return None;
+            }
+            fields.push("transport=ws".to_owned());
+            fields.push(format!("path={path}"));
+            if let Some(ws_host) = ws_host {
+                if !is_safe_field(ws_host) {
+                    return None;
+                }
+                fields.push(format!("host={ws_host}"));
+            }
+        }
+        VlessTransport::Grpc { .. } => return None,
+    }
+    fields.push("alterId=0".to_owned());
+    match vmess.security() {
+        VmessSecurity::None => fields.push("over-tls=false".to_owned()),
+        VmessSecurity::Tls(options) => {
+            if !is_safe_field(options.server_name()) {
+                return None;
+            }
+            fields.push("over-tls=true".to_owned());
+            fields.push(format!("sni={}", options.server_name()));
+            fields.push("skip-cert-verify=false".to_owned());
+            if let Some(profile) = tls_profile(options.fingerprint()) {
+                fields.push(format!("tls-profile={profile}"));
+            }
+        }
+    }
+    fields.push("udp=true".to_owned());
+    Some(fields.join(","))
 }
 
 fn render_trojan_line(
@@ -511,6 +572,34 @@ mod tests {
         assert!(!text.contains("BareReality ="));
         assert!(!text.contains("grpc"));
         assert_eq!(output.diagnostics().capability_skips(), 3);
+    }
+
+    #[test]
+    fn vmess_aes_is_exact_and_other_ciphers_are_skipped() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        let id = "01234567-89ab-cdef-0123-456789abcdef";
+        let encode = |json: &str| format!("vmess://{}", STANDARD.encode(json.as_bytes()));
+        let source = [
+            encode(&format!(
+                r#"{{"ps":"Aes","add":"example.com","port":443,"id":"{id}","scy":"aes-128-gcm"}}"#
+            )),
+            encode(&format!(
+                r#"{{"ps":"Auto","add":"example.com","port":443,"id":"{id}","scy":"auto"}}"#
+            )),
+            encode(&format!(
+                r#"{{"ps":"Grpc","add":"example.com","port":443,"id":"{id}","scy":"aes-128-gcm","net":"grpc"}}"#
+            )),
+        ]
+        .join("\n");
+        let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+        let output = render_builtin_loon_v1(parsed).expect("rendered");
+        let text = std::str::from_utf8(output.config()).expect("utf8");
+        assert!(text.contains(
+            "Aes = vmess,example.com,443,aes-128-gcm,\"01234567-89ab-cdef-0123-456789abcdef\",transport=tcp,alterId=0,over-tls=false,udp=true"
+        ));
+        assert!(!text.contains("Auto ="));
+        assert!(!text.contains("Grpc ="));
+        assert_eq!(output.diagnostics().capability_skips(), 2);
     }
 
     #[test]

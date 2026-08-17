@@ -26,6 +26,7 @@ const BUILTIN_MIHOMO_GOLDEN: &[u8] = include_bytes!("golden/builtin_mihomo_v1.ya
 const ACL4SSR_REMOTE_PREFIX: &str = "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/";
 const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
 const VALID_TROJAN: &str = "trojan://password@example.com:443#Alpha";
+const VALID_VMESS: &str = "vmess://eyJ2IjoyLCJwcyI6IkFscGhhIiwiYWRkIjoiRVhBTVBMRS5DT00iLCJwb3J0Ijo0NDMsImlkIjoiMDEyMzQ1NjctODlhYi1jZGVmLTAxMjMtNDU2Nzg5YWJjZGVmIiwic2N5IjoiYWVzLTEyOC1nY20ifQ==";
 
 static NEXT_SANDBOX_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -61,6 +62,25 @@ fn configured_official_mihomo_accepts_builtin_trojan() {
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the Trojan Mihomo acceptance fixture"));
     verify_mihomo_config(&binary, &sandbox, "builtin Trojan");
+}
+
+#[test]
+fn configured_official_mihomo_accepts_builtin_vmess() {
+    let expected_version = configured_mihomo_version();
+    let Some(binary) = configured_mihomo_binary() else {
+        return;
+    };
+    let sandbox = TestSandbox::create()
+        .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
+
+    verify_mihomo_version(&binary, &sandbox, expected_version);
+    let rendered = prepare_direct_subscription_v1(&[VALID_VMESS])
+        .expect("fixed VMess subscription must be valid")
+        .render_builtin_mihomo_v1()
+        .expect("builtin VMess Mihomo render must succeed");
+    fs::write(&sandbox.config_file, rendered.as_bytes())
+        .unwrap_or_else(|_| panic!("failed to prepare the VMess Mihomo acceptance fixture"));
+    verify_mihomo_config(&binary, &sandbox, "builtin VMess");
 }
 
 #[test]

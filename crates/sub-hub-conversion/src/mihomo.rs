@@ -10,6 +10,7 @@ use crate::{
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::trojan::TrojanSecurity,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
+    node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
@@ -169,6 +170,7 @@ pub(crate) enum MihomoProxy<'a> {
     Vless(MihomoVlessProxy<'a>),
     Shadowsocks(MihomoShadowsocksProxy<'a>),
     Trojan(MihomoTrojanProxy<'a>),
+    Vmess(MihomoVmessProxy<'a>),
 }
 
 #[derive(Serialize)]
@@ -214,6 +216,7 @@ impl<'a> From<&'a ProxyNode> for MihomoProxy<'a> {
             NodeProtocol::Trojan(trojan) => {
                 Self::Trojan(MihomoTrojanProxy::from_node(node, trojan))
             }
+            NodeProtocol::Vmess(vmess) => Self::Vmess(MihomoVmessProxy::from_node(node, vmess)),
         }
     }
 }
@@ -317,6 +320,82 @@ pub(crate) struct MihomoTrojanProxy<'a> {
     grpc_opts: Option<MihomoGrpcOptions<'a>>,
     #[serde(rename = "reality-opts", skip_serializing_if = "Option::is_none")]
     reality_opts: Option<MihomoRealityOptions>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct MihomoVmessProxy<'a> {
+    name: &'a str,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    server: String,
+    port: u16,
+    uuid: String,
+    #[serde(rename = "alterId")]
+    alter_id: u16,
+    cipher: &'static str,
+    udp: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    servername: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    alpn: Option<&'a [String]>,
+    #[serde(rename = "client-fingerprint", skip_serializing_if = "Option::is_none")]
+    client_fingerprint: Option<&'static str>,
+    network: &'static str,
+    #[serde(rename = "ws-opts", skip_serializing_if = "Option::is_none")]
+    ws_opts: Option<MihomoWebSocketOptions<'a>>,
+    #[serde(rename = "grpc-opts", skip_serializing_if = "Option::is_none")]
+    grpc_opts: Option<MihomoGrpcOptions<'a>>,
+}
+
+impl<'a> MihomoVmessProxy<'a> {
+    fn from_node(node: &'a ProxyNode, vmess: &'a crate::node::vmess::VmessNode) -> Self {
+        let (network, ws_opts, grpc_opts) = match vmess.transport() {
+            VlessTransport::Tcp => ("tcp", None, None),
+            VlessTransport::WebSocket { path, host } => (
+                "ws",
+                Some(MihomoWebSocketOptions {
+                    path,
+                    headers: host.as_deref().map(|host| MihomoWebSocketHeaders { host }),
+                }),
+                None,
+            ),
+            VlessTransport::Grpc { service_name, .. } => (
+                "grpc",
+                None,
+                service_name
+                    .as_deref()
+                    .map(|service_name| MihomoGrpcOptions { service_name }),
+            ),
+        };
+        let (tls, servername, alpn, client_fingerprint) = match vmess.security() {
+            VmessSecurity::None => (None, None, None, None),
+            VmessSecurity::Tls(options) => (
+                Some(true),
+                Some(options.server_name()),
+                options.alpn(),
+                Some(render_fingerprint(options.fingerprint())),
+            ),
+        };
+        Self {
+            name: node.name().as_str(),
+            kind: "vmess",
+            server: render_host_plain(node.endpoint().host()),
+            port: node.endpoint().port().get(),
+            uuid: vmess.id().as_uuid().hyphenated().to_string(),
+            alter_id: 0,
+            cipher: vmess.cipher().as_token(),
+            udp: true,
+            tls,
+            servername,
+            alpn,
+            client_fingerprint,
+            network,
+            ws_opts,
+            grpc_opts,
+        }
+    }
 }
 
 impl<'a> MihomoTrojanProxy<'a> {

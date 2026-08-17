@@ -205,6 +205,7 @@ fn dispatch_distinguishes_malformed_shells_from_unsupported_protocols() {
         "VLESS://payload",
         "SS://payload",
         "TROJAN://payload",
+        "VMESS://payload",
         "://payload",
         "1scheme://payload",
         "unknown://",
@@ -217,11 +218,7 @@ fn dispatch_distinguishes_malformed_shells_from_unsupported_protocols() {
         );
     }
 
-    for input in [
-        "vmess://payload",
-        "hysteria2://payload",
-        "unknown+v1://payload",
-    ] {
+    for input in ["hysteria2://payload", "unknown+v1://payload"] {
         assert_eq!(
             rejection(input),
             NodeRejection::Unsupported(UnsupportedCapability::Protocol),

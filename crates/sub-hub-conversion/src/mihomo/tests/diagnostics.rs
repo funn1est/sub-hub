@@ -8,7 +8,7 @@ use crate::{
 #[test]
 fn success_preserves_rejections_origins_and_node_name_diagnostics() {
     let first = concat!(
-        "vmess://do-not-log@example.com:443#Rejected\n",
+        "hysteria2://do-not-log@example.com:443#Rejected\n",
         "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Same",
     );
     let second = b"vless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Same".as_slice();
@@ -48,8 +48,10 @@ fn success_preserves_rejections_origins_and_node_name_diagnostics() {
 #[test]
 fn no_valid_nodes_returns_the_same_safe_diagnostics() {
     let parsed =
-        parse_subscription_sources(&[b"vmess://do-not-log@example.com:443#Rejected".as_slice()])
-            .expect("valid subscription container");
+        parse_subscription_sources(
+            &[b"hysteria2://do-not-log@example.com:443#Rejected".as_slice()],
+        )
+        .expect("valid subscription container");
 
     let error = render_builtin_mihomo_v1(parsed).expect_err("all nodes are rejected");
     let BuiltinRenderError::NoValidNodes { diagnostics } = error else {

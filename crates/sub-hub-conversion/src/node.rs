@@ -2,6 +2,7 @@ mod endpoint;
 pub(crate) mod shadowsocks;
 pub(crate) mod trojan;
 pub(crate) mod vless;
+pub(crate) mod vmess;
 
 use std::fmt;
 
@@ -9,6 +10,7 @@ use crate::node_name::NodeNameV1;
 use shadowsocks::ShadowsocksNode;
 use trojan::TrojanNode;
 use vless::VlessNode;
+use vmess::VmessNode;
 
 pub(crate) use endpoint::{Endpoint, Host};
 
@@ -67,6 +69,7 @@ pub(crate) enum NodeProtocol {
     Vless(VlessNode),
     Shadowsocks(ShadowsocksNode),
     Trojan(TrojanNode),
+    Vmess(VmessNode),
 }
 
 impl fmt::Debug for NodeProtocol {
@@ -75,6 +78,7 @@ impl fmt::Debug for NodeProtocol {
             Self::Vless(_) => formatter.write_str("Vless([REDACTED])"),
             Self::Shadowsocks(_) => formatter.write_str("Shadowsocks([REDACTED])"),
             Self::Trojan(_) => formatter.write_str("Trojan([REDACTED])"),
+            Self::Vmess(_) => formatter.write_str("Vmess([REDACTED])"),
         }
     }
 }

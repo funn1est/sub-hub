@@ -203,11 +203,31 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
         format!("{:?}", trojan_protocol.password()),
     ];
 
+    let json_v2 = r#"{"ps":"CANARY_REMARK","add":"canary-host.example","port":443,"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}"#;
+    let share = parse_share_uri(&format!(
+        "vmess://{}",
+        base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            json_v2.as_bytes()
+        )
+    ))
+    .expect("valid canary VMess node");
+    let NodeProtocol::Vmess(protocol) = &share.protocol else {
+        panic!("expected VMess")
+    };
+    let vmess_representations = [
+        format!("{share:?}"),
+        format!("{:?}", share.protocol),
+        format!("{protocol:?}"),
+        format!("{:?}", protocol.id()),
+    ];
+
     assert_redacted(
         ss_representations
             .into_iter()
             .chain(ss_2022_representations)
             .chain(secret_representations)
-            .chain(trojan_representations),
+            .chain(trojan_representations)
+            .chain(vmess_representations),
     );
 }
