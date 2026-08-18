@@ -4,3 +4,5 @@ target/
 dist/
 docs/
 tools/
+.scratch/
+CONTEXT.md
