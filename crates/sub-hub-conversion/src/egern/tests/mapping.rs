@@ -3,9 +3,9 @@ use crate::egern::render_egern_from_policy_v1;
 use crate::node_name::resolve_node_names;
 use crate::policy::{
     CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1,
-    PolicyReportV1, RuleMatcherV1,
+    PolicyReportV1, RuleMatcherV1, compile_builtin_policy_v1,
 };
-use crate::render::{MAX_OUTPUT_BYTES, render_builtin_egern_v1};
+use crate::render::{AdapterRenderError, MAX_OUTPUT_BYTES, render_builtin_egern_v1};
 use crate::subscription_source::parse_subscription_sources;
 
 #[test]
@@ -205,4 +205,61 @@ fn process_name_is_omitted_and_load_balance_uses_hash() {
     assert!(text.contains("default:\n    policy: DIRECT"));
     assert!(!text.contains("Telegram"));
     assert!(!text.contains("process"));
+}
+
+#[test]
+fn shadowsocks_projects_classic_password() {
+    let source = "ss://aes-128-gcm:p%40ss%3Aword@example.com:8388#Classic\n";
+    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
+    let output = render_builtin_egern_v1(parsed).expect("rendered");
+    let text = std::str::from_utf8(output.config()).expect("utf8");
+    assert!(text.contains(concat!(
+        "- shadowsocks:\n",
+        "    name: Classic\n",
+        "    method: aes-128-gcm\n",
+        "    password: p@ss:word\n",
+        "    server: example.com\n",
+        "    port: 8388\n",
+        "    tfo: false\n",
+        "    udp_relay: true\n",
+    )));
+}
+
+#[test]
+fn reserved_node_tags_are_skipped() {
+    let parsed = parse_subscription_sources(&[
+        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#reject\nvless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Alpha"[..],
+    ])
+    .expect("valid");
+    let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
+    let nodes = accepted_nodes(&named);
+    assert_eq!(nodes.len(), 2);
+    let policy = compile_builtin_policy_v1(&nodes);
+    let output = render_egern_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
+    let text = std::str::from_utf8(&output.bytes).expect("utf8");
+    assert!(text.contains("name: Alpha"));
+    assert!(!text.contains("name: reject"));
+    assert!(!text.contains("example.com"));
+}
+
+#[test]
+fn group_named_direct_is_internal() {
+    let parsed = parse_subscription_sources(&[
+        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
+    ])
+    .expect("valid");
+    let named = resolve_node_names(parsed, &["direct"]).expect("names");
+    let nodes = accepted_nodes(&named);
+    let policy = CompiledPolicyV1::new(
+        vec![CompiledGroupV1::new(
+            "direct".to_owned(),
+            GroupStrategyV1::Select,
+            vec![PolicyMemberV1::Node("Alpha".to_owned())],
+        )],
+        vec![],
+        PolicyReportV1::default(),
+    );
+    let error =
+        render_egern_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect_err("reserved group");
+    assert!(matches!(error, AdapterRenderError::Internal));
 }

@@ -100,5 +100,8 @@ jobs:
       - name: Run Console tests
         run: corepack pnpm test
 
+      - name: Run Console lint
+        run: corepack pnpm run lint
+
       - name: Build Console
         run: corepack pnpm run build

@@ -81,7 +81,8 @@ cargo build --locked --release -p sub-hub-native
 ```
 
 CI launches that release binary on a loopback port and checks `/version` plus
-one local VLESS to Mihomo conversion. The fixture does not fetch an external
+one local VLESS conversion for every released target (`clash`, `mihomo`,
+`quanx`, `singbox`, `loon`, `egern`). The fixture does not fetch an external
 subscription.
 
 ## Rust development

@@ -72,24 +72,69 @@ jobs:
             exit 1
           fi
 
-          source='vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha'
-          curl -fsS --max-time 5 --get "http://127.0.0.1:${port}/sub" \
-            --data-urlencode 'target=clash' \
-            --data-urlencode "url=${source}" \
-            -o conversion.yaml
-
+          export SMOKE_PORT="$port"
           python3 - <<'PY'
-          from pathlib import Path
+          import os
+          import subprocess
+          import sys
+          import urllib.parse
 
-          yaml = Path("conversion.yaml").read_text(encoding="utf-8")
-          fragments = [
-              "mode: rule\n",
-              "- name: Alpha\n  type: vless\n  server: example.com\n  port: 443\n",
-              "  uuid: 01234567-89ab-cdef-0123-456789abcdef\n",
-              "proxy-groups:\n",
-              "rules:\n- MATCH,PROXY\n",
-          ]
-          if any(fragment not in yaml for fragment in fragments):
-              raise SystemExit("native backend returned unexpected Mihomo output")
-          print("Native release smoke passed: /version and direct VLESS -> Mihomo.")
+          port = os.environ["SMOKE_PORT"]
+          source = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
+          checks = {
+              "clash": (
+                  "mode: rule\n",
+                  "- name: Alpha\n  type: vless\n  server: example.com\n  port: 443\n",
+                  "  uuid: 01234567-89ab-cdef-0123-456789abcdef\n",
+                  "rules:\n- MATCH,PROXY\n",
+              ),
+              "mihomo": (
+                  "- name: Alpha\n  type: vless\n",
+                  "  uuid: 01234567-89ab-cdef-0123-456789abcdef\n",
+              ),
+              "quanx": (
+                  "vless=example.com:443, method=none, password=01234567-89ab-cdef-0123-456789abcdef, udp-relay=true, fast-open=false, tag=Alpha\n",
+                  "final, PROXY\n",
+              ),
+              "singbox": (
+                  '"type": "vless"',
+                  '"tag": "Alpha"',
+                  '"uuid": "01234567-89ab-cdef-0123-456789abcdef"',
+              ),
+              "loon": (
+                  'Alpha = VLESS,example.com,443,"01234567-89ab-cdef-0123-456789abcdef",transport=tcp,over-tls=false,udp=true\n',
+                  "FINAL,PROXY\n",
+              ),
+              "egern": (
+                  "    name: Alpha\n",
+                  "    user_id: 01234567-89ab-cdef-0123-456789abcdef\n",
+                  "- vless:\n",
+              ),
+          }
+
+          for target, fragments in checks.items():
+              query = urllib.parse.urlencode({"target": target, "url": source})
+              url = f"http://127.0.0.1:{port}/sub?{query}"
+              result = subprocess.run(
+                  ["curl", "-fsS", "--max-time", "5", url],
+                  check=False,
+                  capture_output=True,
+              )
+              if result.returncode != 0:
+                  sys.stderr.write(
+                      f"native smoke {target} curl failed: {result.stderr.decode()}\n"
+                  )
+                  raise SystemExit(1)
+              body = result.stdout.decode("utf-8")
+              missing = [fragment for fragment in fragments if fragment not in body]
+              if missing:
+                  sys.stderr.write(
+                      f"native backend returned unexpected {target} output; missing {missing!r}\n"
+                  )
+                  raise SystemExit(1)
+
+          print(
+              "Native release smoke passed: /version and direct VLESS -> "
+              "clash/mihomo/quanx/singbox/loon/egern."
+          )
           PY
