@@ -214,8 +214,10 @@ corepack pnpm run dev
 
 A Vite Workshop against Native loopback needs
 `SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`. Deploy the
-Console as a separate Cloudflare Pages project (root `apps/console`). CI builds
-and tests it; CI does not deploy Pages. See the
+Console as a separate Cloudflare Pages project (root `apps/console`, upload
+`dist/`). After the Pages origin exists, set the Worker
+`SUB_HUB_CORS_ORIGINS` **var** to that exact origin with `--keep-vars`. CI
+builds and tests the Console; CI does not deploy Pages. See the
 [Console notes](apps/console/README.md).
 
 ## Compatibility and provenance

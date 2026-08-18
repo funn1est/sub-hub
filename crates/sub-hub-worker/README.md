@@ -63,9 +63,11 @@ and today's subscription clients are unchanged.
 corepack pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
 ```
 
-Do not commit the Pages origin into `wrangler.toml`. A present-but-empty or
-malformed list (`https://x.example/path`, a ninth origin) makes every request
-return `500`.
+Do not commit the Pages origin into `wrangler.toml`. Create the Pages project
+from `apps/console` (`wrangler pages project create` + `wrangler pages deploy`
+of `dist/`); do not add `pages_build_output_dir` to this Worker config. A
+present-but-empty or malformed list (`https://x.example/path`, a ninth origin)
+makes every request return `500`.
 
 Do not log complete request URLs. Query strings commonly contain credentials.
 

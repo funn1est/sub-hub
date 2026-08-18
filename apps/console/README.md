@@ -50,36 +50,86 @@ Conversion Service origin.
 
 ## Deploy
 
-Create a separate Cloudflare Pages project. Root directory: `apps/console`.
-Build command: `corepack pnpm install --frozen-lockfile && corepack pnpm run build`.
-Output directory: `dist`. Pin Node 22 (`.nvmrc` is already here).
+Create a **separate** Cloudflare Pages project. Do not attach Pages to the
+Worker `wrangler.toml`. CI builds this package and does **not** deploy. Do not
+put Cloudflare secrets in GitHub Actions, and do not commit an `account_id`,
+API token, or Pages project name.
 
-Deploy by Dashboard or `wrangler pages`. CI builds this package and does **not**
-deploy. Do not put Cloudflare secrets in GitHub Actions.
-
-After the Pages origin exists, add it to the Conversion Service:
+From the repository root, after `wrangler login` (the Worker package pins
+Wrangler 4.122.0):
 
 ```sh
-# Worker
-corepack pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
+cd apps/console
+corepack pnpm install --frozen-lockfile
+corepack pnpm test
+corepack pnpm run build
+
+cd ../../crates/sub-hub-worker
+corepack pnpm exec wrangler pages project create <project> --production-branch main
+corepack pnpm exec wrangler pages deploy ../../apps/console/dist \
+  --project-name <project> \
+  --branch main \
+  --commit-dirty=true
+```
+
+Wrangler may warn that the Worker `wrangler.toml` lacks `pages_build_output_dir`.
+That is expected; ignore it. The upload is the `dist/` directory.
+
+The production origin is `https://<project>.pages.dev`. Pin Node 22 if you later
+switch to a Git-connected Pages build (`.nvmrc` is already here). Direct upload
+of `dist/` does not run a cloud build.
+
+Then list that exact origin on the Conversion Service. No host-suffix wildcards.
+Preview `*.pages.dev` hashes must be added as extra exact origins if those
+previews should read `/sub`.
+
+```sh
+# Worker — keep existing vars and the access-token secret
+corepack pnpm exec wrangler deploy --keep-vars \
+  --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
 
 # Native
 set SUB_HUB_CORS_ORIGINS=https://<project>.pages.dev
 ```
 
-No host-suffix wildcards. Preview `*.pages.dev` hashes must be listed exactly if
-you want those previews to read `/sub`.
+A present-but-empty or malformed `SUB_HUB_CORS_ORIGINS` makes every Worker
+request return `500`.
 
 ## Manual smoke
 
-Not a CI gate.
+Not a CI gate. Replace `$CONSOLE` and `$WORKER` with the HTTPS origins, no
+trailing slash.
 
-1. Pages Console → Worker with `SUB_HUB_CORS_ORIGINS` set to that Pages origin.
-   Preview a direct VLESS with `target=clash`. The body should be Mihomo YAML.
-2. `pnpm run dev` → Native at `http://127.0.0.1:25500` with the Vite origins in
-   `SUB_HUB_CORS_ORIGINS`. Same Preview.
-3. A Worker **without** CORS must show the localized CORS / network explanation,
-   not a fake `401 Unauthorized!`.
+```sh
+curl -D - -o NUL "$CONSOLE/"
+# Expect 200, title Sub Hub Console, Referrer-Policy: no-referrer,
+# CSP default-src 'self'; connect-src 'self' http: https:; script-src 'self'
+
+curl -D - "$WORKER/version"
+# Expect: sub-hub v0.1.0 backend. No Access-Control-Allow-Origin.
+
+curl -D - -H "Origin: $CONSOLE" "$WORKER/version"
+# Expect the same body plus
+# Access-Control-Allow-Origin: $CONSOLE
+# Vary: Origin
+
+curl -D - -H "Origin: https://evil.example" "$WORKER/version"
+# Expect the version body and no Access-Control-* headers.
+```
+
+In the Pages Console, set the Conversion Service origin to `$WORKER` and the
+access token to the operator-kept value (empty only if the Worker is anonymous).
+The `/version` probe should show `sub-hub v0.1.0 backend`. Preview a direct
+VLESS with `target=clash`; the body should be Mihomo YAML that contains that
+node.
+
+A Worker **without** this Console origin in `SUB_HUB_CORS_ORIGINS` must show the
+localized CORS / network explanation, not a fake `401 Unauthorized!`. (A listed
+origin plus a missing token is a real `401 Unauthorized!` and is correct.)
+
+Native pairing from `pnpm run dev` still needs
+`SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173` and is not
+part of the Pages gate.
 
 ## Persistence and secrets
 
