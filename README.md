@@ -111,7 +111,7 @@ is limited to its pinned two-version external acceptance matrix.
 
 ## Native deployment boundary
 
-The native host reads four optional environment variables:
+The native host reads five optional environment variables:
 
 - `SUB_HUB_BIND` sets the listener and defaults to `127.0.0.1:25500`.
 - `SUB_HUB_SELF_HOSTS` is a comma-separated list of canonical DNS aliases that
@@ -126,6 +126,12 @@ The native host reads four optional environment variables:
   `http://localhost:5173`). Unset means no CORS headers. A present-but-empty
   or invalid list refuses to start. A Vite Workshop against loopback needs
   `http://localhost:5173,http://127.0.0.1:5173`.
+- `SUB_HUB_CONSOLE_ROOT` is the path to a built Web Console directory
+  (`apps/console/dist`). Unset leaves Native as a Conversion Service only.
+  A present value that is not a readable directory refuses to start. When
+  set, GET/HEAD paths that are not `/version`, `/sub`, or `/sub/:token`
+  serve files from that tree (`/` and unknown paths fall back to
+  `index.html`). Same-origin Preview does not need CORS.
 
 A non-loopback `SUB_HUB_BIND` is rejected unless `SUB_HUB_SELF_HOSTS` contains
 at least one hostname. List every additional deployment alias even when a

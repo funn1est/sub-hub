@@ -5,12 +5,22 @@ use axum::{
     http::{Request, Response, StatusCode, header, uri::Authority},
 };
 use http::{HeaderMap, HeaderValue};
-use std::{fmt, future::Future, net::SocketAddr, pin::Pin, sync::Arc, time::Instant};
+use std::{
+    fmt,
+    future::Future,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
+    time::Instant,
+};
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HttpRequest, RemoteAdapter, RemoteAttempt,
     RemoteFetchError, RemoteResponse, SelfHosts, is_globally_reachable,
 };
 use url::{Host, Url};
+
+mod console;
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:25500";
 const MAX_LOCATION_BYTES: usize = 8_192;
@@ -22,6 +32,7 @@ pub struct NativeConfig {
     self_hosts: Vec<String>,
     access_tokens: AccessTokens,
     cors_origins: CorsOrigins,
+    console_root: Option<PathBuf>,
 }
 
 impl NativeConfig {
@@ -49,28 +60,42 @@ impl NativeConfig {
             self_hosts,
             access_tokens: AccessTokens::empty(),
             cors_origins: CorsOrigins::empty(),
+            console_root: None,
         })
     }
 
     /// Reads `SUB_HUB_BIND`, `SUB_HUB_SELF_HOSTS`, optional `SUB_HUB_ACCESS_TOKEN`,
-    /// and optional `SUB_HUB_CORS_ORIGINS`.
+    /// optional `SUB_HUB_CORS_ORIGINS`, and optional `SUB_HUB_CONSOLE_ROOT`.
     ///
     /// # Errors
     ///
     /// Returns [`ConfigError`] when a value is not Unicode or does not satisfy
     /// [`NativeConfig::from_values`] / [`AccessTokens::parse_optional`] /
-    /// [`CorsOrigins::parse_optional`], or when a non-loopback bind has an empty token set.
+    /// [`CorsOrigins::parse_optional`] / a readable console directory, or when a
+    /// non-loopback bind has an empty token set.
     pub fn from_environment() -> Result<Self, ConfigError> {
         let bind_address = unicode_environment_value("SUB_HUB_BIND")?;
         let self_hosts = unicode_environment_value("SUB_HUB_SELF_HOSTS")?;
         let access_token = unicode_environment_value("SUB_HUB_ACCESS_TOKEN")?;
         let cors_origins = unicode_environment_value("SUB_HUB_CORS_ORIGINS")?;
+        let console_root = unicode_environment_value("SUB_HUB_CONSOLE_ROOT")?;
         Self::from_environment_parts_with_cors(
             bind_address.as_deref(),
             self_hosts.as_deref(),
             access_token.as_deref(),
             cors_origins.as_deref(),
-        )
+        )?
+        .with_console_root_value(console_root.as_deref())
+    }
+
+    /// Sets `SUB_HUB_CONSOLE_ROOT`. `None` leaves the Conversion Service as the only surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] when a present value is not a readable directory.
+    pub fn with_console_root_value(mut self, raw: Option<&str>) -> Result<Self, ConfigError> {
+        self.console_root = console::parse_console_root(raw).map_err(|()| ConfigError)?;
+        Ok(self)
     }
 
     fn from_environment_parts_with_cors(
@@ -108,6 +133,11 @@ impl NativeConfig {
     pub fn cors_origins(&self) -> &CorsOrigins {
         &self.cors_origins
     }
+
+    #[must_use]
+    pub fn console_root(&self) -> Option<&Path> {
+        self.console_root.as_deref()
+    }
 }
 
 impl fmt::Debug for NativeConfig {
@@ -118,6 +148,7 @@ impl fmt::Debug for NativeConfig {
             .field("self_host_count", &self.self_hosts.len())
             .field("access_tokens_configured", &!self.access_tokens.is_empty())
             .field("cors_origins_configured", &!self.cors_origins.is_empty())
+            .field("console_root_configured", &self.console_root.is_some())
             .finish()
     }
 }
@@ -448,9 +479,21 @@ fn is_followed_redirect(status: StatusCode) -> bool {
 }
 
 pub fn build_router(application: Application<NativeRemoteAdapter>) -> Router {
+    build_router_with_console(application, None)
+}
+
+/// Same as [`build_router`], optionally serving a prebuilt Web Console directory
+/// after application 404s on GET/HEAD.
+pub fn build_router_with_console(
+    application: Application<NativeRemoteAdapter>,
+    console_root: Option<PathBuf>,
+) -> Router {
     Router::new()
         .fallback(handle_request)
-        .with_state(Arc::new(application))
+        .with_state(Arc::new(NativeState {
+            application,
+            console_root,
+        }))
 }
 
 /// Validates the complete configuration, binds, and serves until the runtime stops the task.
@@ -465,17 +508,29 @@ pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
     if config.access_tokens.is_empty() {
         eprintln!("sub-hub-native: SUB_HUB_ACCESS_TOKEN is unset; GET /sub is anonymous");
     }
+    if config.console_root.is_some() {
+        eprintln!("sub-hub-native: serving Web Console from SUB_HUB_CONSOLE_ROOT");
+    }
     let self_hosts = SelfHosts::new(config.self_hosts.iter()).map_err(|_| ConfigError)?;
     let application = Application::new(NativeRemoteAdapter::new(), self_hosts)
         .with_access_tokens(config.access_tokens)
         .with_cors_origins(config.cors_origins);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
-    axum::serve(listener, build_router(application)).await?;
+    axum::serve(
+        listener,
+        build_router_with_console(application, config.console_root),
+    )
+    .await?;
     Ok(())
 }
 
+struct NativeState {
+    application: Application<NativeRemoteAdapter>,
+    console_root: Option<PathBuf>,
+}
+
 async fn handle_request(
-    State(application): State<Arc<Application<NativeRemoteAdapter>>>,
+    State(state): State<Arc<NativeState>>,
     request: Request<Body>,
 ) -> Response<Body> {
     let suppress_body = request.method() == http::Method::HEAD;
@@ -486,12 +541,25 @@ async fn handle_request(
     let path = request.uri().path().to_owned();
     let raw_query = request.uri().query().map(str::to_owned);
     let origin = one_origin_header(request.headers());
-    let shared_response = application
+    let shared_response = state
+        .application
         .handle(
-            HttpRequest::new_with_inbound_host(method, &path, raw_query.as_deref(), &inbound_host)
-                .with_origin(origin.as_deref()),
+            HttpRequest::new_with_inbound_host(
+                method.clone(),
+                &path,
+                raw_query.as_deref(),
+                &inbound_host,
+            )
+            .with_origin(origin.as_deref()),
         )
         .await;
+
+    if shared_response.status() == StatusCode::NOT_FOUND
+        && let Some(root) = state.console_root.as_deref()
+        && let Some(static_response) = console::static_response(root, &path, &method)
+    {
+        return static_response;
+    }
 
     let status = shared_response.status();
     let headers = shared_response.headers().clone();

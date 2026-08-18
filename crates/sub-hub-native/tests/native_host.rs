@@ -1,7 +1,9 @@
 use std::{
     future::Future,
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
     pin::Pin,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use axum::{
@@ -11,7 +13,8 @@ use axum::{
 use http_body_util::BodyExt;
 use sub_hub_http::{AccessTokens, Application, CorsOrigins, SelfHosts};
 use sub_hub_native::{
-    DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router, serve,
+    DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router,
+    build_router_with_console, serve,
 };
 use tower::ServiceExt;
 
@@ -177,6 +180,7 @@ fn service_defaults_to_the_safe_loopback_address() {
     assert!(config.self_hosts().is_empty());
     assert!(config.access_tokens().is_empty());
     assert!(config.cors_origins().is_empty());
+    assert!(config.console_root().is_none());
 }
 
 #[test]
@@ -484,6 +488,216 @@ async fn duplicate_origin_headers_are_ignored_without_failing_the_request() {
             .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
             .is_none()
     );
+}
+
+#[test]
+fn console_root_unset_is_absent_and_present_non_directory_fails() {
+    let config = NativeConfig::from_values(None, None).expect("default");
+    assert!(
+        config
+            .clone()
+            .with_console_root_value(None)
+            .expect("unset")
+            .console_root()
+            .is_none()
+    );
+    assert!(config.clone().with_console_root_value(Some("")).is_err());
+    assert!(config.clone().with_console_root_value(Some("   ")).is_err());
+    assert!(
+        config
+            .clone()
+            .with_console_root_value(Some("/no/such/sub-hub-console-root"))
+            .is_err()
+    );
+
+    let fixture = console_fixture();
+    let file = fixture.path().join("index.html");
+    assert!(
+        config
+            .clone()
+            .with_console_root_value(Some(file.to_str().expect("utf8")))
+            .is_err()
+    );
+
+    let enabled = config
+        .with_console_root_value(Some(fixture.path().to_str().expect("utf8")))
+        .expect("directory");
+    let configured = enabled.console_root().expect("configured");
+    assert!(configured.is_dir());
+    assert_eq!(
+        configured,
+        fixture.path().canonicalize().expect("canonical fixture")
+    );
+}
+
+#[tokio::test]
+async fn configured_console_serves_files_after_application_routes() {
+    let fixture = console_fixture();
+    let router = test_router_with_console(fixture.path().to_path_buf());
+
+    let index = request(&router, Method::GET, "/").await;
+    assert_eq!(index.status(), StatusCode::OK);
+    assert_eq!(
+        index
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("text/html;charset=utf-8")
+    );
+    assert_eq!(
+        index
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok()),
+        Some("no-store")
+    );
+    assert_eq!(
+        index
+            .headers()
+            .get(header::REFERRER_POLICY)
+            .and_then(|v| v.to_str().ok()),
+        Some("no-referrer")
+    );
+    assert_eq!(body_text(index).await, "<html>console</html>");
+
+    let asset = request(&router, Method::GET, "/assets/app.js").await;
+    assert_eq!(asset.status(), StatusCode::OK);
+    assert_eq!(
+        asset
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("text/javascript;charset=utf-8")
+    );
+    assert_eq!(body_text(asset).await, "console.log(1)");
+
+    let spa = request(&router, Method::GET, "/workshop").await;
+    assert_eq!(spa.status(), StatusCode::OK);
+    assert_eq!(body_text(spa).await, "<html>console</html>");
+
+    let head = request(&router, Method::HEAD, "/").await;
+    assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(
+        head.headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("text/html;charset=utf-8")
+    );
+    assert!(body_text(head).await.is_empty());
+
+    let version = request(&router, Method::GET, "/version").await;
+    assert_eq!(version.status(), StatusCode::OK);
+    assert_eq!(body_text(version).await, "sub-hub v0.1.0 backend");
+
+    let sub = request(
+        &router,
+        Method::GET,
+        "/sub?target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
+    )
+    .await;
+    assert_eq!(sub.status(), StatusCode::OK);
+    let sub_body = body_text(sub).await;
+    assert!(sub_body.contains("Alpha"), "{sub_body}");
+
+    let post = request(&router, Method::POST, "/").await;
+    assert_eq!(post.status(), StatusCode::NOT_FOUND);
+    assert_eq!(body_text(post).await, "Not Found");
+}
+
+#[tokio::test]
+async fn console_path_escape_stays_inside_the_root() {
+    let fixture = console_fixture();
+    let outside = fixture
+        .path()
+        .parent()
+        .expect("temp parent")
+        .join("secret.txt");
+    std::fs::write(&outside, b"outside-secret").expect("write outside");
+    let router = test_router_with_console(fixture.path().to_path_buf());
+
+    for uri in [
+        "/../secret.txt",
+        "/%2e%2e/secret.txt",
+        "/assets/../../secret.txt",
+    ] {
+        let response = request(&router, Method::GET, uri).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+        let body = body_text(response).await;
+        assert_eq!(body, "Not Found", "{uri}");
+        assert!(!body.contains("outside-secret"), "{uri}");
+    }
+
+    let _ = std::fs::remove_file(outside);
+}
+
+#[tokio::test]
+async fn unset_console_keeps_unknown_paths_as_application_not_found() {
+    let response = request(&test_router(), Method::GET, "/").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(body_text(response).await, "Not Found");
+}
+
+fn test_router_with_console(root: PathBuf) -> axum::Router {
+    let application = Application::new(
+        NativeRemoteAdapter::new(),
+        SelfHosts::new(["subscriptions.example"]).expect("valid self host"),
+    );
+    build_router_with_console(application, Some(root))
+}
+
+async fn request(router: &axum::Router, method: Method, uri: &str) -> Response<Body> {
+    router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header(header::HOST, "127.0.0.1:25500")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible")
+}
+
+async fn body_text(response: Response<Body>) -> String {
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    String::from_utf8(bytes.to_vec()).expect("utf8 body")
+}
+
+struct ConsoleFixture {
+    path: PathBuf,
+}
+
+impl ConsoleFixture {
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl Drop for ConsoleFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+fn console_fixture() -> ConsoleFixture {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "sub-hub-native-console-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&path);
+    std::fs::create_dir_all(path.join("assets")).expect("fixture dir");
+    std::fs::write(path.join("index.html"), b"<html>console</html>").expect("index");
+    std::fs::write(path.join("assets").join("app.js"), b"console.log(1)").expect("asset");
+    ConsoleFixture { path }
 }
 
 struct MixedPublicAndPrivateResolver;

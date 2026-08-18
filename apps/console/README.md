@@ -26,7 +26,19 @@ Optional: `VITE_DEFAULT_SERVICE_ORIGIN=http://127.0.0.1:25500` (origin only,
 never a token). The access token is typed in the page and stored only in
 `localStorage`.
 
-A Vite Workshop against Native loopback needs:
+Same-origin Native pairing (no CORS) after a Console build:
+
+```sh
+corepack pnpm run build
+# from the repository root
+set SUB_HUB_CONSOLE_ROOT=apps/console/dist
+cargo run --locked -p sub-hub-native
+```
+
+Then open `http://127.0.0.1:25500/` and set the Conversion Service origin to
+`http://127.0.0.1:25500`.
+
+A Vite Workshop against Native loopback (separate origin) needs:
 
 ```sh
 SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173 cargo run --locked -p sub-hub-native
