@@ -45,6 +45,8 @@ SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173 cargo run --loc
 ```
 
 Preview is a simple `GET`. The Conversion Service does not answer `OPTIONS`.
+When the service skipped nodes, Preview shows the counts from
+`x-subconverter-skipped`; it does not fetch a second URL.
 
 ## Build
 

@@ -11,13 +11,17 @@ The native service and Cloudflare Worker share the same host-neutral HTTP and
 conversion modules. This repository does not operate a public Sub Hub instance;
 you must run or deploy one yourself.
 
+See [Security](SECURITY.md) for how to report a vulnerability and what a
+deployer should assume. See [Contributing](CONTRIBUTING.md) for local gates
+and the current public surface.
+
 ## Current HTTP surface
 
 The current compatibility surface contains only:
 
 - `GET /version`
-- `GET /sub`
-- `HEAD /sub`
+- `GET /sub` and `HEAD /sub`
+- `GET /sub/:token` and `HEAD /sub/:token` when `SUB_HUB_ACCESS_TOKEN` is set
 
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
 `quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), or `egern`
@@ -252,3 +256,6 @@ respective licenses and notices. Incorporated-material notices are collected in
 
 Sub Hub is licensed under the
 [GNU Affero General Public License v3.0 or later](LICENSE).
+
+See [SECURITY.md](SECURITY.md) to report a vulnerability and
+[CONTRIBUTING.md](CONTRIBUTING.md) for development gates.

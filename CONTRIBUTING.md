@@ -1,0 +1,57 @@
+# Contributing
+
+Sub Hub is licensed under the [GNU Affero General Public License v3.0 or
+later](LICENSE). By opening a pull request you offer your changes under the
+same license.
+
+This repository does not operate a public instance. Do not send a real
+subscription URL to a shared converter, and do not commit `account_id`, API
+tokens, `.dev.vars` values, or an access-token list.
+
+## Development gates
+
+The workspace is pinned to Rust 1.97.1 via `rust-toolchain.toml`. From the
+repository root:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace --all-targets
+cargo check --locked -p sub-hub-conversion --target wasm32-unknown-unknown
+cargo check --locked -p sub-hub-http --target wasm32-unknown-unknown
+```
+
+Web Console (`apps/console`, Node 22):
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm test
+corepack pnpm run lint
+corepack pnpm run build
+```
+
+Worker host conformance (`crates/sub-hub-worker`):
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm run build
+corepack pnpm run test:host
+```
+
+CI does not deploy to Cloudflare and does not hold Cloudflare credentials.
+
+Do not modify the existing root `.gitignore` unless a maintainer asks for that
+change in the same review.
+
+## Scope
+
+The public HTTP surface is `GET /version` and `GET`/`HEAD` `/sub` (plus
+`/sub/:token` when tokens are configured). New protocols, client targets, query
+keys, or routes need an explicit design review before code. Do not add POST
+conversion, `GET /capabilities`, extra subconverter switches
+(`include` / `exclude` / `emoji` / `filename` / `udp` / `scv` / `sort`), or a
+second rule-file dialect in a drive-by PR.
+
+Bug fixes and tests for the current surface are welcome. Match the surrounding
+style: secret-safe `Debug`, closed error text, and byte-stable conversion
+goldens unless the change is supposed to alter output.
