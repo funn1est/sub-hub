@@ -10,7 +10,7 @@ pub const MAX_CORS_ORIGINS: usize = 8;
 pub const MAX_CORS_ORIGIN_LIST_BYTES: usize = 2048;
 
 const EXPOSE_HEADERS: HeaderValue = HeaderValue::from_static(
-    "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules",
+    "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules, x-subconverter-skipped",
 );
 
 /// Closed allowlist of exact Console origins. Empty = no CORS headers.

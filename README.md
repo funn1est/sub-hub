@@ -51,7 +51,9 @@ administration API. An optional
 `SUB_HUB_ACCESS_TOKEN` may hold up to eight equivalent path tokens and
 protects `GET`/`HEAD /sub/:token` when configured; `GET /version` stays public. Unsupported or invalid individual nodes are
 skipped, but source/container/config errors remain fatal and a request with no
-valid nodes fails. All remote resources pass through the shared bounded SSRF
+valid nodes fails. When any node is skipped, `GET`/`HEAD` `/sub` adds
+`x-subconverter-skipped` (and `x-subconverter-result: partial` unless the
+response is already `lossy`). All remote resources pass through the shared bounded SSRF
 broker.
 
 ## Run the native backend

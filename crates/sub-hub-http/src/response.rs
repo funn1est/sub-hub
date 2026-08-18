@@ -1,4 +1,5 @@
 use http::{HeaderMap, HeaderValue, StatusCode, header};
+use sub_hub_conversion::SkipCountsV1;
 
 use crate::{JSON_CONTENT_TYPE, NO_STORE, TEXT_CONTENT_TYPE};
 
@@ -12,7 +13,7 @@ pub struct HttpResponse {
 pub(crate) enum ApplicationError {
     InvalidTarget,
     InvalidRequest,
-    NoValidNodes,
+    NoValidNodes { skips: SkipCountsV1 },
     ConversionLimit,
     NotFound,
     Unauthorized,
@@ -103,7 +104,9 @@ pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
     let (status, body, allow): (StatusCode, &[u8], Option<&'static str>) = match error {
         ApplicationError::InvalidTarget => (StatusCode::BAD_REQUEST, b"Invalid target!", None),
         ApplicationError::InvalidRequest => (StatusCode::BAD_REQUEST, b"Invalid request!", None),
-        ApplicationError::NoValidNodes => (StatusCode::BAD_REQUEST, b"No nodes were found!", None),
+        ApplicationError::NoValidNodes { .. } => {
+            (StatusCode::BAD_REQUEST, b"No nodes were found!", None)
+        }
         ApplicationError::ConversionLimit => {
             (StatusCode::BAD_REQUEST, b"Resource limit exceeded!", None)
         }
@@ -134,7 +137,28 @@ pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
             .headers
             .insert(header::ALLOW, HeaderValue::from_static(allow));
     }
+    if let ApplicationError::NoValidNodes { skips } = error {
+        insert_skip_headers(&mut response, skips);
+    }
     response
+}
+
+pub(crate) fn insert_skip_headers(response: &mut HttpResponse, skips: SkipCountsV1) {
+    if skips.is_empty() {
+        return;
+    }
+    if !response.headers.contains_key("x-subconverter-result") {
+        response
+            .headers
+            .insert("x-subconverter-result", HeaderValue::from_static("partial"));
+    }
+    let value = format!(
+        "parse={};capability={};name={}",
+        skips.parse, skips.capability, skips.name
+    );
+    if let Ok(value) = HeaderValue::from_str(&value) {
+        response.headers.insert("x-subconverter-skipped", value);
+    }
 }
 
 pub(crate) fn success_response(status: StatusCode, body: Vec<u8>) -> HttpResponse {

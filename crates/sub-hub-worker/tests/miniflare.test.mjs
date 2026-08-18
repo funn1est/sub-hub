@@ -357,7 +357,7 @@ test("listed console origin can read /version and /sub", async (t) => {
   const mf = runtime({ SUB_HUB_CORS_ORIGINS: "https://console.example" });
   t.after(() => mf.dispose());
   const expose =
-    "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules";
+    "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules, x-subconverter-skipped";
 
   const version = await mf.dispatchFetch("https://worker.example/version", {
     headers: { Origin: "https://console.example" },

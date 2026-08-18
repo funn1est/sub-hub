@@ -44,7 +44,7 @@ import { Switch } from "@/components/ui/switch.tsx"
 import { Textarea } from "@/components/ui/textarea.tsx"
 import { toast } from "@/components/ui/toast.tsx"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx"
-import { knownErrorTitle, t } from "@/lib/i18n.ts"
+import { knownErrorTitle, skippedSummary, t } from "@/lib/i18n.ts"
 import type { Locale, PersistedWorkshop, Theme } from "@/lib/persist.ts"
 import {
   classifyFetchFailure,
@@ -52,6 +52,7 @@ import {
   classifyVersionBody,
   fallbackDownloadName,
   filenameFromDisposition,
+  parseSkippedHeader,
   pickExposedHeaders,
   truncatePreviewBody,
   type FetchFailure,
@@ -635,6 +636,10 @@ function PreviewCard({
     preview.kind.kind === "known-error"
       ? knownErrorTitle(locale, preview.kind.body)
       : `${copy.status} ${preview.httpStatus}`
+  const skipped = parseSkippedHeader(
+    preview.headers.find((header) => header.name === "x-subconverter-skipped")
+      ?.value ?? null,
+  )
 
   return (
     <Card>
@@ -649,6 +654,14 @@ function PreviewCard({
               <AlertTitle>{errorTitle}</AlertTitle>
               <AlertDescription className="font-mono">
                 {preview.kind.body}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {skipped !== null ? (
+            <Alert>
+              <AlertTitle>{copy.skipped}</AlertTitle>
+              <AlertDescription>
+                {skippedSummary(locale, skipped)}
               </AlertDescription>
             </Alert>
           ) : null}

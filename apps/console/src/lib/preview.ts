@@ -92,6 +92,27 @@ export function fallbackDownloadName(target: Target): string {
   }
 }
 
+export type SkipCounts = {
+  parse: number
+  capability: number
+  name: number
+}
+
+export function parseSkippedHeader(value: string | null): SkipCounts | null {
+  if (value === null || value.length === 0) {
+    return null
+  }
+  const match = /^parse=(\d+);capability=(\d+);name=(\d+)$/.exec(value)
+  if (match === null) {
+    return null
+  }
+  return {
+    parse: Number(match[1]),
+    capability: Number(match[2]),
+    name: Number(match[3]),
+  }
+}
+
 export function pickExposedHeaders(headers: Headers): { name: string; value: string }[] {
   const picked: { name: string; value: string }[] = []
   for (const name of EXPOSED_HEADERS) {

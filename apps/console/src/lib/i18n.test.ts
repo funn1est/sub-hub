@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { KNOWN_SERVICE_ERRORS } from "./workshop.ts"
-import { knownErrorTitle } from "./i18n.ts"
+import { knownErrorTitle, skippedSummary } from "./i18n.ts"
 
 describe("known Conversion Service errors", () => {
   it("has a distinct zh and en title for every exact English body", () => {
@@ -27,5 +27,16 @@ describe("known Conversion Service errors", () => {
       expect(zh).not.toBe(en)
       expect(zh).not.toBe(body)
     }
+  })
+})
+
+describe("skippedSummary", () => {
+  it("lists only the non-zero buckets in zh and en", () => {
+    expect(
+      skippedSummary("en", { parse: 1, capability: 4, name: 0 }),
+    ).toBe("Skipped 5 nodes (1 could not be parsed, 4 unsupported on this target).")
+    expect(
+      skippedSummary("zh", { parse: 1, capability: 4, name: 0 }),
+    ).toBe("跳过 5 个节点（解析失败 1，此 target 不支持 4）。")
   })
 })

@@ -40,6 +40,7 @@ export const EXPOSED_HEADERS = [
   "subscription-userinfo",
   "x-subconverter-result",
   "x-subconverter-omitted-rules",
+  "x-subconverter-skipped",
 ] as const
 
 export type WorkshopInput = {

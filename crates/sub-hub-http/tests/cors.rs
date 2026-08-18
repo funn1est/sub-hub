@@ -23,7 +23,7 @@ const DIRECT_QUERY: &str = concat!(
     "%40EXAMPLE.COM%3A443%23Alpha",
 );
 const CONSOLE: &str = "https://console.example";
-const EXPOSE: &str = "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules";
+const EXPOSE: &str = "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules, x-subconverter-skipped";
 
 fn handle(request: HttpRequest<'_>) -> HttpResponse {
     let application = Application::new(

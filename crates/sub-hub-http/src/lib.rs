@@ -2,8 +2,8 @@ use std::fmt;
 
 use http::{HeaderValue, Method, StatusCode};
 use sub_hub_conversion::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, DirectRenderError, SubscriptionPreparationError,
-    SubscriptionSourceV1, prepare_subscription_v1,
+    Acl4SsrPreparationError, Acl4SsrRenderError, DirectRenderError, SkipCountsV1,
+    SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
 };
 use url::{Host, Url};
 
@@ -21,7 +21,9 @@ pub use public_destination::is_globally_reachable;
 pub use response::HttpResponse;
 
 use broker::{BrokerSession, HeaderObservation, LoadedRemote, RemoteLoadBatch, RemoteResource};
-use response::{ApplicationError, error_response, subscription_response, success_response};
+use response::{
+    ApplicationError, error_response, insert_skip_headers, subscription_response, success_response,
+};
 
 const TEXT_CONTENT_TYPE: HeaderValue = HeaderValue::from_static("text/plain;charset=utf-8");
 const JSON_CONTENT_TYPE: HeaderValue = HeaderValue::from_static("application/json;charset=utf-8");
@@ -321,12 +323,18 @@ impl<A: RemoteAdapter> Application<A> {
             inbound_host,
             ..
         } = plan;
-        if *method == Method::HEAD {
-            let mut response = success_response(StatusCode::OK, Vec::new());
-            insert_subscription_user_info(&mut response, eligible_metadata);
-            return Ok(response);
-        }
         let target = plan.parsed.target;
+        if *method == Method::HEAD {
+            return match inspect_builtin(prepared, target) {
+                Ok(skips) => {
+                    let mut response = success_response(StatusCode::OK, Vec::new());
+                    insert_subscription_user_info(&mut response, eligible_metadata);
+                    insert_skip_headers(&mut response, skips);
+                    Ok(response)
+                }
+                Err(error) => Err(map_direct_render_error(error)),
+            };
+        }
         let Some(config_url) = config_url else {
             let rendered = match target {
                 query::OutputTarget::Mihomo => prepared.render_builtin_mihomo_v1(),
@@ -337,13 +345,13 @@ impl<A: RemoteAdapter> Application<A> {
             };
             return match rendered {
                 Ok(config) => {
+                    let skips = config.skip_counts();
                     let mut response = subscription_response_for(target, config.into_bytes());
                     insert_subscription_user_info(&mut response, eligible_metadata);
+                    insert_skip_headers(&mut response, skips);
                     Ok(response)
                 }
-                Err(DirectRenderError::ConversionLimit) => Err(ApplicationError::ConversionLimit),
-                Err(DirectRenderError::NoValidNodes { .. }) => Err(ApplicationError::NoValidNodes),
-                Err(DirectRenderError::Internal) => Err(ApplicationError::Internal),
+                Err(error) => Err(map_direct_render_error(error)),
             };
         };
         self.render_acl4ssr(
@@ -548,9 +556,11 @@ impl<A: RemoteAdapter> Application<A> {
         match rendered {
             Ok(config) => {
                 let omitted_url_regex_count = config.report().omitted_url_regex_count();
+                let skips = config.skip_counts();
                 let mut response = subscription_response_for(target, config.into_bytes());
                 insert_subscription_user_info(&mut response, eligible_metadata);
                 insert_lossy_headers(&mut response, omitted_url_regex_count);
+                insert_skip_headers(&mut response, skips);
                 Ok(response)
             }
             Err(error) => Err(map_acl4ssr_render_error(error)),
@@ -645,12 +655,35 @@ struct SubRequestPlan {
     unique_urls: Vec<Url>,
 }
 
+fn inspect_builtin(
+    prepared: sub_hub_conversion::PreparedSubscriptionV1,
+    target: query::OutputTarget,
+) -> Result<SkipCountsV1, DirectRenderError> {
+    match target {
+        query::OutputTarget::Mihomo => prepared.inspect_builtin_mihomo_v1(),
+        query::OutputTarget::Quanx => prepared.inspect_builtin_quanx_v1(),
+        query::OutputTarget::Singbox => prepared.inspect_builtin_singbox_v1(),
+        query::OutputTarget::Loon => prepared.inspect_builtin_loon_v1(),
+        query::OutputTarget::Egern => prepared.inspect_builtin_egern_v1(),
+    }
+}
+
+const fn map_direct_render_error(error: DirectRenderError) -> ApplicationError {
+    match error {
+        DirectRenderError::ConversionLimit => ApplicationError::ConversionLimit,
+        DirectRenderError::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
+        DirectRenderError::Internal => ApplicationError::Internal,
+    }
+}
+
 const fn map_subscription_error(error: SubscriptionPreparationError) -> ApplicationError {
     match error {
         SubscriptionPreparationError::InvalidInput => ApplicationError::Internal,
         SubscriptionPreparationError::RemoteFailure { .. } => ApplicationError::RemoteFailure,
         SubscriptionPreparationError::ConversionLimit => ApplicationError::ConversionLimit,
-        SubscriptionPreparationError::NoValidNodes { .. } => ApplicationError::NoValidNodes,
+        SubscriptionPreparationError::NoValidNodes { skips } => {
+            ApplicationError::NoValidNodes { skips }
+        }
     }
 }
 
@@ -841,7 +874,7 @@ const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError
             ApplicationError::RemoteFailure
         }
         Acl4SsrRenderError::ConversionLimit => ApplicationError::ConversionLimit,
-        Acl4SsrRenderError::NoValidNodes { .. } => ApplicationError::NoValidNodes,
+        Acl4SsrRenderError::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
         Acl4SsrRenderError::RuleSetAlignment | Acl4SsrRenderError::Internal => {
             ApplicationError::Internal
         }

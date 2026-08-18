@@ -80,7 +80,14 @@ fn assert_sub_error(raw_query: Option<&str>, expected_body: &[u8]) {
         response.headers().get(header::REFERRER_POLICY).unwrap(),
         "no-referrer"
     );
-    assert_eq!(response.headers().len(), 3);
+    if expected_body == b"No nodes were found!" {
+        assert!(
+            response.headers().get("x-subconverter-skipped").is_some(),
+            "{raw_query:?}"
+        );
+    } else {
+        assert_eq!(response.headers().len(), 3, "{raw_query:?}");
+    }
 }
 
 #[test]
@@ -772,6 +779,86 @@ fn unsupported_nodes_are_local_rejections_until_no_valid_nodes_remain() {
     let mixed = handle(HttpRequest::new(Method::GET, "/sub", Some(&mixed_query)));
     assert_eq!(mixed.status(), StatusCode::OK);
     assert_eq!(mixed.body(), SINGLE_VLESS_YAML);
+    assert_skip_headers(&mixed, "parse=1;capability=0;name=0");
+}
+
+fn assert_skip_headers(response: &HttpResponse, skipped: &str) {
+    assert_eq!(
+        response.headers().get("x-subconverter-result").unwrap(),
+        "partial"
+    );
+    assert_eq!(
+        response.headers().get("x-subconverter-skipped").unwrap(),
+        skipped
+    );
+}
+
+#[test]
+fn skip_headers_cover_parse_capability_and_all_dropped() {
+    let none = handle(HttpRequest::new(
+        Method::GET,
+        "/sub",
+        Some("target=clash&url=anytls%3A%2F%2Fexample.com%3A443"),
+    ));
+    assert_eq!(none.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(none.body(), b"No nodes were found!");
+    assert_skip_headers(&none, "parse=1;capability=0;name=0");
+
+    let hy2 = "target=quanx&url=hysteria2%3A%2F%2Fpassword%40example.com%3A443%23Plain";
+    let dropped = handle(HttpRequest::new(Method::GET, "/sub", Some(hy2)));
+    let dropped_head = handle(HttpRequest::new(Method::HEAD, "/sub", Some(hy2)));
+    assert_eq!(dropped.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(dropped.body(), b"No nodes were found!");
+    assert_skip_headers(&dropped, "parse=0;capability=1;name=0");
+    assert_eq!(dropped_head.status(), dropped.status());
+    assert!(dropped_head.body().is_empty());
+    assert_eq!(
+        dropped_head.headers().get("x-subconverter-skipped"),
+        dropped.headers().get("x-subconverter-skipped")
+    );
+
+    let mixed = format!(
+        "target=quanx&url=hysteria2%3A%2F%2Fpassword%40example.com%3A443%23Plain%7C{ENCODED_VLESS}"
+    );
+    let kept = handle(HttpRequest::new(Method::GET, "/sub", Some(&mixed)));
+    assert_eq!(kept.status(), StatusCode::OK);
+    assert_skip_headers(&kept, "parse=0;capability=1;name=0");
+    assert!(
+        !std::str::from_utf8(kept.body())
+            .expect("utf8")
+            .contains("Plain")
+    );
+
+    let clean = handle(HttpRequest::new(
+        Method::GET,
+        "/sub",
+        Some(&format!("target=clash&url={ENCODED_VLESS}")),
+    ));
+    assert_eq!(clean.status(), StatusCode::OK);
+    assert!(clean.headers().get("x-subconverter-skipped").is_none());
+    assert!(clean.headers().get("x-subconverter-result").is_none());
+}
+
+#[test]
+fn skip_headers_do_not_echo_node_secrets() {
+    const SECRET_UUID: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const SECRET_HOST: &str = "private-canary.example";
+    const SECRET_NAME: &str = "secret-canary-name";
+    let query = format!(
+        "target=quanx&url=hysteria2%3A%2F%2F{SECRET_UUID}%40{SECRET_HOST}%3A443%23{SECRET_NAME}"
+    );
+    let response = handle(HttpRequest::new(Method::GET, "/sub", Some(&query)));
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let skipped = response
+        .headers()
+        .get("x-subconverter-skipped")
+        .unwrap()
+        .to_str()
+        .expect("ascii");
+    for secret in [SECRET_UUID, SECRET_HOST, SECRET_NAME] {
+        assert!(!skipped.contains(secret));
+        assert!(!format!("{response:?}").contains(secret));
+    }
 }
 
 #[test]

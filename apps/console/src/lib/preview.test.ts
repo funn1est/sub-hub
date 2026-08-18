@@ -6,6 +6,7 @@ import {
   classifyVersionBody,
   fallbackDownloadName,
   filenameFromDisposition,
+  parseSkippedHeader,
   PREVIEW_VIEW_LIMIT_BYTES,
   truncatePreviewBody,
 } from "./preview.ts"
@@ -72,6 +73,24 @@ describe("truncatePreviewBody", () => {
       PREVIEW_VIEW_LIMIT_BYTES,
     )
     expect(truncated.text.endsWith("!")).toBe(false)
+  })
+})
+
+describe("parseSkippedHeader", () => {
+  it("accepts the closed count grammar and rejects junk", () => {
+    expect(parseSkippedHeader("parse=1;capability=4;name=0")).toEqual({
+      parse: 1,
+      capability: 4,
+      name: 0,
+    })
+    expect(parseSkippedHeader(null)).toBeNull()
+    expect(parseSkippedHeader("")).toBeNull()
+    expect(parseSkippedHeader("parse=1")).toBeNull()
+    expect(parseSkippedHeader("parse=01;capability=0;name=0")).toEqual({
+      parse: 1,
+      capability: 0,
+      name: 0,
+    })
   })
 })
 

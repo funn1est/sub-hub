@@ -1,3 +1,4 @@
+import type { SkipCounts } from "./preview.ts"
 import type { KnownServiceError } from "./workshop.ts"
 import type { Locale } from "./persist.ts"
 import type { PasteWarning } from "./workshop.ts"
@@ -87,6 +88,7 @@ export const messages = {
     secretWarning:
       "Preview bodies contain node credentials. They stay in memory only and are not written to localStorage.",
     truncated: "Truncated in view. Download still uses the full fetched body.",
+    skipped: "Skipped nodes",
     status: "Status",
     headers: "Headers",
     body: "Body",
@@ -161,6 +163,7 @@ export const messages = {
     clashInstall: "在 Clash 中打开",
     secretWarning: "Preview 正文含有节点凭据。只留在内存中，不会写入 localStorage。",
     truncated: "页内展示已截断。下载仍使用完整 fetch 正文。",
+    skipped: "已跳过的节点",
     status: "状态",
     headers: "响应头",
     body: "正文",
@@ -191,4 +194,34 @@ export function t(locale: Locale): Messages {
 
 export function knownErrorTitle(locale: Locale, body: KnownServiceError): string {
   return ERROR_TITLES[locale][body]
+}
+
+export function skippedSummary(locale: Locale, counts: SkipCounts): string {
+  const parts: string[] = []
+  if (counts.parse > 0) {
+    parts.push(
+      locale === "zh"
+        ? `解析失败 ${counts.parse}`
+        : `${counts.parse} could not be parsed`,
+    )
+  }
+  if (counts.capability > 0) {
+    parts.push(
+      locale === "zh"
+        ? `此 target 不支持 ${counts.capability}`
+        : `${counts.capability} unsupported on this target`,
+    )
+  }
+  if (counts.name > 0) {
+    parts.push(
+      locale === "zh"
+        ? `名称不可用 ${counts.name}`
+        : `${counts.name} had a reserved or unrepresentable name`,
+    )
+  }
+  const total = counts.parse + counts.capability + counts.name
+  if (locale === "zh") {
+    return `跳过 ${total} 个节点（${parts.join("，")}）。`
+  }
+  return `Skipped ${total} nodes (${parts.join(", ")}).`
 }
