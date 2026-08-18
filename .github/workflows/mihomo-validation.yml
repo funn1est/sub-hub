@@ -17,16 +17,16 @@ concurrency:
 jobs:
   mihomo-validation:
     name: Official Mihomo ${{ matrix.version }}
-    runs-on: windows-2022
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
           - version: v1.19.27
-            sha256: 34b4c5bc0c176eebd298f6624aa23ea41985a2c54efb04eb0e9c4542e45190ee
+            sha256: fb3e34c55844f389ff54679e5a3aec331d5ec38006c20f8dcc476fb47768a58f
           - version: v1.19.29
-            sha256: 1a8520cfe425441eba3eba8623b27b985020031243fe1ecaa1af2b92358a03f9
+            sha256: 60de76a35a6cbf7b4fa4a20f5c257c24345d1d635ab1aa3877022a1997ef413c
     env:
       CARGO_TERM_COLOR: always
       SUB_HUB_REQUIRE_MIHOMO: "1"
@@ -44,62 +44,40 @@ jobs:
         with:
           install_args: rust
 
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Checkout the pinned ACL4SSR corpus
-        shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          $commit = '2fc7487be9ec0a0fcd7c91db319787d7b35a195d'
-          $corpus = Join-Path $env:RUNNER_TEMP 'acl4ssr-corpus'
-          git init $corpus
-          git -C $corpus config core.autocrlf false
-          git -C $corpus remote add origin https://github.com/ACL4SSR/ACL4SSR.git
-          git -C $corpus fetch --depth=1 --no-tags origin $commit
-          git -C $corpus checkout --detach FETCH_HEAD
-
-          $actual = (git -C $corpus rev-parse --verify 'HEAD^{commit}').Trim()
-          if ($actual -cne $commit) {
-            throw 'Pinned ACL4SSR checkout identity mismatch.'
-          }
-
-          Add-Content `
-            -LiteralPath $env:GITHUB_ENV `
-            -Value "SUB_HUB_ACL4SSR_CORPUS_DIR=$corpus" `
-            -Encoding utf8
+          set -eu
+          commit='2fc7487be9ec0a0fcd7c91db319787d7b35a195d'
+          corpus="${RUNNER_TEMP}/acl4ssr-corpus"
+          git init "$corpus"
+          git -C "$corpus" config core.autocrlf false
+          git -C "$corpus" remote add origin https://github.com/ACL4SSR/ACL4SSR.git
+          git -C "$corpus" fetch --depth=1 --no-tags origin "$commit"
+          git -C "$corpus" checkout --detach FETCH_HEAD
+          actual="$(git -C "$corpus" rev-parse --verify 'HEAD^{commit}')"
+          test "$actual" = "$commit"
+          echo "SUB_HUB_ACL4SSR_CORPUS_DIR=$corpus" >> "$GITHUB_ENV"
 
       - name: Download and verify Mihomo ${{ matrix.version }}
-        shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          $version = '${{ matrix.version }}'
-          $asset = "mihomo-windows-amd64-$version.zip"
-          $expected = '${{ matrix.sha256 }}'
-          $archive = Join-Path $env:RUNNER_TEMP $asset
-          $extract = Join-Path $env:RUNNER_TEMP "mihomo-$version"
-          $url = "https://github.com/MetaCubeX/mihomo/releases/download/$version/$asset"
-
-          Invoke-WebRequest -Uri $url -OutFile $archive
-
-          $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -cne $expected) {
-            throw 'Pinned Mihomo archive checksum mismatch.'
-          }
-
-          Expand-Archive -LiteralPath $archive -DestinationPath $extract
-
-          $executables = @(Get-ChildItem -LiteralPath $extract -Recurse -File -Filter '*.exe')
-          if ($executables.Count -ne 1) {
-            throw 'Pinned Mihomo archive layout was unexpected.'
-          }
-
-          Add-Content `
-            -LiteralPath $env:GITHUB_ENV `
-            -Value "SUB_HUB_MIHOMO_BIN=$($executables[0].FullName)" `
-            -Encoding utf8
+          set -eu
+          version='${{ matrix.version }}'
+          asset="mihomo-linux-amd64-${version}.gz"
+          expected='${{ matrix.sha256 }}'
+          archive="${RUNNER_TEMP}/${asset}"
+          extract="${RUNNER_TEMP}/mihomo-${version}"
+          url="https://github.com/MetaCubeX/mihomo/releases/download/${version}/${asset}"
+          curl -fsSL "$url" -o "$archive"
+          echo "${expected}  ${archive}" | sha256sum -c -
+          mkdir -p "$extract"
+          gzip -dc "$archive" > "${extract}/mihomo"
+          chmod +x "${extract}/mihomo"
+          echo "SUB_HUB_MIHOMO_BIN=${extract}/mihomo" >> "$GITHUB_ENV"
 
       - name: Run corpus and official Mihomo acceptance tests
-        shell: pwsh
         run: >-
           cargo test --locked -p sub-hub-conversion
           --test acl4ssr_corpus

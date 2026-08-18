@@ -33,6 +33,9 @@ jobs:
         with:
           install_args: rust
 
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Build the native release executable
         run: cargo build --locked --release -p sub-hub-native
 
