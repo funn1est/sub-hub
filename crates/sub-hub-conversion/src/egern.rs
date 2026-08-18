@@ -9,10 +9,10 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, RenderedTargetV1, encode_hex, plain_group_tag, plain_node_tag,
-        policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
-        reject_when_empty, render_host_plain, serialize_bounded, shadowsocks_method,
-        shadowsocks_password, shared_probe_url,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, plain_group_tag,
+        plain_node_tag, policy_member_token, probe_url_or_default, reality_public_key_base64,
+        reality_short_id_hex, reject_when_empty, render_host_plain, serialize_bounded,
+        shadowsocks_method, shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -24,8 +24,10 @@ pub(crate) fn render_egern_from_policy_v1(
     let mut proxies = Vec::new();
     let mut valid_tags = Vec::new();
     let mut capability_skips = 0_u32;
+    let mut name_skips = 0_u32;
     for node in named_nodes {
         let Some(tag) = plain_node_tag(node.name().as_str()) else {
+            name_skips = name_skips.saturating_add(1);
             continue;
         };
         let Some(entry) = proxy_entry(node, tag) else {
@@ -36,7 +38,10 @@ pub(crate) fn render_egern_from_policy_v1(
         proxies.push(entry);
     }
     if proxies.is_empty() {
-        return Err(AdapterRenderError::NoValidNodes);
+        return Err(AdapterRenderError::NoValidNodes {
+            capability_skips,
+            name_skips,
+        });
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
@@ -58,7 +63,19 @@ pub(crate) fn render_egern_from_policy_v1(
     Ok(RenderedTargetV1 {
         bytes: body,
         capability_skips,
+        name_skips,
     })
+}
+
+pub(crate) fn classify_node(node: &ProxyNode) -> NodeKeep {
+    let Some(tag) = plain_node_tag(node.name().as_str()) else {
+        return NodeKeep::Name;
+    };
+    if proxy_entry(node, tag).is_none() {
+        NodeKeep::Capability
+    } else {
+        NodeKeep::Keep
+    }
 }
 
 fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {

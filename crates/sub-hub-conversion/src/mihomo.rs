@@ -10,7 +10,7 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
-        AdapterRenderError, RenderedTargetV1, encode_hex, reality_public_key_base64,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, reality_public_key_base64,
         reality_short_id_hex, render_fingerprint, render_host_plain, serialize_bounded,
         shadowsocks_method, shadowsocks_password,
     },
@@ -47,6 +47,7 @@ pub(crate) fn render_mihomo_from_policy_v1(
         return Ok(RenderedTargetV1 {
             bytes: body,
             capability_skips: 0,
+            name_skips: 0,
         });
     }
     let mut bytes = Vec::with_capacity(comments.len() + body.len());
@@ -55,7 +56,12 @@ pub(crate) fn render_mihomo_from_policy_v1(
     Ok(RenderedTargetV1 {
         bytes,
         capability_skips: 0,
+        name_skips: 0,
     })
+}
+
+pub(crate) const fn classify_node(_node: &ProxyNode) -> NodeKeep {
+    NodeKeep::Keep
 }
 
 pub(crate) fn render_clash_rule(rule: &CompiledRuleV1) -> String {

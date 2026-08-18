@@ -37,6 +37,7 @@ use crate::{
     quanx::render_quanx_from_policy_v1,
     render::{AdapterRenderError, MAX_OUTPUT_BYTES, RenderFromPolicyFn},
     singbox::render_singbox_from_policy_v1,
+    skip::SkipCountsV1,
     subscription_source::ParsedSubscriptionSources,
 };
 
@@ -290,6 +291,7 @@ impl fmt::Debug for Acl4SsrRuleSetRequestV1 {
 pub struct Acl4SsrOutputV1 {
     bytes: Vec<u8>,
     report: Acl4SsrConversionReportV1,
+    skips: SkipCountsV1,
 }
 
 impl Acl4SsrOutputV1 {
@@ -307,6 +309,11 @@ impl Acl4SsrOutputV1 {
     pub const fn report(&self) -> &Acl4SsrConversionReportV1 {
         &self.report
     }
+
+    #[must_use]
+    pub const fn skip_counts(&self) -> SkipCountsV1 {
+        self.skips
+    }
 }
 
 impl fmt::Debug for Acl4SsrOutputV1 {
@@ -316,6 +323,7 @@ impl fmt::Debug for Acl4SsrOutputV1 {
             .field("bytes", &"[REDACTED]")
             .field("bytes_len", &self.bytes.len())
             .field("report", &self.report)
+            .field("skips", &self.skips)
             .finish()
     }
 }
@@ -369,6 +377,7 @@ pub enum Acl4SsrRenderError {
     InvalidRuleSet,
     UnsupportedRule,
     ConversionLimit,
+    NoValidNodes { skips: SkipCountsV1 },
     Internal,
 }
 
@@ -379,6 +388,7 @@ impl fmt::Display for Acl4SsrRenderError {
             Self::InvalidRuleSet => "ACL4SSR Rule Set is invalid",
             Self::UnsupportedRule => "ACL4SSR config uses an unsupported rule",
             Self::ConversionLimit => "conversion resource limit exceeded",
+            Self::NoValidNodes { .. } => "no valid nodes",
             Self::Internal => "internal conversion error",
         })
     }
@@ -459,8 +469,22 @@ fn render(
             NamedNodeOccurrence::Rejected { .. } => None,
         })
         .collect::<Vec<_>>();
+    let parse = u32::try_from(
+        named
+            .occurrences()
+            .iter()
+            .filter(|occurrence| matches!(occurrence, NamedNodeOccurrence::Rejected { .. }))
+            .count(),
+    )
+    .unwrap_or(u32::MAX);
     if nodes.is_empty() {
-        return Err(Acl4SsrRenderError::Internal);
+        return Err(Acl4SsrRenderError::NoValidNodes {
+            skips: SkipCountsV1 {
+                parse,
+                capability: 0,
+                name: 0,
+            },
+        });
     }
 
     let node_names = nodes
@@ -492,15 +516,32 @@ fn render(
         empty_groups: policy.report().empty_groups,
         ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
     };
-    let bytes = render_policy_bytes(format, &nodes, &policy)?;
-    Ok(Acl4SsrOutputV1 { bytes, report })
+    match render_policy_bytes(format, &nodes, &policy) {
+        Ok(rendered) => Ok(Acl4SsrOutputV1 {
+            bytes: rendered.bytes,
+            report,
+            skips: SkipCountsV1 {
+                parse,
+                capability: rendered.capability_skips,
+                name: rendered.name_skips,
+            },
+        }),
+        Err(Acl4SsrRenderError::NoValidNodes { skips }) => Err(Acl4SsrRenderError::NoValidNodes {
+            skips: SkipCountsV1 {
+                parse,
+                capability: skips.capability,
+                name: skips.name,
+            },
+        }),
+        Err(error) => Err(error),
+    }
 }
 
 fn render_policy_bytes(
     format: OutputFormat,
     nodes: &[&crate::node::ProxyNode],
     policy: &CompiledPolicyV1,
-) -> Result<Vec<u8>, Acl4SsrRenderError> {
+) -> Result<crate::render::RenderedTargetV1, Acl4SsrRenderError> {
     let render: RenderFromPolicyFn = match format {
         OutputFormat::Mihomo => render_mihomo_from_policy_v1,
         OutputFormat::Quanx => render_quanx_from_policy_v1,
@@ -508,12 +549,18 @@ fn render_policy_bytes(
         OutputFormat::Loon => render_loon_from_policy_v1,
         OutputFormat::Egern => render_egern_from_policy_v1,
     };
-    render(nodes, policy, MAX_OUTPUT_BYTES)
-        .map(|rendered| rendered.bytes)
-        .map_err(|error| match error {
-            AdapterRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
-            AdapterRenderError::NoValidNodes | AdapterRenderError::Internal => {
-                Acl4SsrRenderError::Internal
-            }
-        })
+    render(nodes, policy, MAX_OUTPUT_BYTES).map_err(|error| match error {
+        AdapterRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
+        AdapterRenderError::NoValidNodes {
+            capability_skips,
+            name_skips,
+        } => Acl4SsrRenderError::NoValidNodes {
+            skips: SkipCountsV1 {
+                parse: 0,
+                capability: capability_skips,
+                name: name_skips,
+            },
+        },
+        AdapterRenderError::Internal => Acl4SsrRenderError::Internal,
+    })
 }

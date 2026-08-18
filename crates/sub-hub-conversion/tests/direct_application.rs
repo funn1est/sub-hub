@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use proptest::prelude::*;
 use sub_hub_conversion::{
-    DirectPreparationError, DirectRenderError, prepare_direct_subscription_v1,
+    DirectPreparationError, DirectRenderError, SkipCountsV1, prepare_direct_subscription_v1,
 };
 
 const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha";
@@ -76,13 +76,25 @@ fn direct_preparation_enforces_occurrence_shape_and_count() {
 fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
     assert_eq!(
         prepare_direct_subscription_v1(&["anytls://example.com:443"]).unwrap_err(),
-        DirectPreparationError::NoValidNodes
+        DirectPreparationError::NoValidNodes {
+            skips: SkipCountsV1 {
+                parse: 1,
+                capability: 0,
+                name: 0,
+            },
+        }
     );
 
     let encoded = STANDARD.encode(VALID_DIRECT);
     assert_eq!(
         prepare_direct_subscription_v1(&[&encoded]).unwrap_err(),
-        DirectPreparationError::NoValidNodes
+        DirectPreparationError::NoValidNodes {
+            skips: SkipCountsV1 {
+                parse: 1,
+                capability: 0,
+                name: 0,
+            },
+        }
     );
 
     let prepared = prepare_direct_subscription_v1(&["anytls://example.com:443", VALID_DIRECT])

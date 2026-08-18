@@ -342,6 +342,7 @@ impl<A: RemoteAdapter> Application<A> {
                     Ok(response)
                 }
                 Err(DirectRenderError::ConversionLimit) => Err(ApplicationError::ConversionLimit),
+                Err(DirectRenderError::NoValidNodes { .. }) => Err(ApplicationError::NoValidNodes),
                 Err(DirectRenderError::Internal) => Err(ApplicationError::Internal),
             };
         };
@@ -649,7 +650,7 @@ const fn map_subscription_error(error: SubscriptionPreparationError) -> Applicat
         SubscriptionPreparationError::InvalidInput => ApplicationError::Internal,
         SubscriptionPreparationError::RemoteFailure { .. } => ApplicationError::RemoteFailure,
         SubscriptionPreparationError::ConversionLimit => ApplicationError::ConversionLimit,
-        SubscriptionPreparationError::NoValidNodes => ApplicationError::NoValidNodes,
+        SubscriptionPreparationError::NoValidNodes { .. } => ApplicationError::NoValidNodes,
     }
 }
 
@@ -823,7 +824,7 @@ fn preparation_error_before_remote_failure(
     }
 
     match prepare_subscription_v1(&source_plan) {
-        Ok(_) | Err(SubscriptionPreparationError::NoValidNodes) => Ok(None),
+        Ok(_) | Err(SubscriptionPreparationError::NoValidNodes { .. }) => Ok(None),
         Err(SubscriptionPreparationError::RemoteFailure { .. }) => {
             Ok(Some(ApplicationError::RemoteFailure))
         }
@@ -840,6 +841,7 @@ const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError
             ApplicationError::RemoteFailure
         }
         Acl4SsrRenderError::ConversionLimit => ApplicationError::ConversionLimit,
+        Acl4SsrRenderError::NoValidNodes { .. } => ApplicationError::NoValidNodes,
         Acl4SsrRenderError::RuleSetAlignment | Acl4SsrRenderError::Internal => {
             ApplicationError::Internal
         }

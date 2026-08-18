@@ -2,9 +2,12 @@ use std::fmt;
 
 use crate::{
     render::{
-        BuiltinRenderError, BuiltinRenderOutput, render_builtin_egern_v1, render_builtin_loon_v1,
-        render_builtin_mihomo_v1, render_builtin_quanx_v1, render_builtin_singbox_v1,
+        BuiltinRenderError, inspect_builtin_egern_v1, inspect_builtin_loon_v1,
+        inspect_builtin_mihomo_v1, inspect_builtin_quanx_v1, inspect_builtin_singbox_v1,
+        render_builtin_egern_v1, render_builtin_loon_v1, render_builtin_mihomo_v1,
+        render_builtin_quanx_v1, render_builtin_singbox_v1,
     },
+    skip::SkipCountsV1,
     subscription_source::{
         NodeOccurrence, ParsedSubscriptionSources, SubscriptionParseError, SubscriptionSourceInput,
         parse_subscription_source_inputs,
@@ -93,21 +96,92 @@ impl PreparedSubscriptionV1 {
     pub fn render_builtin_egern_v1(self) -> Result<RenderedConfig, DirectRenderError> {
         map_builtin_render(render_builtin_egern_v1(self.parsed))
     }
+
+    /// Classifies nodes for Mihomo without serializing a document.
+    ///
+    /// # Errors
+    ///
+    /// Same closed set as [`Self::render_builtin_mihomo_v1`], except
+    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
+    pub fn inspect_builtin_mihomo_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
+        map_builtin_inspect(inspect_builtin_mihomo_v1(self.parsed))
+    }
+
+    /// Classifies nodes for Quantumult X without serializing a document.
+    ///
+    /// # Errors
+    ///
+    /// Same closed set as [`Self::render_builtin_quanx_v1`], except
+    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
+    pub fn inspect_builtin_quanx_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
+        map_builtin_inspect(inspect_builtin_quanx_v1(self.parsed))
+    }
+
+    /// Classifies nodes for sing-box without serializing a document.
+    ///
+    /// # Errors
+    ///
+    /// Same closed set as [`Self::render_builtin_singbox_v1`], except
+    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
+    pub fn inspect_builtin_singbox_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
+        map_builtin_inspect(inspect_builtin_singbox_v1(self.parsed))
+    }
+
+    /// Classifies nodes for Loon without serializing a document.
+    ///
+    /// # Errors
+    ///
+    /// Same closed set as [`Self::render_builtin_loon_v1`], except
+    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
+    pub fn inspect_builtin_loon_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
+        map_builtin_inspect(inspect_builtin_loon_v1(self.parsed))
+    }
+
+    /// Classifies nodes for Egern without serializing a document.
+    ///
+    /// # Errors
+    ///
+    /// Same closed set as [`Self::render_builtin_egern_v1`], except
+    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
+    pub fn inspect_builtin_egern_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
+        map_builtin_inspect(inspect_builtin_egern_v1(self.parsed))
+    }
 }
 
 fn map_builtin_render(
-    result: Result<BuiltinRenderOutput, BuiltinRenderError>,
+    result: Result<crate::render::BuiltinRenderOutput, BuiltinRenderError>,
 ) -> Result<RenderedConfig, DirectRenderError> {
     match result {
-        Ok(output) => Ok(RenderedConfig {
-            bytes: output.into_config(),
-        }),
+        Ok(output) => {
+            let (bytes, skips) = output.into_rendered();
+            Ok(RenderedConfig { bytes, skips })
+        }
         Err(BuiltinRenderError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
-        Err(
-            BuiltinRenderError::NodeNaming(_)
-            | BuiltinRenderError::NoValidNodes { .. }
-            | BuiltinRenderError::Serialization,
-        ) => Err(DirectRenderError::Internal),
+        Err(BuiltinRenderError::NoValidNodes { diagnostics }) => {
+            Err(DirectRenderError::NoValidNodes {
+                skips: diagnostics.skip_counts(),
+            })
+        }
+        Err(BuiltinRenderError::NodeNaming(_) | BuiltinRenderError::Serialization) => {
+            Err(DirectRenderError::Internal)
+        }
+    }
+}
+
+fn map_builtin_inspect(
+    result: Result<SkipCountsV1, BuiltinRenderError>,
+) -> Result<SkipCountsV1, DirectRenderError> {
+    match result {
+        Ok(skips) => Ok(skips),
+        Err(BuiltinRenderError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
+        Err(BuiltinRenderError::NoValidNodes { diagnostics }) => {
+            Err(DirectRenderError::NoValidNodes {
+                skips: diagnostics.skip_counts(),
+            })
+        }
+        Err(BuiltinRenderError::NodeNaming(_) | BuiltinRenderError::Serialization) => {
+            Err(DirectRenderError::Internal)
+        }
     }
 }
 
@@ -126,6 +200,7 @@ pub type PreparedDirectSubscriptionV1 = PreparedSubscriptionV1;
 /// Bounded rendered document for the selected client target.
 pub struct RenderedConfig {
     bytes: Vec<u8>,
+    skips: SkipCountsV1,
 }
 
 impl RenderedConfig {
@@ -138,6 +213,11 @@ impl RenderedConfig {
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
+
+    #[must_use]
+    pub const fn skip_counts(&self) -> SkipCountsV1 {
+        self.skips
+    }
 }
 
 impl fmt::Debug for RenderedConfig {
@@ -146,6 +226,7 @@ impl fmt::Debug for RenderedConfig {
             .debug_struct("RenderedConfig")
             .field("bytes", &"[REDACTED]")
             .field("bytes_len", &self.bytes.len())
+            .field("skips", &self.skips)
             .finish()
     }
 }
@@ -153,14 +234,14 @@ impl fmt::Debug for RenderedConfig {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DirectPreparationError {
     InvalidInput,
-    NoValidNodes,
+    NoValidNodes { skips: SkipCountsV1 },
 }
 
 impl fmt::Display for DirectPreparationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput => formatter.write_str("invalid direct subscription input"),
-            Self::NoValidNodes => formatter.write_str("no valid nodes"),
+            Self::NoValidNodes { .. } => formatter.write_str("no valid nodes"),
         }
     }
 }
@@ -183,7 +264,9 @@ pub enum SubscriptionPreparationError {
         reason: RemoteSourceFailureV1,
     },
     ConversionLimit,
-    NoValidNodes,
+    NoValidNodes {
+        skips: SkipCountsV1,
+    },
 }
 
 impl fmt::Display for SubscriptionPreparationError {
@@ -192,7 +275,7 @@ impl fmt::Display for SubscriptionPreparationError {
             Self::InvalidInput => formatter.write_str("invalid subscription input"),
             Self::RemoteFailure { .. } => formatter.write_str("remote subscription is invalid"),
             Self::ConversionLimit => formatter.write_str("conversion resource limit exceeded"),
-            Self::NoValidNodes => formatter.write_str("no valid nodes"),
+            Self::NoValidNodes { .. } => formatter.write_str("no valid nodes"),
         }
     }
 }
@@ -217,6 +300,7 @@ impl fmt::Debug for SubscriptionSourceV1<'_> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DirectRenderError {
     ConversionLimit,
+    NoValidNodes { skips: SkipCountsV1 },
     Internal,
 }
 
@@ -224,6 +308,7 @@ impl fmt::Display for DirectRenderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ConversionLimit => formatter.write_str("conversion resource limit exceeded"),
+            Self::NoValidNodes { .. } => formatter.write_str("no valid nodes"),
             Self::Internal => formatter.write_str("internal conversion error"),
         }
     }
@@ -251,8 +336,8 @@ pub fn prepare_direct_subscription_v1(
         .collect::<Vec<_>>();
     match prepare_subscription_v1(&sources) {
         Ok(prepared) => Ok(prepared),
-        Err(SubscriptionPreparationError::NoValidNodes) => {
-            Err(DirectPreparationError::NoValidNodes)
+        Err(SubscriptionPreparationError::NoValidNodes { skips }) => {
+            Err(DirectPreparationError::NoValidNodes { skips })
         }
         Err(
             SubscriptionPreparationError::InvalidInput
@@ -333,7 +418,21 @@ pub fn prepare_subscription_v1(
         .iter()
         .any(|occurrence| matches!(occurrence, NodeOccurrence::Accepted { .. }))
     {
-        return Err(SubscriptionPreparationError::NoValidNodes);
+        let parse = u32::try_from(
+            parsed
+                .occurrences
+                .iter()
+                .filter(|occurrence| matches!(occurrence, NodeOccurrence::Rejected { .. }))
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        return Err(SubscriptionPreparationError::NoValidNodes {
+            skips: SkipCountsV1 {
+                parse,
+                capability: 0,
+                name: 0,
+            },
+        });
     }
 
     Ok(PreparedSubscriptionV1 { parsed })

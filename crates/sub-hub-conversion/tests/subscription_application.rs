@@ -1,6 +1,6 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sub_hub_conversion::{
-    RemoteSourceFailureV1, SubscriptionPreparationError, SubscriptionSourceV1,
+    RemoteSourceFailureV1, SkipCountsV1, SubscriptionPreparationError, SubscriptionSourceV1,
     prepare_subscription_v1,
 };
 
@@ -158,7 +158,13 @@ fn zero_valid_nodes_and_error_formatting_are_closed_and_secret_safe() {
             SubscriptionSourceV1::Remote(b"\t \r\n"),
         ])
         .unwrap_err(),
-        SubscriptionPreparationError::NoValidNodes
+        SubscriptionPreparationError::NoValidNodes {
+            skips: SkipCountsV1 {
+                parse: 1,
+                capability: 0,
+                name: 0,
+            },
+        }
     );
 
     let error = prepare_subscription_v1(&[SubscriptionSourceV1::Direct(" secret-canary.example ")])

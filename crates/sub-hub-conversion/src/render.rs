@@ -31,6 +31,7 @@ use crate::{
     quanx::render_quanx_from_policy_v1,
     share_uri::NodeRejection,
     singbox::render_singbox_from_policy_v1,
+    skip::SkipCountsV1,
     subscription_source::{NodeOrigin, ParsedSubscriptionSources},
 };
 
@@ -40,15 +41,27 @@ pub(crate) const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 /// Closed policy-render error shared by every `render_*_from_policy_v1` adapter entry.
 #[derive(PartialEq, Eq)]
 pub(crate) enum AdapterRenderError {
-    NoValidNodes,
-    OutputTooLarge { limit_bytes: usize },
+    NoValidNodes {
+        capability_skips: u32,
+        name_skips: u32,
+    },
+    OutputTooLarge {
+        limit_bytes: usize,
+    },
     Internal,
 }
 
 impl fmt::Debug for AdapterRenderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoValidNodes => formatter.write_str("NoValidNodes"),
+            Self::NoValidNodes {
+                capability_skips,
+                name_skips,
+            } => formatter
+                .debug_struct("NoValidNodes")
+                .field("capability_skips", capability_skips)
+                .field("name_skips", name_skips)
+                .finish(),
             Self::OutputTooLarge { limit_bytes } => formatter
                 .debug_struct("OutputTooLarge")
                 .field("limit_bytes", limit_bytes)
@@ -62,9 +75,11 @@ impl fmt::Debug for AdapterRenderError {
 pub(crate) struct RenderedTargetV1 {
     pub(crate) bytes: Vec<u8>,
     /// Nodes that were accepted upstream but dropped by this target's
-    /// protocol/transport capability filter. Name-grammar skips (reserved or
-    /// unrepresentable node names) are not counted here.
+    /// protocol/transport capability filter.
     pub(crate) capability_skips: u32,
+    /// Parse-accepted nodes dropped because the allocated name is reserved
+    /// or unrepresentable on this target.
+    pub(crate) name_skips: u32,
 }
 
 impl fmt::Debug for RenderedTargetV1 {
@@ -74,6 +89,7 @@ impl fmt::Debug for RenderedTargetV1 {
             .field("bytes", &"[REDACTED]")
             .field("bytes_len", &self.bytes.len())
             .field("capability_skips", &self.capability_skips)
+            .field("name_skips", &self.name_skips)
             .finish()
     }
 }
@@ -81,6 +97,16 @@ impl fmt::Debug for RenderedTargetV1 {
 /// Signature shared by the five per-target policy renderers.
 pub(crate) type RenderFromPolicyFn =
     fn(&[&ProxyNode], &CompiledPolicyV1, usize) -> Result<RenderedTargetV1, AdapterRenderError>;
+
+/// Whether a named, parse-accepted node is kept by one target adapter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NodeKeep {
+    Keep,
+    Name,
+    Capability,
+}
+
+pub(crate) type ClassifyNodeFn = fn(&ProxyNode) -> NodeKeep;
 
 #[derive(PartialEq, Eq)]
 pub(crate) struct BuiltinRenderOutput {
@@ -97,9 +123,9 @@ impl BuiltinRenderOutput {
         &self.config
     }
 
-    /// Consumes the output, yielding the rendered document without copying.
-    pub(crate) fn into_config(self) -> Vec<u8> {
-        self.config
+    pub(crate) fn into_rendered(self) -> (Vec<u8>, SkipCountsV1) {
+        let skips = self.diagnostics.skip_counts();
+        (self.config, skips)
     }
 
     #[cfg_attr(
@@ -127,6 +153,7 @@ pub(crate) struct BuiltinRenderDiagnostics {
     rejections: Vec<BuiltinRenderRejection>,
     node_names: NodeNameDiagnostics,
     capability_skips: u32,
+    name_skips: u32,
 }
 
 impl BuiltinRenderDiagnostics {
@@ -153,6 +180,14 @@ impl BuiltinRenderDiagnostics {
     )]
     pub(crate) const fn capability_skips(&self) -> u32 {
         self.capability_skips
+    }
+
+    pub(crate) fn skip_counts(&self) -> SkipCountsV1 {
+        SkipCountsV1 {
+            parse: u32::try_from(self.rejections.len()).unwrap_or(u32::MAX),
+            capability: self.capability_skips,
+            name: self.name_skips,
+        }
     }
 }
 
@@ -246,6 +281,7 @@ pub(crate) fn render_builtin_with_limit(
             .collect(),
         node_names: named.diagnostics().clone(),
         capability_skips: 0,
+        name_skips: 0,
     };
     let nodes = named
         .occurrences()
@@ -263,12 +299,18 @@ pub(crate) fn render_builtin_with_limit(
     match render(&nodes, &policy, limit_bytes) {
         Ok(rendered) => {
             diagnostics.capability_skips = rendered.capability_skips;
+            diagnostics.name_skips = rendered.name_skips;
             Ok(BuiltinRenderOutput {
                 config: rendered.bytes,
                 diagnostics,
             })
         }
-        Err(AdapterRenderError::NoValidNodes) => {
+        Err(AdapterRenderError::NoValidNodes {
+            capability_skips,
+            name_skips,
+        }) => {
+            diagnostics.capability_skips = capability_skips;
+            diagnostics.name_skips = name_skips;
             Err(BuiltinRenderError::NoValidNodes { diagnostics })
         }
         Err(AdapterRenderError::OutputTooLarge { limit_bytes }) => {
@@ -276,6 +318,84 @@ pub(crate) fn render_builtin_with_limit(
         }
         Err(AdapterRenderError::Internal) => Err(BuiltinRenderError::Serialization),
     }
+}
+
+/// Names nodes and classifies them for one target without serializing a document.
+pub(crate) fn inspect_builtin(
+    parsed: ParsedSubscriptionSources,
+    classify: ClassifyNodeFn,
+) -> Result<SkipCountsV1, BuiltinRenderError> {
+    let named =
+        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinRenderError::NodeNaming)?;
+    let mut diagnostics = BuiltinRenderDiagnostics {
+        rejections: named
+            .occurrences()
+            .iter()
+            .filter_map(|occurrence| match occurrence {
+                NamedNodeOccurrence::Accepted { .. } => None,
+                NamedNodeOccurrence::Rejected { origin, rejection } => {
+                    Some(BuiltinRenderRejection {
+                        origin: *origin,
+                        rejection: rejection.clone(),
+                    })
+                }
+            })
+            .collect(),
+        node_names: named.diagnostics().clone(),
+        capability_skips: 0,
+        name_skips: 0,
+    };
+    let mut remaining = 0_u32;
+    for occurrence in named.occurrences() {
+        let NamedNodeOccurrence::Accepted { node, .. } = occurrence else {
+            continue;
+        };
+        match classify(node) {
+            NodeKeep::Keep => remaining = remaining.saturating_add(1),
+            NodeKeep::Name => {
+                diagnostics.name_skips = diagnostics.name_skips.saturating_add(1);
+            }
+            NodeKeep::Capability => {
+                diagnostics.capability_skips = diagnostics.capability_skips.saturating_add(1);
+            }
+        }
+    }
+    let skips = diagnostics.skip_counts();
+    if remaining == 0 {
+        Err(BuiltinRenderError::NoValidNodes { diagnostics })
+    } else {
+        Ok(skips)
+    }
+}
+
+pub(crate) fn inspect_builtin_mihomo_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<SkipCountsV1, BuiltinRenderError> {
+    inspect_builtin(parsed, crate::mihomo::classify_node)
+}
+
+pub(crate) fn inspect_builtin_quanx_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<SkipCountsV1, BuiltinRenderError> {
+    inspect_builtin(parsed, crate::quanx::classify_node)
+}
+
+pub(crate) fn inspect_builtin_singbox_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<SkipCountsV1, BuiltinRenderError> {
+    inspect_builtin(parsed, crate::singbox::classify_node)
+}
+
+pub(crate) fn inspect_builtin_loon_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<SkipCountsV1, BuiltinRenderError> {
+    inspect_builtin(parsed, crate::loon::classify_node)
+}
+
+pub(crate) fn inspect_builtin_egern_v1(
+    parsed: ParsedSubscriptionSources,
+) -> Result<SkipCountsV1, BuiltinRenderError> {
+    inspect_builtin(parsed, crate::egern::classify_node)
 }
 
 /// Renders an endpoint host with a bare (bracket-free) IPv6 form.

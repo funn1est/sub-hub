@@ -200,7 +200,7 @@ fn only_reserved_node_tags_are_no_valid_nodes() {
     let policy = CompiledPolicyV1::new(vec![], vec![], PolicyReportV1::default());
     let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
         .expect_err("no valid nodes");
-    assert!(matches!(error, AdapterRenderError::NoValidNodes));
+    assert!(matches!(error, AdapterRenderError::NoValidNodes { .. }));
 }
 
 #[test]
