@@ -10,16 +10,16 @@ does not operate a public instance.
 ## Stack
 
 React + Vite 8 + shadcn v4 / Base UI + Tailwind v4 + `vite-plugin-pwa`.
-Node is pinned to 22 in `.nvmrc`.
+Node 24.19.0 and pnpm 11.22.0 are pinned in the repository-root `mise.toml`.
 
 ## Develop
 
 From this directory:
 
 ```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm test
-corepack pnpm run dev
+pnpm install --frozen-lockfile
+pnpm test
+pnpm run dev
 ```
 
 Optional: `VITE_DEFAULT_SERVICE_ORIGIN=http://127.0.0.1:25500` (origin only,
@@ -29,7 +29,7 @@ never a token). The access token is typed in the page and stored only in
 Same-origin Native pairing (no CORS) after a Console build:
 
 ```sh
-corepack pnpm run build
+pnpm run build
 # from the repository root
 set SUB_HUB_CONSOLE_ROOT=apps/console/dist
 cargo run --locked -p sub-hub-native
@@ -51,8 +51,8 @@ When the service skipped nodes, Preview shows the counts from
 ## Build
 
 ```sh
-corepack pnpm test
-corepack pnpm run build
+pnpm test
+pnpm run build
 ```
 
 Output is `dist/`. `public/_headers` is copied into `dist/` and sets
@@ -74,13 +74,13 @@ Wrangler 4.122.0):
 
 ```sh
 cd apps/console
-corepack pnpm install --frozen-lockfile
-corepack pnpm test
-corepack pnpm run build
+pnpm install --frozen-lockfile
+pnpm test
+pnpm run build
 
 cd ../../crates/sub-hub-worker
-corepack pnpm exec wrangler pages project create <project> --production-branch main
-corepack pnpm exec wrangler pages deploy ../../apps/console/dist \
+pnpm exec wrangler pages project create <project> --production-branch main
+pnpm exec wrangler pages deploy ../../apps/console/dist \
   --project-name <project> \
   --branch main \
   --commit-dirty=true
@@ -89,8 +89,8 @@ corepack pnpm exec wrangler pages deploy ../../apps/console/dist \
 Wrangler may warn that the Worker `wrangler.toml` lacks `pages_build_output_dir`.
 That is expected; ignore it. The upload is the `dist/` directory.
 
-The production origin is `https://<project>.pages.dev`. Pin Node 22 if you later
-switch to a Git-connected Pages build (`.nvmrc` is already here). Direct upload
+The production origin is `https://<project>.pages.dev`. If you later switch to a
+Git-connected Pages build, set `NODE_VERSION` to `24.19.0`. Direct upload
 of `dist/` does not run a cloud build.
 
 Then list that exact origin on the Conversion Service. No host-suffix wildcards.
@@ -99,7 +99,7 @@ previews should read `/sub`.
 
 ```sh
 # Worker — keep existing vars and the access-token secret
-corepack pnpm exec wrangler deploy --keep-vars \
+pnpm exec wrangler deploy --keep-vars \
   --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
 
 # Native

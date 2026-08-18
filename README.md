@@ -93,10 +93,10 @@ subscription.
 
 ## Rust development
 
-With [rustup](https://rustup.rs/) installed, commands run from this repository
-automatically select Rust 1.97.1 and install the declared `rustfmt` and
-`clippy` components plus the `wasm32-unknown-unknown` target from
-`rust-toolchain.toml`.
+`mise.toml` pins Rust 1.97.1 with `rustfmt`, Clippy, and
+`wasm32-unknown-unknown`. `mise install` installs that toolchain through
+rustup. `rust-toolchain.toml` matches the same pin so rustup and rust-analyzer
+select it without extra env.
 
 `rustfmt.toml` fixes the Rust 2024 style edition and Unix line endings; workspace
 lint policy remains centralized in `Cargo.toml`, while `.cargo/config.toml`
@@ -156,17 +156,17 @@ sending a real subscription URL to a non-loopback listener.
 
 The Worker lives in [`crates/sub-hub-worker`](crates/sub-hub-worker). Deploy
 your own copy; this repository does not operate a public instance. A Cloudflare
-account, Rust 1.97.1 with the `wasm32-unknown-unknown` target, Node.js 22 or
+account, Rust 1.97.1 with the `wasm32-unknown-unknown` target, Node.js 24.19.0 or
 newer, and the pinned `worker-build` 0.8.5 are required.
 
 ```sh
 cargo install worker-build --version 0.8.5 --locked
 cd crates/sub-hub-worker
-corepack pnpm install --frozen-lockfile
-corepack pnpm exec wrangler login
-corepack pnpm run build
-corepack pnpm run test:host
-corepack pnpm run deploy
+pnpm install --frozen-lockfile
+pnpm exec wrangler login
+pnpm run build
+pnpm run test:host
+pnpm run deploy
 ```
 
 The first deploy prints a `*.workers.dev` URL. Put that hostname in the
@@ -202,7 +202,7 @@ release, upload a preview and run the same smoke against that preview URL:
 
 ```sh
 cd crates/sub-hub-worker
-corepack pnpm run preview -- --preview-alias <preview-alias>
+pnpm run preview -- --preview-alias <preview-alias>
 ```
 
 CI does not hold Cloudflare credentials and does not deploy. The Worker
@@ -220,9 +220,9 @@ query switches.
 
 ```sh
 cd apps/console
-corepack pnpm install --frozen-lockfile
-corepack pnpm test
-corepack pnpm run dev
+pnpm install --frozen-lockfile
+pnpm test
+pnpm run dev
 ```
 
 A Vite Workshop against Native loopback needs

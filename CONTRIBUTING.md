@@ -10,8 +10,8 @@ tokens, `.dev.vars` values, or an access-token list.
 
 ## Development gates
 
-The workspace is pinned to Rust 1.97.1 via `rust-toolchain.toml`. From the
-repository root:
+The workspace is pinned in `mise.toml` (Rust 1.97.1, Node 24.19.0, pnpm
+11.22.0). From the repository root:
 
 ```sh
 cargo fmt --all -- --check
@@ -21,21 +21,21 @@ cargo check --locked -p sub-hub-conversion --target wasm32-unknown-unknown
 cargo check --locked -p sub-hub-http --target wasm32-unknown-unknown
 ```
 
-Web Console (`apps/console`, Node 22):
+Web Console (`apps/console`):
 
 ```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm test
-corepack pnpm run lint
-corepack pnpm run build
+pnpm install --frozen-lockfile
+pnpm test
+pnpm run lint
+pnpm run build
 ```
 
 Worker host conformance (`crates/sub-hub-worker`):
 
 ```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm run build
-corepack pnpm run test:host
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run test:host
 ```
 
 CI does not deploy to Cloudflare and does not hold Cloudflare credentials.

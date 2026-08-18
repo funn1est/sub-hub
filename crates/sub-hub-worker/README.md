@@ -45,8 +45,8 @@ It never treats an ambient `SUB_HUB_ACCESS_TOKEN` as a put. If it cannot tell
 whether the secret exists, it aborts instead of generating.
 
 ```sh
-corepack pnpm run deploy -- --tokens-file tokens.txt
-corepack pnpm run deploy -- --replace
+pnpm run deploy -- --tokens-file tokens.txt
+pnpm run deploy -- --replace
 ```
 
 A present-but-empty or malformed secret makes every request return `500`.
@@ -60,7 +60,7 @@ and non-default port). A listed Console may `fetch()` `GET /version` and
 and today's subscription clients are unchanged.
 
 ```sh
-corepack pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
+pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
 ```
 
 Do not commit the Pages origin into `wrangler.toml`. Create the Pages project
@@ -74,12 +74,10 @@ Do not log complete request URLs. Query strings commonly contain credentials.
 ## Prerequisites
 
 - A Cloudflare account
-- [rustup](https://rustup.rs/) so this repository can select Rust 1.97.1, the
-  `wasm32-unknown-unknown` target, `rustfmt`, and Clippy from
-  `rust-toolchain.toml`
+- [mise](https://mise.jdx.dev/) so this repository can select Rust 1.97.1,
+  `wasm32-unknown-unknown`, `rustfmt`, Clippy, Node.js 24.19.0, and pnpm
+  11.22.0 from `mise.toml`
 - `worker-build` 0.8.5
-- Node.js 22 or newer, with Corepack enabled so the pinned pnpm 10.32.1 is
-  used
 
 Install the pinned Worker build tool once per machine:
 
@@ -92,11 +90,11 @@ cargo install worker-build --version 0.8.5 --locked
 From this directory:
 
 ```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm exec wrangler login
-corepack pnpm run build
-corepack pnpm run test:host
-corepack pnpm run deploy
+pnpm install --frozen-lockfile
+pnpm exec wrangler login
+pnpm run build
+pnpm run test:host
+pnpm run deploy
 ```
 
 `pnpm run deploy` runs the access-token ensure script, then `wrangler deploy
@@ -116,7 +114,7 @@ deploy again. Use a Cloudflare dashboard text variable, or pass the value at
 deploy time without writing it into the committed `wrangler.toml`:
 
 ```sh
-corepack pnpm exec wrangler deploy --var SUB_HUB_SELF_HOSTS:sub-hub.<subdomain>.workers.dev
+pnpm exec wrangler deploy --var SUB_HUB_SELF_HOSTS:sub-hub.<subdomain>.workers.dev
 ```
 
 Add every extra custom-domain hostname to the same comma-separated list and
@@ -145,7 +143,7 @@ be Mihomo YAML that contains that VLESS node.
 
 ### Local session
 
-`corepack pnpm run dev` starts `wrangler dev` against the same build. It is
+`pnpm run dev` starts `wrangler dev` against the same build. It is
 not a substitute for the deployed-runtime smoke above.
 
 ## Maintainer preview gate
@@ -156,7 +154,7 @@ same `/version` and direct `/sub` smoke against that preview URL. Remove or
 supersede the preview according to the deployment policy.
 
 ```sh
-corepack pnpm run preview -- --preview-alias <preview-alias>
+pnpm run preview -- --preview-alias <preview-alias>
 ```
 
 This gate requires a Cloudflare account. CI does not run it and must not hold
