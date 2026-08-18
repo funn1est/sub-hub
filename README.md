@@ -1,7 +1,8 @@
 # Sub Hub
 
 Sub Hub is a work-in-progress subscription-conversion backend implemented in
-Rust. It accepts selected VLESS, Shadowsocks, Trojan, VMess, Hysteria2, and
+Rust, plus a static Web Console that operates a self-hosted Conversion Service.
+It accepts selected VLESS, Shadowsocks, Trojan, VMess, Hysteria2, and
 TUIC v5 inputs, can load HTTPS subscription resources and strict ACL4SSR
 configurations, and renders configurations for Mihomo (Clash-compatible),
 Quantumult X, sing-box, Loon, and Egern.
@@ -195,6 +196,27 @@ CI does not hold Cloudflare credentials and does not deploy. The Worker
 restricts outbound HTTPS resources to port 443. See the
 [Worker deployment notes](crates/sub-hub-worker/README.md) for the runtime
 boundary, variable setup, and what not to commit.
+
+## Web Console
+
+The Workshop PWA lives in [`apps/console`](apps/console). It points at a
+Conversion Service origin you type, collects the access token in its own field,
+assembles `GET /sub` or `GET /sub/:token`, previews that same Subscription URL,
+and copies or downloads the result. It does not add POST conversion or extra
+query switches.
+
+```sh
+cd apps/console
+corepack pnpm install --frozen-lockfile
+corepack pnpm test
+corepack pnpm run dev
+```
+
+A Vite Workshop against Native loopback needs
+`SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`. Deploy the
+Console as a separate Cloudflare Pages project (root `apps/console`). CI builds
+and tests it; CI does not deploy Pages. See the
+[Console notes](apps/console/README.md).
 
 ## Compatibility and provenance
 
