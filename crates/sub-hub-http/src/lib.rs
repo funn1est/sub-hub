@@ -9,12 +9,14 @@ use url::{Host, Url};
 
 mod access_token;
 mod broker;
+mod cors;
 mod public_destination;
 mod query;
 mod response;
 
 pub use access_token::{AccessToken, AccessTokenError, AccessTokens};
 pub use broker::{RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, ResourceKind};
+pub use cors::{CorsOriginError, CorsOrigins};
 pub use public_destination::is_globally_reachable;
 pub use response::HttpResponse;
 
@@ -37,6 +39,7 @@ pub struct HttpRequest<'a> {
     path: &'a str,
     raw_query: Option<&'a str>,
     inbound_host: Option<&'a str>,
+    origin: Option<&'a str>,
 }
 
 impl<'a> HttpRequest<'a> {
@@ -47,6 +50,7 @@ impl<'a> HttpRequest<'a> {
             path,
             raw_query,
             inbound_host: None,
+            origin: None,
         }
     }
 
@@ -62,7 +66,15 @@ impl<'a> HttpRequest<'a> {
             path,
             raw_query,
             inbound_host: Some(inbound_host),
+            origin: None,
         }
+    }
+
+    /// Attaches the raw `Origin` header when the host observed exactly one value.
+    #[must_use]
+    pub const fn with_origin(mut self, origin: Option<&'a str>) -> Self {
+        self.origin = origin;
+        self
     }
 
     fn into_parts(self) -> (Method, &'a str, Option<&'a str>, Option<&'a str>) {
@@ -85,6 +97,7 @@ impl fmt::Debug for HttpRequest<'_> {
             .field("path", &"[REDACTED]")
             .field("raw_query", &"[REDACTED]")
             .field("inbound_host", &"[REDACTED]")
+            .field("origin", &self.origin)
             .finish()
     }
 }
@@ -155,6 +168,7 @@ pub struct Application<A> {
     adapter: A,
     self_hosts: SelfHosts,
     access_tokens: AccessTokens,
+    cors_origins: CorsOrigins,
 }
 
 impl<A: RemoteAdapter> Application<A> {
@@ -164,6 +178,7 @@ impl<A: RemoteAdapter> Application<A> {
             adapter,
             self_hosts,
             access_tokens: AccessTokens::empty(),
+            cors_origins: CorsOrigins::empty(),
         }
     }
 
@@ -174,12 +189,21 @@ impl<A: RemoteAdapter> Application<A> {
         self
     }
 
+    /// Echoes CORS headers when the request `Origin` is in this allowlist.
+    #[must_use]
+    pub fn with_cors_origins(mut self, cors_origins: CorsOrigins) -> Self {
+        self.cors_origins = cors_origins;
+        self
+    }
+
     pub async fn handle(&self, request: HttpRequest<'_>) -> HttpResponse {
         let suppress_body = request.method == Method::HEAD;
+        let origin = request.origin;
         let mut response = self.handle_with_body(request).await;
         if suppress_body {
             response.body.clear();
         }
+        self.cors_origins.apply(&mut response, origin);
         response
     }
 
@@ -997,6 +1021,7 @@ impl<A> fmt::Debug for Application<A> {
             .field("adapter", &"[REDACTED]")
             .field("self_hosts", &self.self_hosts)
             .field("access_tokens_configured", &!self.access_tokens.is_empty())
+            .field("cors_origins_configured", &!self.cors_origins.is_empty())
             .finish()
     }
 }

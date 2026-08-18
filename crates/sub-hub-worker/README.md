@@ -51,6 +51,22 @@ corepack pnpm run deploy -- --replace
 
 A present-but-empty or malformed secret makes every request return `500`.
 
+## Console origins
+
+`SUB_HUB_CORS_ORIGINS` is a Cloudflare **var**, not a secret. The blob is a
+comma- or newline-separated list of at most eight exact origins (scheme, host,
+and non-default port). A listed Console may `fetch()` `GET /version` and
+`GET /sub` / `GET /sub/:token` and read the body. Unset means no CORS headers
+and today's subscription clients are unchanged.
+
+```sh
+corepack pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
+```
+
+Do not commit the Pages origin into `wrangler.toml`. A present-but-empty or
+malformed list (`https://x.example/path`, a ninth origin) makes every request
+return `500`.
+
 Do not log complete request URLs. Query strings commonly contain credentials.
 
 ## Prerequisites

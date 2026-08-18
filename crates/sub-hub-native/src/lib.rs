@@ -7,8 +7,8 @@ use axum::{
 use http::{HeaderMap, HeaderValue};
 use std::{fmt, future::Future, net::SocketAddr, pin::Pin, sync::Arc, time::Instant};
 use sub_hub_http::{
-    AccessTokens, Application, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError,
-    RemoteResponse, SelfHosts, is_globally_reachable,
+    AccessTokens, Application, CorsOrigins, HttpRequest, RemoteAdapter, RemoteAttempt,
+    RemoteFetchError, RemoteResponse, SelfHosts, is_globally_reachable,
 };
 use url::{Host, Url};
 
@@ -21,6 +21,7 @@ pub struct NativeConfig {
     bind_address: SocketAddr,
     self_hosts: Vec<String>,
     access_tokens: AccessTokens,
+    cors_origins: CorsOrigins,
 }
 
 impl NativeConfig {
@@ -47,35 +48,41 @@ impl NativeConfig {
             bind_address,
             self_hosts,
             access_tokens: AccessTokens::empty(),
+            cors_origins: CorsOrigins::empty(),
         })
     }
 
-    /// Reads `SUB_HUB_BIND`, `SUB_HUB_SELF_HOSTS`, and optional `SUB_HUB_ACCESS_TOKEN`.
+    /// Reads `SUB_HUB_BIND`, `SUB_HUB_SELF_HOSTS`, optional `SUB_HUB_ACCESS_TOKEN`,
+    /// and optional `SUB_HUB_CORS_ORIGINS`.
     ///
     /// # Errors
     ///
     /// Returns [`ConfigError`] when a value is not Unicode or does not satisfy
-    /// [`NativeConfig::from_values`] / [`AccessTokens::parse_optional`], or when a
-    /// non-loopback bind has an empty token set.
+    /// [`NativeConfig::from_values`] / [`AccessTokens::parse_optional`] /
+    /// [`CorsOrigins::parse_optional`], or when a non-loopback bind has an empty token set.
     pub fn from_environment() -> Result<Self, ConfigError> {
         let bind_address = unicode_environment_value("SUB_HUB_BIND")?;
         let self_hosts = unicode_environment_value("SUB_HUB_SELF_HOSTS")?;
         let access_token = unicode_environment_value("SUB_HUB_ACCESS_TOKEN")?;
-        Self::from_environment_parts(
+        let cors_origins = unicode_environment_value("SUB_HUB_CORS_ORIGINS")?;
+        Self::from_environment_parts_with_cors(
             bind_address.as_deref(),
             self_hosts.as_deref(),
             access_token.as_deref(),
+            cors_origins.as_deref(),
         )
     }
 
-    fn from_environment_parts(
+    fn from_environment_parts_with_cors(
         bind_address: Option<&str>,
         self_hosts: Option<&str>,
         access_token: Option<&str>,
+        cors_origins: Option<&str>,
     ) -> Result<Self, ConfigError> {
         let mut config = Self::from_values(bind_address, self_hosts)?;
         config.access_tokens =
             AccessTokens::parse_optional(access_token).map_err(|_| ConfigError)?;
+        config.cors_origins = CorsOrigins::parse_optional(cors_origins).map_err(|_| ConfigError)?;
         if !config.bind_address.ip().is_loopback() && config.access_tokens.is_empty() {
             return Err(ConfigError);
         }
@@ -96,6 +103,11 @@ impl NativeConfig {
     pub fn access_tokens(&self) -> &AccessTokens {
         &self.access_tokens
     }
+
+    #[must_use]
+    pub fn cors_origins(&self) -> &CorsOrigins {
+        &self.cors_origins
+    }
 }
 
 impl fmt::Debug for NativeConfig {
@@ -105,6 +117,7 @@ impl fmt::Debug for NativeConfig {
             .field("bind_address", &self.bind_address)
             .field("self_host_count", &self.self_hosts.len())
             .field("access_tokens_configured", &!self.access_tokens.is_empty())
+            .field("cors_origins_configured", &!self.cors_origins.is_empty())
             .finish()
     }
 }
@@ -454,7 +467,8 @@ pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
     }
     let self_hosts = SelfHosts::new(config.self_hosts.iter()).map_err(|_| ConfigError)?;
     let application = Application::new(NativeRemoteAdapter::new(), self_hosts)
-        .with_access_tokens(config.access_tokens);
+        .with_access_tokens(config.access_tokens)
+        .with_cors_origins(config.cors_origins);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
     axum::serve(listener, build_router(application)).await?;
     Ok(())
@@ -471,13 +485,12 @@ async fn handle_request(
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let raw_query = request.uri().query().map(str::to_owned);
+    let origin = one_origin_header(request.headers());
     let shared_response = application
-        .handle(HttpRequest::new_with_inbound_host(
-            method,
-            &path,
-            raw_query.as_deref(),
-            &inbound_host,
-        ))
+        .handle(
+            HttpRequest::new_with_inbound_host(method, &path, raw_query.as_deref(), &inbound_host)
+                .with_origin(origin.as_deref()),
+        )
         .await;
 
     let status = shared_response.status();
@@ -486,6 +499,15 @@ async fn handle_request(
     *response.status_mut() = status;
     *response.headers_mut() = headers;
     response
+}
+
+fn one_origin_header(headers: &http::HeaderMap) -> Option<String> {
+    let mut values = headers.get_all(header::ORIGIN).iter();
+    let raw = values.next()?.to_str().ok()?;
+    if values.next().is_some() || raw.contains('@') {
+        return None;
+    }
+    Some(raw.to_owned())
 }
 
 fn one_host_header(headers: &http::HeaderMap) -> Option<String> {
@@ -618,25 +640,99 @@ mod tests {
 
     #[test]
     fn from_environment_refuses_anonymous_non_loopback() {
-        assert!(NativeConfig::from_environment_parts(
-            Some("0.0.0.0:25500"),
-            Some("host.example"),
-            None,
-        )
-        .is_err());
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(
+                Some("0.0.0.0:25500"),
+                Some("host.example"),
+                None,
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn from_environment_loopback_unset_stays_anonymous() {
-        let config = NativeConfig::from_environment_parts(None, None, None)
+        let config = NativeConfig::from_environment_parts_with_cors(None, None, None, None)
             .expect("loopback may start without a token");
         assert!(config.access_tokens().is_empty());
     }
 
     #[test]
     fn from_environment_present_empty_blob_is_invalid() {
-        assert!(NativeConfig::from_environment_parts(None, None, Some("")).is_err());
-        assert!(NativeConfig::from_environment_parts(None, None, Some("   ")).is_err());
-        assert!(NativeConfig::from_environment_parts(None, None, Some(",")).is_err());
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, None, Some("")).is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, None, Some("   ")).is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, None, Some(",")).is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, Some(""), None).is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, Some("   "), None).is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, Some(","), None).is_err()
+        );
+    }
+
+    #[test]
+    fn from_environment_loopback_unset_cors_stays_empty() {
+        let config = NativeConfig::from_environment_parts_with_cors(None, None, None, None)
+            .expect("loopback may start without cors origins");
+        assert!(config.cors_origins().is_empty());
+    }
+
+    #[test]
+    fn from_environment_present_cors_blob_is_fail_closed() {
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, None, Some("")).is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, None, Some("   ")).is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, None, Some(",")).is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(
+                None,
+                None,
+                None,
+                Some("https://x.example/path"),
+            )
+            .is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(
+                None,
+                None,
+                None,
+                Some("http://user@example.com"),
+            )
+            .is_err()
+        );
+        let ninth = (0..9)
+            .map(|index| format!("https://a{index}.example"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(None, None, None, Some(&ninth)).is_err()
+        );
+        assert!(
+            !NativeConfig::from_environment_parts_with_cors(
+                None,
+                None,
+                None,
+                Some("https://console.example"),
+            )
+            .expect("one origin")
+            .cors_origins()
+            .is_empty()
+        );
     }
 }

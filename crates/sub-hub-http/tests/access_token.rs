@@ -77,7 +77,11 @@ fn configured_token_requires_the_exact_path_segment() {
         missing.headers().get(header::CACHE_CONTROL).unwrap(),
         "no-store"
     );
-    assert_eq!(missing.headers().len(), 2);
+    assert_eq!(
+        missing.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(missing.headers().len(), 3);
     assert!(!String::from_utf8_lossy(missing.body()).contains(TOKEN));
 
     let wrong = protected(HttpRequest::new(

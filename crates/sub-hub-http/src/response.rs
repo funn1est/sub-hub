@@ -142,9 +142,13 @@ pub(crate) fn success_response(status: StatusCode, body: Vec<u8>) -> HttpRespons
 }
 
 fn plain_response(status: StatusCode, body: Vec<u8>) -> HttpResponse {
-    let mut headers = HeaderMap::with_capacity(2);
+    let mut headers = HeaderMap::with_capacity(3);
     headers.insert(header::CONTENT_TYPE, TEXT_CONTENT_TYPE);
     headers.insert(header::CACHE_CONTROL, NO_STORE);
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     HttpResponse {
         status,
         headers,

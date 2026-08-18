@@ -76,7 +76,11 @@ fn assert_sub_error(raw_query: Option<&str>, expected_body: &[u8]) {
         response.headers().get(header::CACHE_CONTROL).unwrap(),
         "no-store"
     );
-    assert_eq!(response.headers().len(), 2);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 3);
 }
 
 #[test]
@@ -93,7 +97,11 @@ fn get_version_returns_the_exact_backend_identity() {
         response.headers().get(header::CACHE_CONTROL).unwrap(),
         "no-store"
     );
-    assert_eq!(response.headers().len(), 2);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 3);
 }
 
 #[test]
@@ -110,7 +118,11 @@ fn unknown_path_returns_the_exact_not_found_response() {
         response.headers().get(header::CACHE_CONTROL).unwrap(),
         "no-store"
     );
-    assert_eq!(response.headers().len(), 2);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 3);
 }
 
 #[test]
@@ -130,7 +142,11 @@ fn known_paths_reject_wrong_methods_with_their_exact_allow_header() {
                 response.headers().get(header::CACHE_CONTROL).unwrap(),
                 "no-store"
             );
-            assert_eq!(response.headers().len(), 3, "{path}");
+            assert_eq!(
+                response.headers().get(header::REFERRER_POLICY).unwrap(),
+                "no-referrer"
+            );
+            assert_eq!(response.headers().len(), 4, "{path}");
         }
     }
 }
@@ -168,7 +184,11 @@ fn get_and_head_apply_the_8192_byte_limit_before_path_dispatch() {
         get_response.headers().get(header::CACHE_CONTROL).unwrap(),
         "no-store"
     );
-    assert_eq!(get_response.headers().len(), 2);
+    assert_eq!(
+        get_response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(get_response.headers().len(), 3);
 
     let head_response = handle(HttpRequest::new(Method::HEAD, &over_limit, None));
     assert_eq!(head_response.status(), StatusCode::URI_TOO_LONG);
@@ -222,7 +242,11 @@ fn get_sub_converts_a_direct_share_uri_to_exact_mihomo_bytes() {
         response.headers().get("profile-update-interval").unwrap(),
         "24"
     );
-    assert_eq!(response.headers().len(), 4);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 5);
 }
 
 #[test]
@@ -355,7 +379,11 @@ fn get_sub_converts_a_direct_share_uri_to_exact_quanx_bytes() {
         "attachment; filename=\"sub-hub-quanx.conf\""
     );
     assert!(response.headers().get("profile-update-interval").is_none());
-    assert_eq!(response.headers().len(), 3);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 4);
 }
 
 #[test]
@@ -449,7 +477,11 @@ fn get_sub_converts_a_direct_share_uri_to_exact_singbox_bytes() {
         "attachment; filename=\"sub-hub-singbox.json\""
     );
     assert!(response.headers().get("profile-update-interval").is_none());
-    assert_eq!(response.headers().len(), 3);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 4);
 }
 
 #[test]
@@ -488,7 +520,11 @@ fn get_sub_converts_a_direct_share_uri_to_exact_loon_bytes() {
         "attachment; filename=\"sub-hub-loon.conf\""
     );
     assert!(response.headers().get("profile-update-interval").is_none());
-    assert_eq!(response.headers().len(), 3);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 4);
 }
 
 #[test]
@@ -535,7 +571,11 @@ fn get_sub_converts_a_direct_share_uri_to_exact_egern_bytes() {
         "attachment; filename=\"sub-hub-egern.yaml\""
     );
     assert!(response.headers().get("profile-update-interval").is_none());
-    assert_eq!(response.headers().len(), 3);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 4);
 }
 
 #[test]
@@ -786,7 +826,11 @@ fn successful_head_stops_after_preparation_and_has_only_early_headers() {
             .is_none()
     );
     assert!(response.headers().get("profile-update-interval").is_none());
-    assert_eq!(response.headers().len(), 2);
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 3);
 }
 
 #[test]

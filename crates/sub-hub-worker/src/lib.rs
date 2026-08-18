@@ -1,10 +1,10 @@
 use std::{fmt, future::Future, pin::Pin, time::Duration};
 
 use futures::{StreamExt, future::Either, pin_mut};
-use http::{HeaderName, StatusCode};
+use http::{HeaderName, StatusCode, header};
 use sub_hub_http::{
-    AccessTokens, Application, HttpRequest as ApplicationRequest, RemoteAdapter, RemoteAttempt,
-    RemoteFetchError, RemoteResponse, SelfHosts,
+    AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, RemoteAdapter,
+    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
 };
 use url::Host;
 use worker::wasm_bindgen::JsCast;
@@ -16,6 +16,7 @@ use worker_macros::event;
 
 const SELF_HOSTS_BINDING: &str = "SUB_HUB_SELF_HOSTS";
 const ACCESS_TOKEN_BINDING: &str = "SUB_HUB_ACCESS_TOKEN";
+const CORS_ORIGINS_BINDING: &str = "SUB_HUB_CORS_ORIGINS";
 const MAX_LOCATION_BYTES: usize = 8 * 1024;
 const MAX_METADATA_BYTES: usize = 256;
 
@@ -85,16 +86,24 @@ async fn handle_request(
     let Ok(access_tokens) = access_tokens_from_environment(environment) else {
         return Err(HostFailure::InvalidConfiguration);
     };
-    let application =
-        Application::new(CloudflareRemoteAdapter, self_hosts).with_access_tokens(access_tokens);
+    let Ok(cors_origins) = cors_origins_from_environment(environment) else {
+        return Err(HostFailure::InvalidConfiguration);
+    };
+    let origin = one_origin_header(request.headers());
+    let application = Application::new(CloudflareRemoteAdapter, self_hosts)
+        .with_access_tokens(access_tokens)
+        .with_cors_origins(cors_origins);
 
     Ok(application
-        .handle(ApplicationRequest::new_with_inbound_host(
-            request.method().clone(),
-            request_url.path(),
-            request_url.query(),
-            &inbound_host,
-        ))
+        .handle(
+            ApplicationRequest::new_with_inbound_host(
+                request.method().clone(),
+                request_url.path(),
+                request_url.query(),
+                &inbound_host,
+            )
+            .with_origin(origin.as_deref()),
+        )
         .await)
 }
 
@@ -267,6 +276,20 @@ fn optional_metadata(headers: &Headers) -> Option<Vec<u8>> {
 fn access_tokens_from_environment(environment: &Env) -> Result<AccessTokens, ()> {
     let raw = optional_binding(environment, ACCESS_TOKEN_BINDING)?;
     AccessTokens::parse_optional(raw.as_deref()).map_err(|_| ())
+}
+
+fn cors_origins_from_environment(environment: &Env) -> Result<CorsOrigins, ()> {
+    let raw = optional_binding(environment, CORS_ORIGINS_BINDING)?;
+    CorsOrigins::parse_optional(raw.as_deref()).map_err(|_| ())
+}
+
+fn one_origin_header(headers: &http::HeaderMap) -> Option<String> {
+    let mut values = headers.get_all(header::ORIGIN).iter();
+    let raw = values.next()?.to_str().ok()?;
+    if values.next().is_some() || raw.contains('@') {
+        return None;
+    }
+    Some(raw.to_owned())
 }
 
 fn optional_binding(environment: &Env, name: &str) -> Result<Option<String>, ()> {

@@ -9,7 +9,7 @@ use axum::{
     http::{Method, Request, Response, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use sub_hub_http::{AccessTokens, Application, SelfHosts};
+use sub_hub_http::{AccessTokens, Application, CorsOrigins, SelfHosts};
 use sub_hub_native::{
     DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router, serve,
 };
@@ -125,6 +125,23 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVect
     assert_eq!(
         response
             .headers()
+            .get(header::REFERRER_POLICY)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-referrer"),
+        "{} referrer-policy",
+        vector.name
+    );
+    assert!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none(),
+        "{} must not emit cors without an allowlist",
+        vector.name
+    );
+    assert_eq!(
+        response
+            .headers()
             .get(header::ALLOW)
             .and_then(|value| value.to_str().ok()),
         vector.allow,
@@ -159,6 +176,7 @@ fn service_defaults_to_the_safe_loopback_address() {
     );
     assert!(config.self_hosts().is_empty());
     assert!(config.access_tokens().is_empty());
+    assert!(config.cors_origins().is_empty());
 }
 
 #[test]
@@ -395,6 +413,77 @@ fn test_router() -> axum::Router {
         SelfHosts::new(["subscriptions.example"]).expect("valid self host"),
     );
     build_router(application)
+}
+
+fn test_router_with_cors() -> axum::Router {
+    let application = Application::new(
+        NativeRemoteAdapter::new(),
+        SelfHosts::new(["subscriptions.example"]).expect("valid self host"),
+    )
+    .with_cors_origins(CorsOrigins::parse_list("https://console.example").expect("origin"));
+    build_router(application)
+}
+
+#[tokio::test]
+async fn listed_origin_is_forwarded_and_echoed() {
+    let response = test_router_with_cors()
+        .oneshot(
+            Request::builder()
+                .uri("/version")
+                .header(header::HOST, "subscriptions.example")
+                .header(header::ORIGIN, "https://console.example")
+                .body(Body::empty())
+                .expect("valid cors request"),
+        )
+        .await
+        .expect("router is infallible");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        Some("https://console.example")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(header::VARY)
+            .and_then(|value| value.to_str().ok()),
+        Some("Origin")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(header::REFERRER_POLICY)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-referrer")
+    );
+}
+
+#[tokio::test]
+async fn duplicate_origin_headers_are_ignored_without_failing_the_request() {
+    let response = test_router_with_cors()
+        .oneshot(
+            Request::builder()
+                .uri("/version")
+                .header(header::HOST, "subscriptions.example")
+                .header(header::ORIGIN, "https://console.example")
+                .header(header::ORIGIN, "https://other.example")
+                .body(Body::empty())
+                .expect("valid request"),
+        )
+        .await
+        .expect("router is infallible");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none()
+    );
 }
 
 struct MixedPublicAndPrivateResolver;

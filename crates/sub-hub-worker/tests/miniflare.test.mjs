@@ -76,13 +76,23 @@ function applicationHeaders(response) {
     "allow",
     "cache-control",
     "content-type",
+    "referrer-policy",
     "subscription-userinfo",
+    "access-control-allow-origin",
+    "access-control-expose-headers",
+    "vary",
   ]) {
     const value = response.headers.get(name);
     if (value !== null) result[name] = value;
   }
   return result;
 }
+
+const BASE_HEADERS = {
+  "cache-control": "no-store",
+  "content-type": "text/plain;charset=utf-8",
+  "referrer-policy": "no-referrer",
+};
 
 test("host-visible application contract is table driven", async (t) => {
   const mf = runtime();
@@ -95,10 +105,7 @@ test("host-visible application contract is table driven", async (t) => {
       method: "GET",
       status: 200,
       body: "sub-hub v0.1.0 backend",
-      headers: {
-        "cache-control": "no-store",
-        "content-type": "text/plain;charset=utf-8",
-      },
+      headers: { ...BASE_HEADERS },
     },
     {
       name: "invalid version query",
@@ -106,10 +113,7 @@ test("host-visible application contract is table driven", async (t) => {
       method: "GET",
       status: 400,
       body: "Invalid request!",
-      headers: {
-        "cache-control": "no-store",
-        "content-type": "text/plain;charset=utf-8",
-      },
+      headers: { ...BASE_HEADERS },
     },
     {
       name: "unknown path",
@@ -117,10 +121,7 @@ test("host-visible application contract is table driven", async (t) => {
       method: "GET",
       status: 404,
       body: "Not Found",
-      headers: {
-        "cache-control": "no-store",
-        "content-type": "text/plain;charset=utf-8",
-      },
+      headers: { ...BASE_HEADERS },
     },
     {
       name: "sub method",
@@ -128,11 +129,7 @@ test("host-visible application contract is table driven", async (t) => {
       method: "POST",
       status: 405,
       body: "Method Not Allowed",
-      headers: {
-        allow: "GET, HEAD",
-        "cache-control": "no-store",
-        "content-type": "text/plain;charset=utf-8",
-      },
+      headers: { allow: "GET, HEAD", ...BASE_HEADERS },
     },
     {
       name: "version method",
@@ -140,11 +137,7 @@ test("host-visible application contract is table driven", async (t) => {
       method: "HEAD",
       status: 405,
       body: "",
-      headers: {
-        allow: "GET",
-        "cache-control": "no-store",
-        "content-type": "text/plain;charset=utf-8",
-      },
+      headers: { allow: "GET", ...BASE_HEADERS },
     },
     {
       name: "uri too long before unknown path",
@@ -152,10 +145,7 @@ test("host-visible application contract is table driven", async (t) => {
       method: "GET",
       status: 414,
       body: "URI Too Long",
-      headers: {
-        "cache-control": "no-store",
-        "content-type": "text/plain;charset=utf-8",
-      },
+      headers: { ...BASE_HEADERS },
     },
     {
       name: "head invalid request suppresses body",
@@ -163,10 +153,7 @@ test("host-visible application contract is table driven", async (t) => {
       method: "HEAD",
       status: 400,
       body: "",
-      headers: {
-        "cache-control": "no-store",
-        "content-type": "text/plain;charset=utf-8",
-      },
+      headers: { ...BASE_HEADERS },
     },
   ];
 
@@ -366,6 +353,57 @@ test("comma-separated access tokens each authorize /sub and empty blobs fail clo
   assert.equal(await rejected.text(), "Internal Server Error");
 });
 
+test("listed console origin can read /version and /sub", async (t) => {
+  const mf = runtime({ SUB_HUB_CORS_ORIGINS: "https://console.example" });
+  t.after(() => mf.dispose());
+  const expose =
+    "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules";
+
+  const version = await mf.dispatchFetch("https://worker.example/version", {
+    headers: { Origin: "https://console.example" },
+  });
+  assert.equal(version.status, 200);
+  assert.deepEqual(applicationHeaders(version), {
+    ...BASE_HEADERS,
+    "access-control-allow-origin": "https://console.example",
+    "access-control-expose-headers": expose,
+    vary: "Origin",
+  });
+  assert.equal(await version.text(), "sub-hub v0.1.0 backend");
+
+  const sub = await mf.dispatchFetch(
+    `https://worker.example/sub?target=clash&url=${encodeURIComponent(VLESS)}`,
+    { headers: { Origin: "https://console.example" } },
+  );
+  assert.equal(sub.status, 200);
+  assert.equal(
+    sub.headers.get("access-control-allow-origin"),
+    "https://console.example",
+  );
+  assert.equal(await sub.text(), SINGLE_VLESS_YAML);
+
+  const other = await mf.dispatchFetch("https://worker.example/version", {
+    headers: { Origin: "https://other.example" },
+  });
+  assert.equal(other.status, 200);
+  assert.deepEqual(applicationHeaders(other), BASE_HEADERS);
+});
+
+test("invalid cors origin binding returns the fixed application 500", async (t) => {
+  const mf = runtime({ SUB_HUB_CORS_ORIGINS: "https://x.example/path" });
+  t.after(() => mf.dispose());
+
+  const response = await mf.dispatchFetch("https://worker.example/version");
+  assert.equal(response.status, 500);
+  assert.equal(await response.text(), "Internal Server Error");
+
+  const empty = runtime({ SUB_HUB_CORS_ORIGINS: "," });
+  t.after(() => empty.dispose());
+  const rejected = await empty.dispatchFetch("https://worker.example/version");
+  assert.equal(rejected.status, 500);
+  assert.equal(await rejected.text(), "Internal Server Error");
+});
+
 test("non-443 remote source is rejected before fetch", async (t) => {
   const mf = runtime();
   t.after(() => mf.dispose());
@@ -376,10 +414,7 @@ test("non-443 remote source is rejected before fetch", async (t) => {
   );
 
   assert.equal(response.status, 400);
-  assert.deepEqual(applicationHeaders(response), {
-    "cache-control": "no-store",
-    "content-type": "text/plain;charset=utf-8",
-  });
+  assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
   assert.equal(await response.text(), "Invalid request!");
 });
 
@@ -460,10 +495,7 @@ test("remote ACL4SSR config and Rule Set render through the Worker host", async 
   );
 
   assert.equal(response.status, 200, await response.clone().text());
-  assert.deepEqual(applicationHeaders(response), {
-    "cache-control": "no-store",
-    "content-type": "text/plain;charset=utf-8",
-  });
+  assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
   const body = await response.text();
   assert.match(body, /- name: PROXY\n  type: select\n  proxies:\n  - Alpha/);
   assert.match(body, /- DOMAIN,example\.org,PROXY/);
@@ -535,10 +567,7 @@ test("combined metadata is ignored instead of forwarded", async (t) => {
   );
 
   assert.equal(response.status, 200);
-  assert.deepEqual(applicationHeaders(response), {
-    "cache-control": "no-store",
-    "content-type": "text/plain;charset=utf-8",
-  });
+  assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
   assert.equal(await response.text(), SINGLE_VLESS_YAML);
 });
 
@@ -557,10 +586,7 @@ test("redirect to a non-443 port is a deterministic bad gateway", async (t) => {
   );
 
   assert.equal(response.status, 502);
-  assert.deepEqual(applicationHeaders(response), {
-    "cache-control": "no-store",
-    "content-type": "text/plain;charset=utf-8",
-  });
+  assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
   assert.equal(await response.text(), "Bad Gateway");
   fetchMock.assertNoPendingInterceptors();
 });
@@ -579,9 +605,6 @@ test("upstream failure maps to bad gateway", async (t) => {
   );
 
   assert.equal(response.status, 502);
-  assert.deepEqual(applicationHeaders(response), {
-    "cache-control": "no-store",
-    "content-type": "text/plain;charset=utf-8",
-  });
+  assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
   assert.equal(await response.text(), "Bad Gateway");
 });

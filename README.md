@@ -110,7 +110,7 @@ is limited to its pinned two-version external acceptance matrix.
 
 ## Native deployment boundary
 
-The native host reads three optional environment variables:
+The native host reads four optional environment variables:
 
 - `SUB_HUB_BIND` sets the listener and defaults to `127.0.0.1:25500`.
 - `SUB_HUB_SELF_HOSTS` is a comma-separated list of canonical DNS aliases that
@@ -120,6 +120,11 @@ The native host reads three optional environment variables:
   on loopback, `GET /sub` stays anonymous and the process prints a warning. A
   non-loopback bind with an empty list refuses to start. When set, clients must
   call `GET /sub/<token>`.
+- `SUB_HUB_CORS_ORIGINS` is a comma- or newline-separated list of at most eight
+  exact Console origins (`https://console.example`,
+  `http://localhost:5173`). Unset means no CORS headers. A present-but-empty
+  or invalid list refuses to start. A Vite Workshop against loopback needs
+  `http://localhost:5173,http://127.0.0.1:5173`.
 
 A non-loopback `SUB_HUB_BIND` is rejected unless `SUB_HUB_SELF_HOSTS` contains
 at least one hostname. List every additional deployment alias even when a
@@ -161,6 +166,11 @@ you pass with `--tokens-file`, or generates one token and prints it once. Keep
 that value in a password manager; Cloudflare cannot show it again. Do not write
 tokens into the committed `wrangler.toml`. Clients use
 `GET /sub/<token>?target=clash&url=...`. `GET /version` stays public.
+
+To let a Cloudflare Pages Console read those responses, set the
+`SUB_HUB_CORS_ORIGINS` **var** (not a secret) to the Pages origin, for example
+`https://<project>.pages.dev`. Leave it unset if no Console will `fetch()` the
+Worker. A present-but-empty or invalid list makes every request return `500`.
 
 Smoke the deployed origin without fetching an external subscription:
 
