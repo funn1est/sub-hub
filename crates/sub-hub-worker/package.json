@@ -8,9 +8,10 @@
     "dev": "wrangler dev",
     "ensure-access-token": "node scripts/ensure-access-token.mjs",
     "deploy": "node scripts/ensure-access-token.mjs --deploy",
+    "deploy:stack": "node scripts/deploy-cloudflare.mjs",
     "preview": "node scripts/ensure-access-token.mjs --preview",
-    "test:ensure": "node --test scripts/ensure-access-token.test.mjs",
-    "test:host": "node --test --test-isolation=none tests/miniflare.test.mjs && node --test scripts/ensure-access-token.test.mjs"
+    "test:ensure": "node --test scripts/ensure-access-token.test.mjs scripts/deploy-cloudflare.test.mjs",
+    "test:host": "node --test --test-isolation=none tests/miniflare.test.mjs && node --test scripts/ensure-access-token.test.mjs scripts/deploy-cloudflare.test.mjs"
   },
   "devDependencies": {
     "miniflare": "4.20260730.0",

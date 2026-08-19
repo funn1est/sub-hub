@@ -63,11 +63,11 @@ and today's subscription clients are unchanged.
 pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
 ```
 
-Do not commit the Pages origin into `wrangler.toml`. Create the Pages project
-from `apps/console` (`wrangler pages project create` + `wrangler pages deploy`
-of `dist/`); do not add `pages_build_output_dir` to this Worker config. A
-present-but-empty or malformed list (`https://x.example/path`, a ninth origin)
-makes every request return `500`.
+`pnpm run deploy:stack` publishes the Console and writes that origin for you.
+Do not commit a live Pages origin into this Worker `wrangler.toml`. Create the
+Pages project from `apps/console`; do not add `pages_build_output_dir` to this
+Worker config. A present-but-empty or malformed list (`https://x.example/path`,
+a ninth origin) makes every request return `500`.
 
 Do not log complete request URLs. Query strings commonly contain credentials.
 
@@ -94,23 +94,26 @@ pnpm install --frozen-lockfile
 pnpm exec wrangler login
 pnpm run build
 pnpm run test:host
-pnpm run deploy
+pnpm run deploy:stack
 ```
 
-`pnpm run deploy` runs the access-token ensure script, then `wrangler deploy
---keep-vars` (rebuilds through `worker-build --release` in `wrangler.toml`).
-The first successful deploy prints a `*.workers.dev` URL. Save any generated
-token immediately; Cloudflare cannot show it again.
+`pnpm run deploy:stack` builds `apps/console`, Direct-Uploads Pages project
+`sub-hub-console`, then runs the access-token ensure script and
+`wrangler deploy --keep-vars` with `SUB_HUB_CORS_ORIGINS` and
+`SUB_HUB_SELF_HOSTS` filled from the live URLs. Worker-only publishes stay on
+`pnpm run deploy`. The first successful Worker deploy prints a `*.workers.dev`
+URL. Save any generated token immediately; Cloudflare cannot show it again.
 
-If the account already has a Worker named `sub-hub`, change `name` in
-`wrangler.toml` locally so the deploy does not collide. Do not commit that
-rename, an `account_id`, API tokens, or a `.dev.vars` file that holds real
-values.
+If the account already has a Worker named `sub-hub`, pass `--worker-name` or
+set `CLOUDFLARE_WORKER_NAME` so the deploy does not collide. Do not commit a
+local `name` rename, an `account_id`, API tokens, or a `.dev.vars` file that
+holds real values.
 
 ### Publish every hostname as a self-target
 
-After the first deploy, set `SUB_HUB_SELF_HOSTS` to the Worker hostname and
-deploy again. Use a Cloudflare dashboard text variable, or pass the value at
+`deploy:stack` writes the published `*.workers.dev` hostname into
+`SUB_HUB_SELF_HOSTS`. For a Worker-only publish, set that var and deploy
+again. Use a Cloudflare dashboard text variable, or pass the value at
 deploy time without writing it into the committed `wrangler.toml`:
 
 ```sh

@@ -72,12 +72,65 @@ Conversion Service origin.
 ## Deploy
 
 Create a **separate** Cloudflare Pages project. Do not attach Pages to the
-Worker `wrangler.toml`. CI builds this package and does **not** deploy. Do not
-put Cloudflare secrets in GitHub Actions, and do not commit an `account_id`,
-API token, or Pages project name.
+Worker `wrangler.toml`. The default project name is `sub-hub-console` in
+this package's `wrangler.toml`; override it per account instead of committing
+an `account_id` or API token.
 
-From the repository root, after `wrangler login` (the Worker package pins
-Wrangler 4.122.0):
+Local toolchains stay in the repository-root `mise.toml`. Do not add
+`.node-version`, `.nvmrc`, or other extra version managers in this package.
+
+### Connect to Git
+
+Push to the connected branch rebuilds this package on Cloudflare. A Direct
+Upload project cannot switch later; create a **new** Pages project.
+
+1. [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages)
+   → **Create** → **Pages** → **Connect to Git**.
+2. Authorize GitHub or GitLab and select this repository.
+3. Set the build form to this package (monorepo root is not `apps/console`):
+
+   | Field | Value |
+   | --- | --- |
+   | Project name | `sub-hub-console` (must match `wrangler.toml`) |
+   | Production branch | `main` |
+   | Framework preset | Vite |
+   | Root directory | `apps/console` |
+   | Build command | `pnpm install --frozen-lockfile && pnpm run build` |
+   | Build output directory | `dist` |
+
+4. Environment variables (Pages build image does not run `mise`; copy the
+   pins from the repository-root `mise.toml`):
+
+   | Variable | Value today |
+   | --- | --- |
+   | `NODE_VERSION` | `24.19.0` |
+   | `PNPM_VERSION` | `11.22.0` (if the build ignores `packageManager`) |
+
+5. Save and Deploy. Production origin is
+   `https://sub-hub-console.pages.dev` (or `https://<project>.pages.dev`
+   if you chose another name).
+6. Put that **exact** origin on the Conversion Service
+   (`SUB_HUB_CORS_ORIGINS`). No `*.pages.dev` wildcards. Add each preview
+   hash origin the same way if that preview must `fetch()` `/sub`.
+7. Optional: Pages **Build watch paths** → `apps/console/**` so Worker-only
+   commits do not rebuild the Console.
+
+Do not also run `pnpm run deploy:stack` against the same Git-connected
+project. CI builds this package and does not deploy. Do not send Cloudflare
+credentials in a pull request.
+
+Worker-only local publish after `wrangler login` from
+`crates/sub-hub-worker`:
+
+```sh
+pnpm exec wrangler deploy --keep-vars \
+  --var SUB_HUB_CORS_ORIGINS:https://sub-hub-console.pages.dev
+```
+
+### Direct Upload
+
+For a one-shot upload of `dist/` instead of Git (from the Worker package,
+which pins Wrangler 4.122.0):
 
 ```sh
 cd apps/console
@@ -86,19 +139,17 @@ pnpm test
 pnpm run build
 
 cd ../../crates/sub-hub-worker
-pnpm exec wrangler pages project create <project> --production-branch main
+pnpm exec wrangler pages project create sub-hub-console --production-branch main
 pnpm exec wrangler pages deploy ../../apps/console/dist \
-  --project-name <project> \
+  --project-name sub-hub-console \
   --branch main \
-  --commit-dirty=true
+  --commit-dirty=true \
+  --config ../../apps/console/wrangler.toml
 ```
 
-Wrangler may warn that the Worker `wrangler.toml` lacks `pages_build_output_dir`.
-That is expected; ignore it. The upload is the `dist/` directory.
-
-The production origin is `https://<project>.pages.dev`. If you later switch to a
-Git-connected Pages build, set `NODE_VERSION` to `24.19.0`. Direct upload
-of `dist/` does not run a cloud build.
+`deploy:stack` does that upload and sets the Worker CORS var. Direct upload
+does not run a Cloudflare build. Do not Git-connect and Direct-Upload the
+same project.
 
 Then list that exact origin on the Conversion Service. No host-suffix wildcards.
 Preview `*.pages.dev` hashes must be added as extra exact origins if those

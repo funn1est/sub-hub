@@ -171,14 +171,23 @@ pnpm install --frozen-lockfile
 pnpm exec wrangler login
 pnpm run build
 pnpm run test:host
-pnpm run deploy
+pnpm run deploy:stack
 ```
 
-The first deploy prints a `*.workers.dev` URL. Put that hostname in the
-`SUB_HUB_SELF_HOSTS` Worker variable — together with every custom-domain alias
-— and deploy again so remote loading cannot target those names. Do not commit
-an `account_id`, API tokens, a local `name` rename, or a `.dev.vars` file with
-real values.
+`pnpm run deploy:stack` builds the Web Console, creates the default Pages
+project `sub-hub-console` if needed, uploads `apps/console/dist`, publishes
+the Worker, and sets `SUB_HUB_CORS_ORIGINS` plus `SUB_HUB_SELF_HOSTS` from
+the live origins. Worker-only publishes stay on `pnpm run deploy`. Do not
+commit an `account_id`, API tokens, a local `name` rename, or a `.dev.vars`
+file with real values. Override the Pages project or Worker name with
+`CLOUDFLARE_PAGES_PROJECT`, `CLOUDFLARE_WORKER_NAME`, or the matching flags;
+do not edit the committed names unless you intend that default for every
+clone.
+
+The first Worker deploy prints a `*.workers.dev` URL. The stack command
+writes that hostname into `SUB_HUB_SELF_HOSTS`. Add every custom-domain
+alias the same way (or set `CLOUDFLARE_EXTRA_SELF_HOSTS`) so remote loading
+cannot target those names.
 
 `pnpm run deploy` leaves an existing `SUB_HUB_ACCESS_TOKEN` secret, puts a list
 you pass with `--tokens-file`, or generates one token and prints it once. Keep
@@ -215,6 +224,30 @@ restricts outbound HTTPS resources to port 443. See the
 [Worker deployment notes](crates/sub-hub-worker/README.md) for the runtime
 boundary, variable setup, and what not to commit.
 
+### Cloudflare Git
+
+The Web Console can update on push without GitHub secrets. Create a
+**new** Git-connected Pages project (Direct Upload cannot convert later)
+and point it at `apps/console`. Full form fields are in the
+[Console deploy notes](apps/console/README.md#connect-to-git).
+
+Pages does not run `mise`. Set `NODE_VERSION` and, if needed,
+`PNPM_VERSION` on the Pages project to the same pins as the
+repository-root `mise.toml`. Do not add `.node-version` or `.nvmrc`.
+
+The production origin is `https://<pages-project>.pages.dev`. Set the
+Worker `SUB_HUB_CORS_ORIGINS` **var** to that exact origin (Dashboard or
+`wrangler deploy --keep-vars`). Do not also run `deploy:stack` against the
+same Pages project.
+
+The Worker is a separate Git connection (Workers Builds, root
+`crates/sub-hub-worker`). The build image has Node but not Rust; a
+Workers Builds command must install Rust 1.97.1, `wasm32-unknown-unknown`,
+and `worker-build` 0.8.5 before `wrangler deploy --keep-vars`. The Worker
+name in the dashboard must match `wrangler.toml` (`sub-hub`). Keep
+`SUB_HUB_ACCESS_TOKEN` as a Cloudflare **secret**, not a var. A local
+`pnpm run deploy` remains the simpler Worker publish.
+
 ## Web Console
 
 The Workshop PWA lives in [`apps/console`](apps/console). It points at a
@@ -231,11 +264,11 @@ pnpm run dev
 ```
 
 A Vite Workshop against Native loopback needs
-`SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`. Deploy the
-Console as a separate Cloudflare Pages project (root `apps/console`, upload
-`dist/`). After the Pages origin exists, set the Worker
-`SUB_HUB_CORS_ORIGINS` **var** to that exact origin with `--keep-vars`. CI
-builds and tests the Console; CI does not deploy Pages. See the
+`SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`. The
+stack command publishes the Console as a separate Cloudflare Pages project
+(root `apps/console`, upload `dist/`) and sets the Worker
+`SUB_HUB_CORS_ORIGINS` **var** to that exact origin. CI builds and tests
+the Console; it does not deploy Pages. See the
 [Console notes](apps/console/README.md).
 
 ## Compatibility and provenance
