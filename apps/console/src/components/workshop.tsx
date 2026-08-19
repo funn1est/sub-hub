@@ -533,9 +533,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
                       setPickingCustom(false)
                       patch({ configUrl: acl4ssrConfigUrl(item.id) })
                     }}
-                    itemToStringValue={(item) =>
-                      "label" in item ? item.label : item.value
-                    }
+                    itemToStringValue={(item) => item.label}
                   >
                     <ComboboxInput
                       id="config-preset"
