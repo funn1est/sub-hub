@@ -310,37 +310,16 @@ fn self_hosts_from_environment(environment: &Env, _inbound_host: &str) -> Result
     let key = worker::wasm_bindgen::JsValue::from_str(SELF_HOSTS_BINDING);
     let has_binding = worker::js_sys::Reflect::has(environment.as_ref(), &key).map_err(|_| ())?;
     let binding = if has_binding {
-        environment
-            .var(SELF_HOSTS_BINDING)
-            .map_err(|_| ())?
-            .to_string()
+        Some(
+            environment
+                .var(SELF_HOSTS_BINDING)
+                .map_err(|_| ())?
+                .to_string(),
+        )
     } else {
-        String::new()
+        None
     };
-    let hosts = parse_self_hosts(&binding)?;
-    SelfHosts::new(hosts).map_err(|_| ())
-}
-
-fn parse_self_hosts(raw: &str) -> Result<Vec<String>, ()> {
-    if raw.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut hosts = Vec::new();
-    for raw_host in raw.split(',') {
-        if hosts.len() == 16 {
-            return Err(());
-        }
-        let raw_host = raw_host.trim();
-        let Host::Domain(host) = Host::parse(raw_host).map_err(|_| ())? else {
-            return Err(());
-        };
-        let host = host.trim_end_matches('.').to_ascii_lowercase();
-        if !is_dns_name(&host) {
-            return Err(());
-        }
-        hosts.push(host);
-    }
-    Ok(hosts)
+    SelfHosts::parse_optional(binding.as_deref()).map_err(|_| ())
 }
 
 fn normalize_request_hostname(url: &url::Url) -> Option<String> {
@@ -439,17 +418,7 @@ fn validate_canonical_content_length(value: &str, max: usize) -> Result<(), ()> 
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_self_hosts, validate_canonical_content_length};
-
-    #[test]
-    fn self_hosts_are_bounded_and_normalized() {
-        assert_eq!(
-            parse_self_hosts("EDGE.EXAMPLE., sub.example").unwrap(),
-            ["edge.example", "sub.example"]
-        );
-        assert!(parse_self_hosts("edge.example,,sub.example").is_err());
-        assert!(parse_self_hosts("127.0.0.1").is_err());
-    }
+    use super::validate_canonical_content_length;
 
     #[test]
     fn content_length_requires_canonical_decimal() {

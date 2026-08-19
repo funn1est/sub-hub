@@ -29,7 +29,7 @@ const SUBSCRIPTION_USER_INFO: &str = "subscription-userinfo";
 #[derive(Clone)]
 pub struct NativeConfig {
     bind_address: SocketAddr,
-    self_hosts: Vec<String>,
+    self_hosts: SelfHosts,
     access_tokens: AccessTokens,
     cors_origins: CorsOrigins,
     console_root: Option<PathBuf>,
@@ -50,7 +50,7 @@ impl NativeConfig {
             .unwrap_or(DEFAULT_BIND_ADDRESS)
             .parse()
             .map_err(|_| ConfigError)?;
-        let self_hosts = parse_self_hosts(self_hosts.unwrap_or_default())?;
+        let self_hosts = SelfHosts::parse_optional(self_hosts).map_err(|_| ConfigError)?;
         if !bind_address.ip().is_loopback() && self_hosts.is_empty() {
             return Err(ConfigError);
         }
@@ -70,8 +70,9 @@ impl NativeConfig {
     /// # Errors
     ///
     /// Returns [`ConfigError`] when a value is not Unicode or does not satisfy
-    /// [`NativeConfig::from_values`] / [`AccessTokens::parse_optional`] /
-    /// [`CorsOrigins::parse_optional`] / a readable console directory, or when a
+    /// [`NativeConfig::from_values`] / [`SelfHosts::parse_optional`] /
+    /// [`AccessTokens::parse_optional`] / [`CorsOrigins::parse_optional`] /
+    /// a readable console directory, or when a
     /// non-loopback bind has an empty token set.
     pub fn from_environment() -> Result<Self, ConfigError> {
         let bind_address = unicode_environment_value("SUB_HUB_BIND")?;
@@ -121,7 +122,7 @@ impl NativeConfig {
 
     #[must_use]
     pub fn self_hosts(&self) -> &[String] {
-        &self.self_hosts
+        self.self_hosts.as_slice()
     }
 
     #[must_use]
@@ -145,7 +146,7 @@ impl fmt::Debug for NativeConfig {
         formatter
             .debug_struct("NativeConfig")
             .field("bind_address", &self.bind_address)
-            .field("self_host_count", &self.self_hosts.len())
+            .field("self_host_count", &self.self_hosts.as_slice().len())
             .field("access_tokens_configured", &!self.access_tokens.is_empty())
             .field("cors_origins_configured", &!self.cors_origins.is_empty())
             .field("console_root_configured", &self.console_root.is_some())
@@ -511,8 +512,7 @@ pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
     if config.console_root.is_some() {
         eprintln!("sub-hub-native: serving Web Console from SUB_HUB_CONSOLE_ROOT");
     }
-    let self_hosts = SelfHosts::new(config.self_hosts.iter()).map_err(|_| ConfigError)?;
-    let application = Application::new(NativeRemoteAdapter::new(), self_hosts)
+    let application = Application::new(NativeRemoteAdapter::new(), config.self_hosts)
         .with_access_tokens(config.access_tokens)
         .with_cors_origins(config.cors_origins);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
@@ -637,29 +637,6 @@ fn unicode_environment_value(name: &str) -> Result<Option<String>, ConfigError> 
     std::env::var_os(name)
         .map(|value| value.into_string().map_err(|_| ConfigError))
         .transpose()
-}
-
-fn parse_self_hosts(raw: &str) -> Result<Vec<String>, ConfigError> {
-    if raw.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut hosts = Vec::new();
-    for raw_host in raw.split(',') {
-        let raw_host = raw_host.trim();
-        let Host::Domain(host) = Host::parse(raw_host).map_err(|_| ConfigError)? else {
-            return Err(ConfigError);
-        };
-        let host = host.trim_end_matches('.').to_ascii_lowercase();
-        if !is_dns_name(&host) {
-            return Err(ConfigError);
-        }
-        hosts.push(host);
-    }
-    if hosts.len() > 16 {
-        return Err(ConfigError);
-    }
-    Ok(hosts)
 }
 
 fn is_dns_name(host: &str) -> bool {

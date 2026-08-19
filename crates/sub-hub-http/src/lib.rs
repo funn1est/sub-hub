@@ -13,12 +13,16 @@ mod cors;
 mod public_destination;
 mod query;
 mod response;
+mod self_hosts;
 
 pub use access_token::{AccessToken, AccessTokenError, AccessTokens};
 pub use broker::{RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, ResourceKind};
 pub use cors::{CorsOriginError, CorsOrigins};
 pub use public_destination::is_globally_reachable;
 pub use response::HttpResponse;
+pub use self_hosts::{SelfHostError, SelfHosts};
+
+use self_hosts::is_canonical_dns_name;
 
 use broker::{BrokerSession, HeaderObservation, LoadedRemote, RemoteLoadBatch, RemoteResource};
 use response::{
@@ -102,68 +106,6 @@ impl fmt::Debug for HttpRequest<'_> {
             .field("origin", &self.origin)
             .finish()
     }
-}
-
-pub struct SelfHosts {
-    hosts: Vec<String>,
-}
-
-impl SelfHosts {
-    /// Builds the bounded set of deployment hostnames that remote loading must never target.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SelfHostError`] when the set has more than 16 entries or contains a value that is
-    /// not a canonical ASCII DNS hostname. An empty set is valid when the host supplies the
-    /// inbound request hostname as an additive self-target deny.
-    pub fn new<I, S>(hosts: I) -> Result<Self, SelfHostError>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let hosts = hosts
-            .into_iter()
-            .map(|host| host.as_ref().to_owned())
-            .collect::<Vec<_>>();
-        if hosts.len() > 16 || hosts.iter().any(|host| !is_canonical_dns_name(host)) {
-            return Err(SelfHostError);
-        }
-        Ok(Self { hosts })
-    }
-}
-
-impl fmt::Debug for SelfHosts {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("SelfHosts")
-            .field("host_count", &self.hosts.len())
-            .finish()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SelfHostError;
-
-impl fmt::Display for SelfHostError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("invalid self host configuration")
-    }
-}
-
-impl std::error::Error for SelfHostError {}
-
-fn is_canonical_dns_name(host: &str) -> bool {
-    !host.is_empty()
-        && host.len() <= 253
-        && host.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'.')
-        })
-        && host.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-        })
 }
 
 pub struct Application<A> {
@@ -992,7 +934,10 @@ fn canonical_remote_url(
     if !is_canonical_dns_name(&host)
         || is_lexically_forbidden_host(&host)
         || host == inbound_host
-        || self_hosts.hosts.iter().any(|candidate| candidate == &host)
+        || self_hosts
+            .as_slice()
+            .iter()
+            .any(|candidate| candidate == &host)
     {
         return Err(());
     }
