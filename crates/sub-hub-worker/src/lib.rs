@@ -5,10 +5,9 @@ use http::{HeaderName, StatusCode, header};
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, RemoteAdapter,
     RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, accept_canonical_content_length,
-    accept_identity_content_encoding, is_followed_redirect, observed_subscription_user_info,
-    parse_redirect_location,
+    accept_identity_content_encoding, canonicalize_inbound_host, is_followed_redirect,
+    observed_subscription_user_info, parse_redirect_location,
 };
-use url::Host;
 use worker::wasm_bindgen::JsCast;
 use worker::{
     AbortController, CacheMode, Context, Delay, Env, Fetch, Headers, Request, RequestInit,
@@ -300,28 +299,7 @@ fn optional_binding(environment: &Env, name: &str) -> Result<Option<String>, ()>
 }
 
 fn normalize_request_hostname(url: &url::Url) -> Option<String> {
-    match url.host()? {
-        Host::Domain(host) => {
-            let host = host.trim_end_matches('.').to_ascii_lowercase();
-            is_dns_name(&host).then_some(host)
-        }
-        Host::Ipv4(address) => Some(address.to_string()),
-        Host::Ipv6(address) => Some(address.to_string()),
-    }
-}
-
-fn is_dns_name(host: &str) -> bool {
-    !host.is_empty()
-        && host.len() <= 253
-        && host.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'.')
-        })
-        && host.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-        })
+    canonicalize_inbound_host(url.host_str()?)
 }
 
 fn map_application_response(application: sub_hub_http::HttpResponse) -> worker::Result<Response> {

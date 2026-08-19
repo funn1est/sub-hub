@@ -5,6 +5,7 @@ mod acl4ssr;
 mod application;
 mod broker;
 mod cors;
+mod inbound_host;
 mod public_destination;
 mod query;
 mod remote_https;
@@ -18,6 +19,7 @@ pub use access_token::{AccessToken, AccessTokenError, AccessTokens};
 pub use application::Application;
 pub use broker::{RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, ResourceKind};
 pub use cors::{CorsOriginError, CorsOrigins};
+pub use inbound_host::canonicalize_inbound_host;
 pub use public_destination::is_globally_reachable;
 pub use remote_https::{
     RemoteHttpsError, accept_canonical_content_length, accept_identity_content_encoding,

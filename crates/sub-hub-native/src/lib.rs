@@ -17,8 +17,8 @@ use std::{
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HttpRequest, RemoteAdapter, RemoteAttempt,
     RemoteFetchError, RemoteResponse, SelfHosts, accept_canonical_content_length,
-    accept_identity_content_encoding, is_followed_redirect, is_globally_reachable,
-    observed_subscription_user_info, parse_redirect_location,
+    accept_identity_content_encoding, canonicalize_inbound_host, is_followed_redirect,
+    is_globally_reachable, observed_subscription_user_info, parse_redirect_location,
 };
 use url::{Host, Url};
 
@@ -544,24 +544,7 @@ fn normalize_authority_host(raw: &str) -> Option<String> {
         return None;
     }
 
-    if let Some(address) = raw_host
-        .strip_prefix('[')
-        .and_then(|host| host.strip_suffix(']'))
-    {
-        return address
-            .parse::<std::net::Ipv6Addr>()
-            .ok()
-            .map(|ip| ip.to_string());
-    }
-
-    match Host::parse(raw_host).ok()? {
-        Host::Domain(host) => {
-            let host = host.trim_end_matches('.').to_ascii_lowercase();
-            is_dns_name(&host).then_some(host)
-        }
-        Host::Ipv4(address) => Some(address.to_string()),
-        Host::Ipv6(address) => Some(address.to_string()),
-    }
+    canonicalize_inbound_host(raw_host)
 }
 
 fn invalid_request_response(suppress_body: bool) -> Response<Body> {
@@ -586,20 +569,6 @@ fn unicode_environment_value(name: &str) -> Result<Option<String>, ConfigError> 
     std::env::var_os(name)
         .map(|value| value.into_string().map_err(|_| ConfigError))
         .transpose()
-}
-
-fn is_dns_name(host: &str) -> bool {
-    !host.is_empty()
-        && host.len() <= 253
-        && host.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'.')
-        })
-        && host.split('.').all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-        })
 }
 
 #[cfg(test)]
