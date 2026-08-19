@@ -1,10 +1,20 @@
 import * as React from "react"
 import {
+  CircleAlertIcon,
   CopyIcon,
   DownloadIcon,
   EyeIcon,
   EyeOffIcon,
+  FileCode2Icon,
+  GlobeIcon,
+  Link2Icon,
+  MonitorIcon,
+  MoonIcon,
   PlusIcon,
+  ServerIcon,
+  Settings2Icon,
+  ShieldAlertIcon,
+  SunIcon,
   Trash2Icon,
 } from "lucide-react"
 
@@ -13,8 +23,10 @@ import { Badge } from "@/components/ui/badge.tsx"
 import { Button } from "@/components/ui/button.tsx"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card.tsx"
@@ -22,11 +34,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
-  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.tsx"
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
@@ -76,6 +91,7 @@ import {
 type WorkshopProps = {
   state: PersistedWorkshop
   onChange: (next: PersistedWorkshop) => void
+  banner?: React.ReactNode
 }
 
 type VersionState =
@@ -100,7 +116,7 @@ type PreviewState =
     }
   | { status: "unreachable"; cause: FetchFailure }
 
-export function Workshop({ state, onChange }: WorkshopProps) {
+export function Workshop({ state, onChange, banner }: WorkshopProps) {
   const copy = t(state.locale)
   const assembled = assembleSubscription(state)
   const originValid =
@@ -180,7 +196,9 @@ export function Workshop({ state, onChange }: WorkshopProps) {
       return
     }
     setPasteError(null)
-    setPasteWarnings(parsed.warnings.map((warning) => copy.pasteWarnings[warning]))
+    setPasteWarnings(
+      parsed.warnings.map((warning) => copy.pasteWarnings[warning])
+    )
     onChange({
       ...state,
       serviceOrigin: parsed.workshop.serviceOrigin ?? state.serviceOrigin,
@@ -223,8 +241,9 @@ export function Workshop({ state, onChange }: WorkshopProps) {
         viewText: truncated.text,
         truncated: truncated.truncated,
         filename:
-          filenameFromDisposition(response.headers.get("content-disposition")) ??
-          fallbackDownloadName(state.target),
+          filenameFromDisposition(
+            response.headers.get("content-disposition")
+          ) ?? fallbackDownloadName(state.target),
       })
     } catch {
       setPreview({
@@ -256,38 +275,57 @@ export function Workshop({ state, onChange }: WorkshopProps) {
     (state.target === "clash" || state.target === "mihomo")
 
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-6 p-6">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="font-heading text-2xl font-medium">{copy.title}</h1>
-          <p className="text-sm text-muted-foreground">{copy.tagline}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <LocaleMenu
-            label={copy.language}
-            locale={state.locale}
-            onChange={(locale) => patch({ locale })}
-          />
-          <ThemeMenu
-            label={copy.theme}
-            theme={state.theme}
-            system={copy.themeSystem}
-            light={copy.themeLight}
-            dark={copy.themeDark}
-            onChange={(theme) => patch({ theme })}
-          />
+    <div className="console-shell relative isolate">
+      <div className="console-shell-bg" aria-hidden />
+      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-6 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <img
+              src="/icon.svg"
+              alt=""
+              className="size-9 rounded-[10px] ring-1 ring-foreground/10"
+            />
+            <div className="min-w-0">
+              <h1 className="truncate font-heading text-base font-medium tracking-tight">
+                {copy.title}
+              </h1>
+              <p className="hidden truncate text-xs text-muted-foreground sm:block">
+                {copy.tagline}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <LocaleMenu
+              label={copy.language}
+              locale={state.locale}
+              onChange={(locale) => patch({ locale })}
+            />
+            <ThemeMenu
+              label={copy.theme}
+              theme={state.theme}
+              system={copy.themeSystem}
+              light={copy.themeLight}
+              dark={copy.themeDark}
+              onChange={(theme) => patch({ theme })}
+            />
+          </div>
         </div>
       </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{copy.service}</CardTitle>
-          <CardDescription>{copy.serviceDescription}</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
+        {banner}
+
+        <SectionCard
+          icon={<ServerIcon />}
+          title={copy.service}
+          description={copy.serviceDescription}
+          action={<VersionBadge state={version} copy={copy} />}
+        >
           <FieldGroup>
             <Field data-invalid={!originValid || undefined}>
-              <FieldLabel htmlFor="service-origin">{copy.serviceOrigin}</FieldLabel>
+              <FieldLabel htmlFor="service-origin">
+                {copy.serviceOrigin}
+              </FieldLabel>
               <InputGroup>
                 <InputGroupInput
                   id="service-origin"
@@ -296,10 +334,15 @@ export function Workshop({ state, onChange }: WorkshopProps) {
                   spellCheck={false}
                   aria-invalid={!originValid || undefined}
                   placeholder="http://127.0.0.1:25500"
-                  onChange={(event) => patch({ serviceOrigin: event.target.value })}
+                  onChange={(event) =>
+                    patch({ serviceOrigin: event.target.value })
+                  }
                   onBlur={() => {
                     const canonical = parseServiceOrigin(state.serviceOrigin)
-                    if (canonical !== null && canonical !== state.serviceOrigin) {
+                    if (
+                      canonical !== null &&
+                      canonical !== state.serviceOrigin
+                    ) {
                       patch({ serviceOrigin: canonical })
                     }
                   }}
@@ -317,7 +360,9 @@ export function Workshop({ state, onChange }: WorkshopProps) {
                   autoComplete="off"
                   spellCheck={false}
                   aria-invalid={!tokenValid || undefined}
-                  onChange={(event) => patch({ accessToken: event.target.value })}
+                  onChange={(event) =>
+                    patch({ accessToken: event.target.value })
+                  }
                 />
                 <InputGroupAddon align="inline-end">
                   <InputGroupButton
@@ -331,237 +376,336 @@ export function Workshop({ state, onChange }: WorkshopProps) {
               </InputGroup>
               <FieldDescription>{copy.accessTokenHint}</FieldDescription>
             </Field>
-            <VersionStatus state={version} copy={copy} />
+            <VersionAlert state={version} copy={copy} />
           </FieldGroup>
-        </CardContent>
-      </Card>
+        </SectionCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{copy.sources}</CardTitle>
-          <CardDescription>{copy.sourcesDescription}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            {state.sources.map((source, index) => {
-              const invalid = source.includes("|")
-              return (
-                <Field key={index} data-invalid={invalid || undefined}>
-                  <FieldLabel htmlFor={`source-${index}`}>
-                    {copy.sourceN} {index + 1}
-                  </FieldLabel>
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
+          <div className="flex flex-col gap-6">
+            <SectionCard
+              icon={<Link2Icon />}
+              title={copy.sources}
+              description={copy.sourcesDescription}
+            >
+              <FieldGroup>
+                {state.sources.map((source, index) => {
+                  const invalid = source.includes("|")
+                  return (
+                    <Field key={index} data-invalid={invalid || undefined}>
+                      <FieldLabel
+                        htmlFor={`source-${index}`}
+                        className="sr-only"
+                      >
+                        {copy.sourceN} {index + 1}
+                      </FieldLabel>
+                      <InputGroup>
+                        <InputGroupAddon align="inline-start">
+                          <span className="w-4 text-center text-xs text-muted-foreground tabular-nums">
+                            {index + 1}
+                          </span>
+                        </InputGroupAddon>
+                        <InputGroupInput
+                          id={`source-${index}`}
+                          value={source}
+                          spellCheck={false}
+                          aria-invalid={invalid || undefined}
+                          onChange={(event) => {
+                            const next = state.sources.slice()
+                            next[index] = event.target.value
+                            setSources(next)
+                          }}
+                        />
+                        {state.sources.length > 1 ? (
+                          <InputGroupAddon align="inline-end">
+                            <InputGroupButton
+                              size="icon-xs"
+                              aria-label={copy.removeSource}
+                              onClick={() => {
+                                setSources(
+                                  state.sources.filter(
+                                    (_, item) => item !== index
+                                  )
+                                )
+                              }}
+                            >
+                              <Trash2Icon />
+                            </InputGroupButton>
+                          </InputGroupAddon>
+                        ) : null}
+                      </InputGroup>
+                    </Field>
+                  )
+                })}
+                {state.sources.length < MAX_SOURCES ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setSources([...state.sources, ""])}
+                  >
+                    <PlusIcon data-icon="inline-start" />
+                    {copy.addSource}
+                  </Button>
+                ) : null}
+              </FieldGroup>
+            </SectionCard>
+
+            <SectionCard icon={<Settings2Icon />} title={copy.options}>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>{copy.target}</FieldLabel>
+                  <ToggleGroup
+                    variant="outline"
+                    size="sm"
+                    value={[state.target]}
+                    onValueChange={(value) => {
+                      const next = value[0]
+                      if (next !== undefined) {
+                        patch({ target: next as Target })
+                      }
+                    }}
+                    spacing={2}
+                    className="flex-wrap"
+                  >
+                    {TARGETS.map((target) => (
+                      <ToggleGroupItem key={target} value={target}>
+                        {target}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </Field>
+                <Field>
+                  <FieldLabel>{copy.config}</FieldLabel>
+                  <ToggleGroup
+                    variant="outline"
+                    size="sm"
+                    value={[preset === "custom" ? "custom" : preset]}
+                    onValueChange={(value) => {
+                      const next = value[0]
+                      if (next === "builtin") {
+                        patch({ configUrl: "" })
+                      } else if (next === "online") {
+                        patch({ configUrl: ACL4SSR_ONLINE_URL })
+                      } else if (next === "full") {
+                        patch({ configUrl: ACL4SSR_FULL_URL })
+                      }
+                    }}
+                    spacing={2}
+                    className="flex-wrap"
+                  >
+                    <ToggleGroupItem value="builtin">
+                      {copy.configBuiltin}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="online">
+                      {copy.configOnline}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="full">
+                      {copy.configFull}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="custom">
+                      {copy.configCustom}
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </Field>
+                <Field data-invalid={!configValid || undefined}>
+                  <FieldLabel htmlFor="config-url">{copy.configUrl}</FieldLabel>
                   <InputGroup>
                     <InputGroupInput
-                      id={`source-${index}`}
-                      value={source}
+                      id="config-url"
+                      value={state.configUrl}
                       spellCheck={false}
-                      aria-invalid={invalid || undefined}
-                      onChange={(event) => {
-                        const next = state.sources.slice()
-                        next[index] = event.target.value
-                        setSources(next)
-                      }}
+                      aria-invalid={!configValid || undefined}
+                      placeholder="https://"
+                      onChange={(event) =>
+                        patch({ configUrl: event.target.value })
+                      }
                     />
-                    {state.sources.length > 1 ? (
-                      <InputGroupAddon align="inline-end">
-                        <InputGroupButton
-                          size="icon-xs"
-                          aria-label={copy.removeSource}
-                          onClick={() => {
-                            setSources(state.sources.filter((_, item) => item !== index))
-                          }}
-                        >
-                          <Trash2Icon />
-                        </InputGroupButton>
-                      </InputGroupAddon>
-                    ) : null}
                   </InputGroup>
                 </Field>
-              )
-            })}
-            {state.sources.length < MAX_SOURCES ? (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setSources([...state.sources, ""])}
-              >
-                <PlusIcon data-icon="inline-start" />
-                {copy.addSource}
-              </Button>
-            ) : null}
-          </FieldGroup>
-        </CardContent>
-      </Card>
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldLabel htmlFor="append-info">
+                      {copy.appendInfo}
+                    </FieldLabel>
+                    <FieldDescription>{copy.appendInfoHint}</FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    id="append-info"
+                    checked={state.appendInfo}
+                    onCheckedChange={(checked) =>
+                      patch({ appendInfo: checked })
+                    }
+                  />
+                </Field>
+              </FieldGroup>
+            </SectionCard>
+          </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{copy.options}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            <Field>
-              <FieldLabel>{copy.target}</FieldLabel>
-              <ToggleGroup
-                value={[state.target]}
-                onValueChange={(value) => {
-                  const next = value[0]
-                  if (next !== undefined) {
-                    patch({ target: next as Target })
-                  }
-                }}
-                spacing={2}
-                className="flex-wrap"
-              >
-                {TARGETS.map((target) => (
-                  <ToggleGroupItem key={target} value={target}>
-                    {target}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </Field>
-            <Field>
-              <FieldLabel>{copy.config}</FieldLabel>
-              <ToggleGroup
-                value={[preset === "custom" ? "custom" : preset]}
-                onValueChange={(value) => {
-                  const next = value[0]
-                  if (next === "builtin") {
-                    patch({ configUrl: "" })
-                  } else if (next === "online") {
-                    patch({ configUrl: ACL4SSR_ONLINE_URL })
-                  } else if (next === "full") {
-                    patch({ configUrl: ACL4SSR_FULL_URL })
-                  }
-                }}
-                spacing={2}
-                className="flex-wrap"
-              >
-                <ToggleGroupItem value="builtin">{copy.configBuiltin}</ToggleGroupItem>
-                <ToggleGroupItem value="online">{copy.configOnline}</ToggleGroupItem>
-                <ToggleGroupItem value="full">{copy.configFull}</ToggleGroupItem>
-                <ToggleGroupItem value="custom">{copy.configCustom}</ToggleGroupItem>
-              </ToggleGroup>
-            </Field>
-            <Field data-invalid={!configValid || undefined}>
-              <FieldLabel htmlFor="config-url">{copy.configUrl}</FieldLabel>
-              <InputGroup>
-                <InputGroupInput
-                  id="config-url"
-                  value={state.configUrl}
-                  spellCheck={false}
-                  aria-invalid={!configValid || undefined}
-                  placeholder="https://"
-                  onChange={(event) => patch({ configUrl: event.target.value })}
+          <div className="flex flex-col gap-6 lg:sticky lg:top-24 lg:self-start">
+            <Card>
+              <CardHeader className="border-b">
+                <SectionHeading
+                  icon={<GlobeIcon />}
+                  title={copy.subscription}
+                  description={copy.subscriptionDescription}
                 />
-              </InputGroup>
-            </Field>
-            <Field orientation="horizontal">
-              <FieldLabel htmlFor="append-info">{copy.appendInfo}</FieldLabel>
-              <Switch
-                id="append-info"
-                checked={state.appendInfo}
-                onCheckedChange={(checked) => patch({ appendInfo: checked })}
-              />
-              <FieldDescription>{copy.appendInfoHint}</FieldDescription>
-            </Field>
-          </FieldGroup>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{copy.subscription}</CardTitle>
-          <CardDescription>{copy.subscriptionDescription}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="subscription-url">{copy.subscription}</FieldLabel>
-              <Textarea
-                id="subscription-url"
-                readOnly
-                value={assembled.url ?? ""}
-                rows={3}
-                className="font-mono text-xs"
-              />
-            </Field>
-            {assembled.overLimit ? (
-              <Alert variant="destructive">
-                <AlertTitle>{copy.overLimit}</AlertTitle>
-              </Alert>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                onClick={() => void onCopy()}
-                disabled={assembled.url === null}
-              >
-                <CopyIcon data-icon="inline-start" />
-                {copy.copyUrl}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => void onPreview()}
-                disabled={!previewEnabled || preview.status === "loading"}
-              >
-                {preview.status === "loading" ? (
-                  <Spinner data-icon="inline-start" />
-                ) : null}
-                {preview.status === "loading" ? copy.previewing : copy.preview}
-              </Button>
-              {showClash && assembled.url !== null ? (
+              </CardHeader>
+              <CardContent>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="subscription-url" className="sr-only">
+                      {copy.subscription}
+                    </FieldLabel>
+                    <Textarea
+                      id="subscription-url"
+                      readOnly
+                      value={assembled.url ?? ""}
+                      rows={4}
+                      placeholder={copy.previewBlocked}
+                      className="font-mono text-xs"
+                    />
+                  </Field>
+                  {assembled.overLimit ? (
+                    <Alert variant="destructive">
+                      <CircleAlertIcon />
+                      <AlertTitle>{copy.overLimit}</AlertTitle>
+                    </Alert>
+                  ) : null}
+                </FieldGroup>
+              </CardContent>
+              <CardFooter className="flex-wrap gap-2">
                 <Button
-                  nativeButton={false}
-                  variant="outline"
-                  render={<a href={clashInstallUrl(assembled.url)} />}
+                  type="button"
+                  onClick={() => void onCopy()}
+                  disabled={assembled.url === null}
                 >
-                  {copy.clashInstall}
+                  <CopyIcon data-icon="inline-start" />
+                  {copy.copyUrl}
                 </Button>
-              ) : null}
-            </div>
-            <Field data-invalid={pasteError !== null || undefined}>
-              <FieldLabel htmlFor="paste-url">{copy.pasteUrl}</FieldLabel>
-              <Textarea
-                id="paste-url"
-                value={pasteRaw}
-                spellCheck={false}
-                aria-invalid={pasteError !== null || undefined}
-                rows={3}
-                className="font-mono text-xs"
-                onChange={(event) => {
-                  setPasteRaw(event.target.value)
-                  setPasteError(null)
-                }}
-              />
-              <FieldDescription>{copy.pasteUrlHint}</FieldDescription>
-              {pasteError !== null ? <FieldError>{pasteError}</FieldError> : null}
-            </Field>
-            <Button type="button" variant="outline" onClick={onImport}>
-              {copy.import}
-            </Button>
-            {pasteWarnings.map((warning) => (
-              <Alert key={warning}>
-                <AlertDescription>{warning}</AlertDescription>
-              </Alert>
-            ))}
-          </FieldGroup>
-        </CardContent>
-      </Card>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void onPreview()}
+                  disabled={!previewEnabled || preview.status === "loading"}
+                >
+                  {preview.status === "loading" ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : null}
+                  {preview.status === "loading"
+                    ? copy.previewing
+                    : copy.preview}
+                </Button>
+                {showClash && assembled.url !== null ? (
+                  <Button
+                    nativeButton={false}
+                    variant="outline"
+                    render={<a href={clashInstallUrl(assembled.url)} />}
+                  >
+                    {copy.clashInstall}
+                  </Button>
+                ) : null}
+              </CardFooter>
+            </Card>
 
-      <PreviewCard
-        locale={state.locale}
-        preview={preview}
-        copy={copy}
-        onDownload={onDownload}
-      />
+            <SectionCard icon={<FileCode2Icon />} title={copy.pasteUrl}>
+              <FieldGroup>
+                <Field data-invalid={pasteError !== null || undefined}>
+                  <FieldLabel htmlFor="paste-url" className="sr-only">
+                    {copy.pasteUrl}
+                  </FieldLabel>
+                  <Textarea
+                    id="paste-url"
+                    value={pasteRaw}
+                    spellCheck={false}
+                    aria-invalid={pasteError !== null || undefined}
+                    rows={3}
+                    className="font-mono text-xs"
+                    onChange={(event) => {
+                      setPasteRaw(event.target.value)
+                      setPasteError(null)
+                    }}
+                  />
+                  <FieldDescription>{copy.pasteUrlHint}</FieldDescription>
+                  {pasteError !== null ? (
+                    <FieldError>{pasteError}</FieldError>
+                  ) : null}
+                </Field>
+                <Button type="button" variant="outline" onClick={onImport}>
+                  {copy.import}
+                </Button>
+                {pasteWarnings.map((warning) => (
+                  <Alert key={warning}>
+                    <CircleAlertIcon />
+                    <AlertDescription>{warning}</AlertDescription>
+                  </Alert>
+                ))}
+              </FieldGroup>
+            </SectionCard>
+          </div>
+        </div>
 
-      <p className="pb-6 text-xs text-muted-foreground">{copy.agpl}</p>
+        <PreviewCard
+          locale={state.locale}
+          preview={preview}
+          copy={copy}
+          onDownload={onDownload}
+        />
+
+        <p className="pb-4 text-center text-xs text-muted-foreground">
+          {copy.agpl}
+        </p>
+      </main>
     </div>
   )
 }
 
-function VersionStatus({
+function SectionHeading({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode
+  title: string
+  description?: string
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground [&_svg]:size-4">
+        {icon}
+      </span>
+      <div className="flex min-w-0 flex-col gap-1">
+        <CardTitle>{title}</CardTitle>
+        {description ? <CardDescription>{description}</CardDescription> : null}
+      </div>
+    </div>
+  )
+}
+
+function SectionCard({
+  icon,
+  title,
+  description,
+  action,
+  children,
+}: {
+  icon: React.ReactNode
+  title: string
+  description?: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <SectionHeading icon={icon} title={title} description={description} />
+        {action ? <CardAction>{action}</CardAction> : null}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  )
+}
+
+function VersionBadge({
   state,
   copy,
 }: {
@@ -573,27 +717,42 @@ function VersionStatus({
   }
   if (state.status === "checking") {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Badge variant="outline">
         <Spinner />
-        {copy.versionChecking}
-      </div>
+        <span className="sr-only">{copy.versionChecking}</span>
+      </Badge>
     )
   }
   if (state.status === "ok") {
     return <Badge variant="secondary">{state.body}</Badge>
   }
+  return <Badge variant="destructive">{copy.versionIssue}</Badge>
+}
+
+function VersionAlert({
+  state,
+  copy,
+}: {
+  state: VersionState
+  copy: ReturnType<typeof t>
+}) {
   if (state.status === "other") {
     return (
       <Alert>
+        <CircleAlertIcon />
         <AlertTitle>{copy.versionOther}</AlertTitle>
       </Alert>
     )
   }
-  return (
-    <Alert>
-      <AlertTitle>{copy.versionUnreachable}</AlertTitle>
-    </Alert>
-  )
+  if (state.status === "unreachable") {
+    return (
+      <Alert>
+        <CircleAlertIcon />
+        <AlertTitle>{copy.versionUnreachable}</AlertTitle>
+      </Alert>
+    )
+  }
+  return null
 }
 
 function PreviewCard({
@@ -607,8 +766,19 @@ function PreviewCard({
   copy: ReturnType<typeof t>
   onDownload: () => void
 }) {
-  if (preview.status === "idle" || preview.status === "loading") {
+  if (preview.status === "idle") {
     return null
+  }
+
+  if (preview.status === "loading") {
+    return (
+      <SectionCard icon={<FileCode2Icon />} title={copy.preview}>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner />
+          {copy.previewing}
+        </div>
+      </SectionCard>
+    )
   }
 
   if (preview.status === "unreachable") {
@@ -619,16 +789,12 @@ function PreviewCard({
           ? copy.unreachableLna
           : copy.unreachableCors
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{copy.preview}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Alert>
-            <AlertTitle>{title}</AlertTitle>
-          </Alert>
-        </CardContent>
-      </Card>
+      <SectionCard icon={<FileCode2Icon />} title={copy.preview}>
+        <Alert>
+          <CircleAlertIcon />
+          <AlertTitle>{title}</AlertTitle>
+        </Alert>
+      </SectionCard>
     )
   }
 
@@ -638,19 +804,23 @@ function PreviewCard({
       : `${copy.status} ${preview.httpStatus}`
   const skipped = parseSkippedHeader(
     preview.headers.find((header) => header.name === "x-subconverter-skipped")
-      ?.value ?? null,
+      ?.value ?? null
   )
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>{copy.preview}</CardTitle>
-        <CardDescription>{errorTitle}</CardDescription>
+      <CardHeader className="border-b">
+        <SectionHeading
+          icon={<FileCode2Icon />}
+          title={copy.preview}
+          description={errorTitle}
+        />
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-4">
           {preview.kind.kind === "known-error" ? (
             <Alert variant="destructive">
+              <CircleAlertIcon />
               <AlertTitle>{errorTitle}</AlertTitle>
               <AlertDescription className="font-mono">
                 {preview.kind.body}
@@ -659,6 +829,7 @@ function PreviewCard({
           ) : null}
           {skipped !== null ? (
             <Alert>
+              <CircleAlertIcon />
               <AlertTitle>{copy.skipped}</AlertTitle>
               <AlertDescription>
                 {skippedSummary(locale, skipped)}
@@ -666,15 +837,20 @@ function PreviewCard({
             </Alert>
           ) : null}
           <Alert>
+            <ShieldAlertIcon />
             <AlertTitle>{copy.secretWarning}</AlertTitle>
           </Alert>
           {preview.headers.length > 0 ? (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-2">
               <p className="text-sm font-medium">{copy.headers}</p>
-              <ul className="flex flex-col gap-1 font-mono text-xs">
+              <ul className="flex flex-col gap-px overflow-hidden rounded-lg bg-muted/60 p-1">
                 {preview.headers.map((header) => (
-                  <li key={header.name}>
-                    {header.name}: {header.value}
+                  <li
+                    key={header.name}
+                    className="flex flex-wrap gap-x-3 gap-y-1 rounded-md px-2.5 py-1.5 font-mono text-xs"
+                  >
+                    <span className="text-muted-foreground">{header.name}</span>
+                    <span className="min-w-0 break-all">{header.value}</span>
                   </li>
                 ))}
               </ul>
@@ -685,20 +861,22 @@ function PreviewCard({
             {preview.truncated ? (
               <p className="text-sm text-muted-foreground">{copy.truncated}</p>
             ) : null}
-            <ScrollArea className="h-80 rounded-lg border">
-              <pre className="whitespace-pre-wrap break-all p-3 font-mono text-xs">
+            <ScrollArea className="h-80 rounded-lg border bg-muted/30">
+              <pre className="p-3 font-mono text-xs break-all whitespace-pre-wrap">
                 {preview.viewText}
               </pre>
             </ScrollArea>
           </div>
-          {preview.httpStatus === 200 ? (
-            <Button type="button" variant="outline" onClick={onDownload}>
-              <DownloadIcon data-icon="inline-start" />
-              {copy.download}
-            </Button>
-          ) : null}
         </div>
       </CardContent>
+      {preview.httpStatus === 200 ? (
+        <CardFooter>
+          <Button type="button" variant="outline" onClick={onDownload}>
+            <DownloadIcon data-icon="inline-start" />
+            {copy.download}
+          </Button>
+        </CardFooter>
+      ) : null}
     </Card>
   )
 }
@@ -715,12 +893,22 @@ function LocaleMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
-        {label}: {locale === "zh" ? "中文" : "English"}
+        {locale === "zh" ? "中文" : "EN"}
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
+      <DropdownMenuContent align="end" className="min-w-36">
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => onChange("zh")}>中文</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onChange("en")}>English</DropdownMenuItem>
+          <DropdownMenuLabel>{label}</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={locale}
+            onValueChange={(value) => {
+              if (value === "zh" || value === "en") {
+                onChange(value)
+              }
+            }}
+          >
+            <DropdownMenuRadioItem value="zh">中文</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="en">English</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -742,17 +930,31 @@ function ThemeMenu({
   dark: string
   onChange: (theme: Theme) => void
 }) {
-  const current = theme === "system" ? system : theme === "light" ? light : dark
+  const Icon =
+    theme === "light" ? SunIcon : theme === "dark" ? MoonIcon : MonitorIcon
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
-        {label}: {current}
+      <DropdownMenuTrigger render={<Button variant="outline" size="icon-sm" />}>
+        <Icon />
+        <span className="sr-only">{label}</span>
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
+      <DropdownMenuContent align="end" className="min-w-36">
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => onChange("system")}>{system}</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onChange("light")}>{light}</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onChange("dark")}>{dark}</DropdownMenuItem>
+          <DropdownMenuLabel>{label}</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={theme}
+            onValueChange={(value) => {
+              if (value === "system" || value === "light" || value === "dark") {
+                onChange(value)
+              }
+            }}
+          >
+            <DropdownMenuRadioItem value="system">
+              {system}
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="light">{light}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="dark">{dark}</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>

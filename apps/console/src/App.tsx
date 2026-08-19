@@ -16,7 +16,7 @@ import { parseServiceOrigin } from "@/lib/workshop.ts"
 
 function initialState(): PersistedWorkshop {
   const envOrigin = parseServiceOrigin(
-    import.meta.env.VITE_DEFAULT_SERVICE_ORIGIN ?? "",
+    import.meta.env.VITE_DEFAULT_SERVICE_ORIGIN ?? ""
   )
   return loadPersisted(window.localStorage, {
     locale: defaultLocale(navigator.language),
@@ -38,25 +38,28 @@ export function App() {
 
   return (
     <ThemeProvider theme={state.theme}>
-      {needRefresh ? (
-        <div className="mx-auto flex w-full max-w-3xl px-6 pt-6">
-          <Alert>
-            <AlertTitle>{copy.pwaUpdate}</AlertTitle>
-            <AlertAction>
-              <Button
-                size="sm"
-                onClick={() => {
-                  void updateServiceWorker(true)
-                  setNeedRefresh(false)
-                }}
-              >
-                {copy.pwaReload}
-              </Button>
-            </AlertAction>
-          </Alert>
-        </div>
-      ) : null}
-      <Workshop state={state} onChange={setState} />
+      <Workshop
+        state={state}
+        onChange={setState}
+        banner={
+          needRefresh ? (
+            <Alert>
+              <AlertTitle>{copy.pwaUpdate}</AlertTitle>
+              <AlertAction>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    void updateServiceWorker(true)
+                    setNeedRefresh(false)
+                  }}
+                >
+                  {copy.pwaReload}
+                </Button>
+              </AlertAction>
+            </Alert>
+          ) : null
+        }
+      />
     </ThemeProvider>
   )
 }

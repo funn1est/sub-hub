@@ -35,22 +35,27 @@ const ERROR_TITLES: Record<Locale, Record<KnownServiceError, string>> = {
 export const messages = {
   en: {
     title: "Sub Hub Console",
-    tagline: "Assemble sources, preview the Conversion Service response, and emit a Subscription URL.",
+    tagline:
+      "Assemble sources, preview the Conversion Service response, and emit a Subscription URL.",
     language: "Language",
     theme: "Theme",
     themeSystem: "System",
     themeLight: "Light",
     themeDark: "Dark",
     service: "Conversion Service",
-    serviceDescription: "The origin the Console calls. This is not a Subscription URL.",
+    serviceDescription:
+      "The origin the Console calls. This is not a Subscription URL.",
     serviceOrigin: "Origin",
-    serviceOriginHint: "Absolute http(s) origin, for example http://127.0.0.1:25500",
+    serviceOriginHint:
+      "Absolute http(s) origin, for example http://127.0.0.1:25500",
     accessToken: "Access token",
-    accessTokenHint: "Empty uses /sub. A value becomes /sub/<token>. Never placed in the Console address bar.",
+    accessTokenHint:
+      "Empty uses /sub. A value becomes /sub/<token>. Never placed in the Console address bar.",
     showToken: "Show token",
     hideToken: "Hide token",
     versionChecking: "Checking /version…",
     versionOk: "Conversion Service",
+    versionIssue: "Unreachable",
     versionOther: "This origin is not a Sub Hub Conversion Service.",
     versionUnreachable:
       "This origin did not allow the Console to read /version. Set SUB_HUB_CORS_ORIGINS on the Conversion Service to this Console origin.",
@@ -71,17 +76,21 @@ export const messages = {
     appendInfo: "Append profile-update-interval",
     appendInfoHint: "On by default. Turning this off sends append_info=false.",
     subscription: "Subscription URL",
-    subscriptionDescription: "The importable URL a client fetches. Preview uses this exact URL.",
+    subscriptionDescription:
+      "The importable URL a client fetches. Preview uses this exact URL.",
     copyUrl: "Copy URL",
     copied: "Copied",
     copyFailed: "Could not copy",
     pasteUrl: "Import Subscription URL",
-    pasteUrlHint: "Paste a /sub or /sub/<token> URL to fill the form. This field is not the Console location.",
+    pasteUrlHint:
+      "Paste a /sub or /sub/<token> URL to fill the form. This field is not the Console location.",
     import: "Import",
     importInvalid: "That is not a Conversion Service Subscription URL.",
-    overLimit: "This GET target is 8 KiB or larger. Preview is blocked; the Conversion Service will return 414.",
+    overLimit:
+      "This GET target is 8 KiB or larger. Preview is blocked; the Conversion Service will return 414.",
     preview: "Preview",
-    previewBlocked: "Complete the origin, token, and at least one source before Preview.",
+    previewBlocked:
+      "Complete the origin, token, and at least one source before Preview.",
     previewing: "Previewing…",
     download: "Download",
     clashInstall: "Open in Clash",
@@ -102,16 +111,20 @@ export const messages = {
     pwaReload: "Reload",
     agpl: "Licensed under AGPL-3.0-or-later. This repository does not operate a public instance.",
     pasteWarnings: {
-      "unknown-keys": "Unknown query keys were ignored and will not be copied onto a new URL.",
-      "duplicate-keys": "Duplicate query keys were ignored after the first value.",
+      "unknown-keys":
+        "Unknown query keys were ignored and will not be copied onto a new URL.",
+      "duplicate-keys":
+        "Duplicate query keys were ignored after the first value.",
       "invalid-target": "The pasted target is not a released token.",
-      "invalid-token": "The pasted path token is not valid AccessToken grammar.",
+      "invalid-token":
+        "The pasted path token is not valid AccessToken grammar.",
       "invalid-append-info": "The pasted append_info value was ignored.",
     } satisfies Record<PasteWarning, string>,
   },
   zh: {
     title: "Sub Hub Console",
-    tagline: "组装源与选项、预览 Conversion Service 响应，并导出 Subscription URL。",
+    tagline:
+      "组装源与选项、预览 Conversion Service 响应，并导出 Subscription URL。",
     language: "语言",
     theme: "主题",
     themeSystem: "跟随系统",
@@ -122,11 +135,13 @@ export const messages = {
     serviceOrigin: "Origin",
     serviceOriginHint: "绝对 http(s) origin，例如 http://127.0.0.1:25500",
     accessToken: "Access token",
-    accessTokenHint: "留空使用 /sub。填写后成为 /sub/<token>。不会进入 Console 地址栏。",
+    accessTokenHint:
+      "留空使用 /sub。填写后成为 /sub/<token>。不会进入 Console 地址栏。",
     showToken: "显示 token",
     hideToken: "隐藏 token",
     versionChecking: "正在检查 /version…",
     versionOk: "Conversion Service",
+    versionIssue: "无法连接",
     versionOther: "这个 origin 不是 Sub Hub Conversion Service。",
     versionUnreachable:
       "这个 origin 未允许 Console 读取 /version。请在 Conversion Service 上把本 Console origin 写入 SUB_HUB_CORS_ORIGINS。",
@@ -147,21 +162,25 @@ export const messages = {
     appendInfo: "附加 profile-update-interval",
     appendInfoHint: "默认开启。关闭时发送 append_info=false。",
     subscription: "Subscription URL",
-    subscriptionDescription: "客户端导入的转换 URL。Preview 会 GET 同一条 URL。",
+    subscriptionDescription:
+      "客户端导入的转换 URL。Preview 会 GET 同一条 URL。",
     copyUrl: "复制 URL",
     copied: "已复制",
     copyFailed: "无法复制",
     pasteUrl: "导入 Subscription URL",
-    pasteUrlHint: "粘贴 /sub 或 /sub/<token> URL 以回填表单。此框不是 Console 地址栏。",
+    pasteUrlHint:
+      "粘贴 /sub 或 /sub/<token> URL 以回填表单。此框不是 Console 地址栏。",
     import: "导入",
     importInvalid: "这不是 Conversion Service 的 Subscription URL。",
-    overLimit: "这条 GET 目标已达到或超过 8 KiB。Preview 已阻止；Conversion Service 会返回 414。",
+    overLimit:
+      "这条 GET 目标已达到或超过 8 KiB。Preview 已阻止；Conversion Service 会返回 414。",
     preview: "Preview",
     previewBlocked: "请先填好 origin、token 和至少一条源，再 Preview。",
     previewing: "正在 Preview…",
     download: "下载",
     clashInstall: "在 Clash 中打开",
-    secretWarning: "Preview 正文含有节点凭据。只留在内存中，不会写入 localStorage。",
+    secretWarning:
+      "Preview 正文含有节点凭据。只留在内存中，不会写入 localStorage。",
     truncated: "页内展示已截断。下载仍使用完整 fetch 正文。",
     skipped: "已跳过的节点",
     status: "状态",
@@ -192,7 +211,10 @@ export function t(locale: Locale): Messages {
   return messages[locale]
 }
 
-export function knownErrorTitle(locale: Locale, body: KnownServiceError): string {
+export function knownErrorTitle(
+  locale: Locale,
+  body: KnownServiceError
+): string {
   return ERROR_TITLES[locale][body]
 }
 
@@ -202,21 +224,21 @@ export function skippedSummary(locale: Locale, counts: SkipCounts): string {
     parts.push(
       locale === "zh"
         ? `解析失败 ${counts.parse}`
-        : `${counts.parse} could not be parsed`,
+        : `${counts.parse} could not be parsed`
     )
   }
   if (counts.capability > 0) {
     parts.push(
       locale === "zh"
         ? `此 target 不支持 ${counts.capability}`
-        : `${counts.capability} unsupported on this target`,
+        : `${counts.capability} unsupported on this target`
     )
   }
   if (counts.name > 0) {
     parts.push(
       locale === "zh"
         ? `名称不可用 ${counts.name}`
-        : `${counts.name} had a reserved or unrepresentable name`,
+        : `${counts.name} had a reserved or unrepresentable name`
     )
   }
   const total = counts.parse + counts.capability + counts.name
