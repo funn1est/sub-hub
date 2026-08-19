@@ -10,7 +10,8 @@ use url::Url;
 
 use crate::{
     MAX_ACTIVE_RESOURCES, MAX_GET_TARGET_BYTES, MAX_TOTAL_DECODED_BYTES,
-    MAX_UNIQUE_REMOTE_RESOURCES, SelfHosts, canonical_remote_url, response::ApplicationError,
+    MAX_UNIQUE_REMOTE_RESOURCES, SelfHosts, canonical_remote_url, is_followed_redirect,
+    response::ApplicationError,
 };
 
 pub struct RemoteAttempt {
@@ -121,14 +122,7 @@ impl fmt::Debug for RemoteResponse {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let status_class = if self.status.is_success() {
             "success"
-        } else if matches!(
-            self.status,
-            StatusCode::MOVED_PERMANENTLY
-                | StatusCode::FOUND
-                | StatusCode::SEE_OTHER
-                | StatusCode::TEMPORARY_REDIRECT
-                | StatusCode::PERMANENT_REDIRECT
-        ) {
+        } else if is_followed_redirect(self.status) {
             "followed_redirect"
         } else {
             "other"

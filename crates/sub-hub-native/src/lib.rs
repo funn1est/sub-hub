@@ -16,14 +16,15 @@ use std::{
 };
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HttpRequest, RemoteAdapter, RemoteAttempt,
-    RemoteFetchError, RemoteResponse, SelfHosts, is_globally_reachable,
+    RemoteFetchError, RemoteResponse, SelfHosts, accept_canonical_content_length,
+    accept_identity_content_encoding, is_followed_redirect, is_globally_reachable,
+    observed_subscription_user_info, parse_redirect_location,
 };
 use url::{Host, Url};
 
 mod console;
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:25500";
-const MAX_LOCATION_BYTES: usize = 8_192;
 const SUBSCRIPTION_USER_INFO: &str = "subscription-userinfo";
 
 #[derive(Clone)]
@@ -344,7 +345,7 @@ async fn fetch_under_deadline(
         let location = location
             .to_str()
             .ok()
-            .filter(|value| !value.is_empty() && value.len() <= MAX_LOCATION_BYTES)
+            .and_then(|value| parse_redirect_location(value).ok())
             .ok_or(RemoteFetchError::Failure)?;
         return Ok(RemoteResponse::redirect(status, location));
     }
@@ -352,16 +353,16 @@ async fn fetch_under_deadline(
         return Ok(RemoteResponse::body(status, Vec::new()));
     }
 
-    validate_content_encoding(response.headers())?;
-    if let Some(length) = canonical_content_length(response.headers())? {
-        let maximum = u64::try_from(attempt.max_body_bytes()).unwrap_or(u64::MAX);
-        if length > maximum {
-            return Err(RemoteFetchError::Failure);
-        }
-    }
+    accept_identity_content_encoding(response.headers().get_all(header::CONTENT_ENCODING))
+        .map_err(|_| RemoteFetchError::Failure)?;
+    accept_canonical_content_length(
+        response.headers().get_all(header::CONTENT_LENGTH),
+        attempt.max_body_bytes(),
+    )
+    .map_err(|_| RemoteFetchError::Failure)?;
 
     let subscription_user_info = if attempt.capture_subscription_user_info() {
-        optional_metadata(response.headers())
+        observed_subscription_user_info(response.headers().get_all(SUBSCRIPTION_USER_INFO))
     } else {
         None
     };
@@ -415,45 +416,6 @@ fn pinned_client(
         .map_err(|_| RemoteFetchError::Failure)
 }
 
-fn validate_content_encoding(headers: &HeaderMap) -> Result<(), RemoteFetchError> {
-    let mut values = headers.get_all(header::CONTENT_ENCODING).iter();
-    let Some(value) = values.next() else {
-        return Ok(());
-    };
-    if values.next().is_some()
-        || !value
-            .to_str()
-            .is_ok_and(|value| value.trim().eq_ignore_ascii_case("identity"))
-    {
-        return Err(RemoteFetchError::Failure);
-    }
-    Ok(())
-}
-
-fn canonical_content_length(headers: &HeaderMap) -> Result<Option<u64>, RemoteFetchError> {
-    let mut values = headers.get_all(header::CONTENT_LENGTH).iter();
-    let Some(value) = values.next() else {
-        return Ok(None);
-    };
-    if values.next().is_some() {
-        return Err(RemoteFetchError::Failure);
-    }
-    let bytes = value.as_bytes();
-    if bytes.is_empty()
-        || (bytes.len() > 1 && bytes[0] == b'0')
-        || bytes.iter().any(|byte| !byte.is_ascii_digit())
-    {
-        return Err(RemoteFetchError::Failure);
-    }
-    bytes
-        .iter()
-        .try_fold(0_u64, |length, byte| {
-            length.checked_mul(10)?.checked_add(u64::from(byte - b'0'))
-        })
-        .map(Some)
-        .ok_or(RemoteFetchError::Failure)
-}
-
 fn one_required_header(
     headers: &HeaderMap,
     name: http::header::HeaderName,
@@ -464,19 +426,6 @@ fn one_required_header(
         return Err(RemoteFetchError::Failure);
     }
     Ok(value)
-}
-
-fn optional_metadata(headers: &HeaderMap) -> Option<Vec<u8>> {
-    let mut values = headers.get_all(SUBSCRIPTION_USER_INFO).iter();
-    let value = values.next()?;
-    if values.next().is_some() || value.as_bytes().len() > 256 || value.to_str().is_err() {
-        return None;
-    }
-    Some(value.as_bytes().to_vec())
-}
-
-fn is_followed_redirect(status: StatusCode) -> bool {
-    matches!(status.as_u16(), 301 | 302 | 303 | 307 | 308)
 }
 
 pub fn build_router(application: Application<NativeRemoteAdapter>) -> Router {
@@ -656,32 +605,6 @@ fn is_dns_name(host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn repeated_subscription_metadata_is_observed_as_absent() {
-        let mut headers = HeaderMap::new();
-        headers.append(
-            SUBSCRIPTION_USER_INFO,
-            HeaderValue::from_static("upload=1; download=2; total=3"),
-        );
-        headers.append(
-            SUBSCRIPTION_USER_INFO,
-            HeaderValue::from_static("upload=4; download=5; total=6"),
-        );
-
-        assert_eq!(optional_metadata(&headers), None);
-    }
-
-    #[test]
-    fn non_text_subscription_metadata_is_observed_as_absent() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            SUBSCRIPTION_USER_INFO,
-            HeaderValue::from_bytes(&[0xff]).expect("obs-text is a valid HTTP field value"),
-        );
-
-        assert_eq!(optional_metadata(&headers), None);
-    }
 
     #[test]
     fn from_environment_refuses_anonymous_non_loopback() {

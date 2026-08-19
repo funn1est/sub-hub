@@ -12,6 +12,7 @@ mod broker;
 mod cors;
 mod public_destination;
 mod query;
+mod remote_https;
 mod response;
 mod self_hosts;
 
@@ -19,6 +20,10 @@ pub use access_token::{AccessToken, AccessTokenError, AccessTokens};
 pub use broker::{RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, ResourceKind};
 pub use cors::{CorsOriginError, CorsOrigins};
 pub use public_destination::is_globally_reachable;
+pub use remote_https::{
+    RemoteHttpsError, accept_canonical_content_length, accept_identity_content_encoding,
+    is_followed_redirect, observed_subscription_user_info, parse_redirect_location,
+};
 pub use response::HttpResponse;
 pub use self_hosts::{SelfHostError, SelfHosts};
 

@@ -4,7 +4,9 @@ use futures::{StreamExt, future::Either, pin_mut};
 use http::{HeaderName, StatusCode, header};
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, RemoteAdapter,
-    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
+    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, accept_canonical_content_length,
+    accept_identity_content_encoding, is_followed_redirect, observed_subscription_user_info,
+    parse_redirect_location,
 };
 use url::Host;
 use worker::wasm_bindgen::JsCast;
@@ -17,8 +19,6 @@ use worker_macros::event;
 const SELF_HOSTS_BINDING: &str = "SUB_HUB_SELF_HOSTS";
 const ACCESS_TOKEN_BINDING: &str = "SUB_HUB_ACCESS_TOKEN";
 const CORS_ORIGINS_BINDING: &str = "SUB_HUB_CORS_ORIGINS";
-const MAX_LOCATION_BYTES: usize = 8 * 1024;
-const MAX_METADATA_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Default)]
 pub struct CloudflareRemoteAdapter;
@@ -169,18 +169,45 @@ async fn fetch_and_read(
     let status =
         StatusCode::from_u16(response.status_code()).map_err(|_| RemoteFetchError::Failure)?;
 
-    if is_redirect(status) {
-        let location = required_header(response.headers(), "Location", MAX_LOCATION_BYTES)?;
+    if is_followed_redirect(status) {
+        let location = response
+            .headers()
+            .get("Location")
+            .map_err(|_| RemoteFetchError::Failure)?
+            .ok_or(RemoteFetchError::Failure)?;
+        let location = parse_redirect_location(&location).map_err(|_| RemoteFetchError::Failure)?;
         return Ok(RemoteResponse::redirect(status, location));
     }
     if !status.is_success() {
         return Ok(RemoteResponse::body(status, Vec::new()));
     }
 
-    validate_content_encoding(response.headers())?;
-    validate_content_length(response.headers(), attempt.max_body_bytes())?;
+    accept_identity_content_encoding(
+        response
+            .headers()
+            .get("Content-Encoding")
+            .map_err(|_| RemoteFetchError::Failure)?
+            .iter(),
+    )
+    .map_err(|_| RemoteFetchError::Failure)?;
+    accept_canonical_content_length(
+        response
+            .headers()
+            .get("Content-Length")
+            .map_err(|_| RemoteFetchError::Failure)?
+            .iter(),
+        attempt.max_body_bytes(),
+    )
+    .map_err(|_| RemoteFetchError::Failure)?;
     let metadata = if attempt.capture_subscription_user_info() {
-        optional_metadata(response.headers())
+        observed_subscription_user_info(
+            response
+                .headers()
+                .get("Subscription-UserInfo")
+                .ok()
+                .flatten()
+                .iter(),
+        )
     } else {
         None
     };
@@ -199,78 +226,6 @@ async fn fetch_and_read(
         Some(value) => response.with_subscription_user_info(value),
         None => response,
     })
-}
-
-fn is_redirect(status: StatusCode) -> bool {
-    matches!(
-        status,
-        StatusCode::MOVED_PERMANENTLY
-            | StatusCode::FOUND
-            | StatusCode::SEE_OTHER
-            | StatusCode::TEMPORARY_REDIRECT
-            | StatusCode::PERMANENT_REDIRECT
-    )
-}
-
-fn required_header(
-    headers: &Headers,
-    name: &str,
-    max_bytes: usize,
-) -> Result<String, RemoteFetchError> {
-    let values = headers.get(name).map_err(|_| RemoteFetchError::Failure)?;
-    let value = values.ok_or(RemoteFetchError::Failure)?;
-    if value.is_empty() || value.len() > max_bytes || value.contains(['\r', '\n']) {
-        return Err(RemoteFetchError::Failure);
-    }
-    Ok(value.clone())
-}
-
-fn validate_content_encoding(headers: &Headers) -> Result<(), RemoteFetchError> {
-    let value = headers
-        .get("Content-Encoding")
-        .map_err(|_| RemoteFetchError::Failure)?;
-    match value {
-        None => Ok(()),
-        Some(value) if !value.contains(',') && value.trim().eq_ignore_ascii_case("identity") => {
-            Ok(())
-        }
-        Some(_) => Err(RemoteFetchError::Failure),
-    }
-}
-
-fn validate_content_length(
-    headers: &Headers,
-    max_body_bytes: usize,
-) -> Result<(), RemoteFetchError> {
-    let value = headers
-        .get("Content-Length")
-        .map_err(|_| RemoteFetchError::Failure)?;
-    let Some(value) = value else {
-        return Ok(());
-    };
-    if value.is_empty()
-        || value.contains(',')
-        || !value.bytes().all(|byte| byte.is_ascii_digit())
-        || (value.len() > 1 && value.starts_with('0'))
-    {
-        return Err(RemoteFetchError::Failure);
-    }
-    let length = value
-        .parse::<u64>()
-        .map_err(|_| RemoteFetchError::Failure)?;
-    if length > u64::try_from(max_body_bytes).unwrap_or(u64::MAX) {
-        return Err(RemoteFetchError::Failure);
-    }
-    Ok(())
-}
-
-fn optional_metadata(headers: &Headers) -> Option<Vec<u8>> {
-    let value = headers.get("Subscription-UserInfo").ok()??;
-    (value.len() <= MAX_METADATA_BYTES
-        && value.is_ascii()
-        && !value.contains(',')
-        && !value.contains(['\r', '\n']))
-    .then(|| value.as_bytes().to_vec())
 }
 
 fn access_tokens_from_environment(environment: &Env) -> Result<AccessTokens, ()> {
@@ -400,32 +355,5 @@ fn monotonic_millis() -> u64 {
         millis
     } else {
         0
-    }
-}
-
-#[cfg(test)]
-fn validate_canonical_content_length(value: &str, max: usize) -> Result<(), ()> {
-    if value.is_empty()
-        || value.contains(',')
-        || !value.bytes().all(|byte| byte.is_ascii_digit())
-        || (value.len() > 1 && value.starts_with('0'))
-    {
-        return Err(());
-    }
-    let length = value.parse::<u64>().map_err(|_| ())?;
-    (length <= max as u64).then_some(()).ok_or(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::validate_canonical_content_length;
-
-    #[test]
-    fn content_length_requires_canonical_decimal() {
-        assert_eq!(validate_canonical_content_length("0", 10), Ok(()));
-        assert_eq!(validate_canonical_content_length("10", 10), Ok(()));
-        assert!(validate_canonical_content_length("01", 10).is_err());
-        assert!(validate_canonical_content_length("11", 10).is_err());
-        assert!(validate_canonical_content_length("1, 1", 10).is_err());
     }
 }
