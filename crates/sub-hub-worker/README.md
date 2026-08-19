@@ -60,13 +60,13 @@ and non-default port). A listed Console may `fetch()` `GET /version` and
 and today's subscription clients are unchanged.
 
 ```sh
-pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
+pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://sub-hub-console.<subdomain>.workers.dev
 ```
 
 `pnpm run deploy:stack` publishes the Console and writes that origin for you.
-Do not commit a live Pages origin into this Worker `wrangler.toml`. Create the
-Pages project from `apps/console`; do not add `pages_build_output_dir` to this
-Worker config. A present-but-empty or malformed list (`https://x.example/path`,
+Do not commit a live Console origin into this Worker `wrangler.toml`. Publish
+the Console from `apps/console`; do not add `[assets]` to this Worker config.
+A present-but-empty or malformed list (`https://x.example/path`,
 a ninth origin) makes every request return `500`.
 
 Do not log complete request URLs. Query strings commonly contain credentials.
@@ -97,12 +97,13 @@ pnpm run test:host
 pnpm run deploy:stack
 ```
 
-`pnpm run deploy:stack` builds `apps/console`, Direct-Uploads Pages project
-`sub-hub-console`, then runs the access-token ensure script and
-`wrangler deploy --keep-vars` with `SUB_HUB_CORS_ORIGINS` and
-`SUB_HUB_SELF_HOSTS` filled from the live URLs. Worker-only publishes stay on
-`pnpm run deploy`. The first successful Worker deploy prints a `*.workers.dev`
-URL. Save any generated token immediately; Cloudflare cannot show it again.
+`pnpm run deploy:stack` builds `apps/console`, publishes it with
+`wrangler deploy` as Workers Static Assets (`sub-hub-console`), then runs
+the access-token ensure script and `wrangler deploy --keep-vars` with
+`SUB_HUB_CORS_ORIGINS` and `SUB_HUB_SELF_HOSTS` filled from the live URLs.
+Worker-only publishes stay on `pnpm run deploy`. The first successful
+Worker deploy prints a `*.workers.dev` URL. Save any generated token
+immediately; Cloudflare cannot show it again.
 
 If the account already has a Worker named `sub-hub`, pass `--worker-name` or
 set `CLOUDFLARE_WORKER_NAME` so the deploy does not collide. Do not commit a

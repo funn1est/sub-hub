@@ -71,60 +71,53 @@ Conversion Service origin.
 
 ## Deploy
 
-Create a **separate** Cloudflare Pages project. Do not attach Pages to the
-Worker `wrangler.toml`. The default project name is `sub-hub-console` in
-this package's `wrangler.toml`; override it per account instead of committing
-an `account_id` or API token.
+Create a **separate** Worker for this package. Do not add `[assets]` or a
+second `name` to the Conversion Service `wrangler.toml`. The default name
+is `sub-hub-console` in this package's `wrangler.toml`; override it per
+account instead of committing an `account_id` or API token.
 
 Local toolchains stay in the repository-root `mise.toml`. Do not add
 `.node-version`, `.nvmrc`, or other extra version managers in this package.
 
 ### Connect to Git
 
-Push to the connected branch rebuilds this package on Cloudflare. A Direct
-Upload project cannot switch later; create a **new** Pages project.
+Push to the connected branch rebuilds this package. `wrangler.toml` uses
+Workers Static Assets, so the dashboard can keep the default deploy command
+(`npx wrangler deploy`). Do not switch it to `wrangler pages deploy`, and
+do not set a Pages output directory.
 
 1. [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages)
-   → **Create** → **Pages** → **Connect to Git**.
-2. Authorize GitHub or GitLab and select this repository.
-3. Set the build form to this package (monorepo root is not `apps/console`):
+   → **Create** → **Worker** → import this repository.
+2. Set only the monorepo root (the repository root is not this package):
 
    | Field | Value |
    | --- | --- |
-   | Project name | `sub-hub-console` (must match `wrangler.toml`) |
-   | Production branch | `main` |
-   | Framework preset | Vite |
+   | Worker name | `sub-hub-console` (must match `wrangler.toml`) |
    | Root directory | `apps/console` |
    | Build command | `pnpm install --frozen-lockfile && pnpm run build` |
-   | Build output directory | `dist` |
+   | Deploy command | leave the default `npx wrangler deploy` |
 
-4. Environment variables (Pages build image does not run `mise`; copy the
-   pins from the repository-root `mise.toml`):
-
-   | Variable | Value today |
-   | --- | --- |
-   | `NODE_VERSION` | `24.19.0` |
-   | `PNPM_VERSION` | `11.22.0` (if the build ignores `packageManager`) |
-
-5. Save and Deploy. Production origin is
-   `https://sub-hub-console.pages.dev` (or `https://<project>.pages.dev`
-   if you chose another name).
-6. Put that **exact** origin on the Conversion Service
-   (`SUB_HUB_CORS_ORIGINS`). No `*.pages.dev` wildcards. Add each preview
-   hash origin the same way if that preview must `fetch()` `/sub`.
-7. Optional: Pages **Build watch paths** → `apps/console/**` so Worker-only
+3. Optional: `NODE_VERSION=24.19.0` if the build image is older than the
+   pin in the repository-root `mise.toml`.
+4. Save. Production origin is
+   `https://sub-hub-console.<subdomain>.workers.dev`.
+5. Put that **exact** origin on the Conversion Service
+   (`SUB_HUB_CORS_ORIGINS`). No `*.workers.dev` wildcards. Add each preview
+   origin the same way if that preview must `fetch()` `/sub`.
+6. Optional: **Build watch paths** → `apps/console/**` so Worker-only
    commits do not rebuild the Console.
 
-Do not also run `pnpm run deploy:stack` against the same Git-connected
-project. CI builds this package and does not deploy. Do not send Cloudflare
-credentials in a pull request.
+If this Worker is already Git-connected, push is enough — do not change
+the deploy command. Do not also run `pnpm run deploy:stack` against the
+same Worker. CI builds this package and does not deploy. Do not send
+Cloudflare credentials in a pull request.
 
 Worker-only local publish after `wrangler login` from
 `crates/sub-hub-worker`:
 
 ```sh
 pnpm exec wrangler deploy --keep-vars \
-  --var SUB_HUB_CORS_ORIGINS:https://sub-hub-console.pages.dev
+  --var SUB_HUB_CORS_ORIGINS:https://sub-hub-console.<subdomain>.workers.dev
 ```
 
 ### Direct Upload
@@ -139,29 +132,24 @@ pnpm test
 pnpm run build
 
 cd ../../crates/sub-hub-worker
-pnpm exec wrangler pages project create sub-hub-console --production-branch main
-pnpm exec wrangler pages deploy ../../apps/console/dist \
-  --project-name sub-hub-console \
-  --branch main \
-  --commit-dirty=true \
-  --config ../../apps/console/wrangler.toml
+pnpm exec wrangler deploy --config ../../apps/console/wrangler.toml
 ```
 
-`deploy:stack` does that upload and sets the Worker CORS var. Direct upload
-does not run a Cloudflare build. Do not Git-connect and Direct-Upload the
-same project.
+`deploy:stack` does that upload and sets the Worker CORS var. Direct
+upload does not run a Cloudflare build. Do not Git-connect and Direct-Upload
+the same Worker.
 
-Then list that exact origin on the Conversion Service. No host-suffix wildcards.
-Preview `*.pages.dev` hashes must be added as extra exact origins if those
-previews should read `/sub`.
+Then list that exact origin on the Conversion Service. No host-suffix
+wildcards. Preview `*.workers.dev` hashes must be added as extra exact
+origins if those previews should read `/sub`.
 
 ```sh
-# Worker — keep existing vars and the access-token secret
+# Conversion Service — keep existing vars and the access-token secret
 pnpm exec wrangler deploy --keep-vars \
-  --var SUB_HUB_CORS_ORIGINS:https://<project>.pages.dev
+  --var SUB_HUB_CORS_ORIGINS:https://sub-hub-console.<subdomain>.workers.dev
 
 # Native
-set SUB_HUB_CORS_ORIGINS=https://<project>.pages.dev
+set SUB_HUB_CORS_ORIGINS=https://sub-hub-console.<subdomain>.workers.dev
 ```
 
 A present-but-empty or malformed `SUB_HUB_CORS_ORIGINS` makes every Worker
@@ -189,7 +177,7 @@ curl -D - -H "Origin: https://evil.example" "$WORKER/version"
 # Expect the version body and no Access-Control-* headers.
 ```
 
-In the Pages Console, set the Conversion Service origin to `$WORKER` and the
+In the Web Console, set the Conversion Service origin to `$WORKER` and the
 access token to the operator-kept value (empty only if the Worker is anonymous).
 The `/version` probe should show `sub-hub v0.1.0 backend`. Preview a direct
 VLESS with `target=clash`; the body should be Mihomo YAML that contains that
@@ -201,7 +189,7 @@ origin plus a missing token is a real `401 Unauthorized!` and is correct.)
 
 Native pairing from `pnpm run dev` still needs
 `SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173` and is not
-part of the Pages gate.
+part of the Console gate.
 
 ## Persistence and secrets
 

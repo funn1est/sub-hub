@@ -4,8 +4,6 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { parseLastJsonArray } from "./ensure-access-token.mjs";
-
 export const DEFAULT_PAGES_PROJECT = "sub-hub-console";
 export const DEFAULT_PRODUCTION_BRANCH = "main";
 
@@ -143,18 +141,24 @@ export function parsePagesProductionOrigin(text) {
   );
 }
 
-export function resolveConsoleOrigin(text, projectName) {
-  return (
-    parsePagesProductionOrigin(text) ?? `https://${projectName}.pages.dev`
-  );
-}
-
 export function parseWorkerOrigin(text) {
   if (typeof text !== "string") {
     return null;
   }
   const match = text.match(/https:\/\/[a-z0-9.-]+\.workers\.dev/i);
   return match ? match[0].toLowerCase().replace(/\/+$/, "") : null;
+}
+
+export function resolveConsoleOrigin(text) {
+  return parseWorkerOrigin(text) ?? parsePagesProductionOrigin(text);
+}
+
+export function consoleDeployArgv(config) {
+  const args = ["deploy", "--config", config.consoleWrangler];
+  if (config.pagesProject !== DEFAULT_PAGES_PROJECT) {
+    args.push("--name", config.pagesProject);
+  }
+  return args;
 }
 
 export function hostnameFromHttpsUrl(url) {
@@ -195,29 +199,6 @@ export function workerVarArgs({ corsOrigins, selfHosts }) {
     args.push("--var", `SUB_HUB_SELF_HOSTS:${selfHosts}`);
   }
   return args;
-}
-
-export function interpretProjectCreate(status, stdout, stderr) {
-  if (status === 0) {
-    return "created";
-  }
-  const text = `${stdout ?? ""}\n${stderr ?? ""}`.toLowerCase();
-  if (
-    text.includes("already exists") ||
-    text.includes("already taken") ||
-    text.includes("duplicate")
-  ) {
-    return "exists";
-  }
-  return "failed";
-}
-
-export function pagesProjectExists(listOutput, projectName) {
-  const parsed = parseLastJsonArray(listOutput);
-  if (!Array.isArray(parsed)) {
-    return false;
-  }
-  return parsed.some((item) => item && item.name === projectName);
 }
 
 export function needsSelfHostsFollowUp(appliedHosts, discoveredHostname) {
@@ -323,58 +304,19 @@ function ensureConsoleBuilt(config) {
   }
 }
 
-function ensurePagesProject(config, env) {
-  const listed = runWrangler(["pages", "project", "list", "--json"], { env });
-  if (
-    (listed.status ?? 1) === 0 &&
-    pagesProjectExists(listed.stdout ?? "", config.pagesProject)
-  ) {
-    return;
-  }
-  const created = runWrangler(
-    [
-      "pages",
-      "project",
-      "create",
-      config.pagesProject,
-      "--production-branch",
-      config.branch,
-    ],
-    { env },
-  );
-  const outcome = interpretProjectCreate(
-    created.status ?? 1,
-    created.stdout,
-    created.stderr,
-  );
-  if (outcome === "failed") {
-    process.stderr.write(
-      `wrangler pages project create did not confirm ${config.pagesProject}; continuing to deploy\n`,
-    );
-  }
-}
-
-function deployPages(config, env) {
-  const args = [
-    "pages",
-    "deploy",
-    config.consoleDist,
-    "--project-name",
-    config.pagesProject,
-    "--branch",
-    config.branch,
-    "--commit-dirty=true",
-    "--config",
-    config.consoleWrangler,
-  ];
-  if (config.commitHash) {
-    args.push("--commit-hash", config.commitHash);
-  }
-  const result = runWrangler(args, { cwd: config.consoleRoot, env });
+function deployConsole(config, env) {
+  const result = runWrangler(consoleDeployArgv(config), {
+    cwd: config.consoleRoot,
+    env,
+  });
   if ((result.status ?? 1) !== 0) {
-    fail("wrangler pages deploy failed");
+    fail("Console wrangler deploy failed");
   }
-  return resolveConsoleOrigin(combinedOutput(result), config.pagesProject);
+  const origin = resolveConsoleOrigin(combinedOutput(result));
+  if (!origin) {
+    fail("Console wrangler deploy did not print a workers.dev or pages.dev origin");
+  }
+  return origin;
 }
 
 function deployWorker(config, env, vars) {
@@ -431,8 +373,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   let consoleOrigin;
   if (!config.skipConsole) {
     ensureConsoleBuilt(config);
-    ensurePagesProject(config, env);
-    consoleOrigin = deployPages(config, env);
+    consoleOrigin = deployConsole(config, env);
   }
 
   let workerOrigin;

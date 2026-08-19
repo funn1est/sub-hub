@@ -5,12 +5,11 @@ import test from "node:test";
 import {
   DEFAULT_PAGES_PROJECT,
   DEFAULT_PRODUCTION_BRANCH,
+  consoleDeployArgv,
   ensureDeployArgv,
   hostnameFromHttpsUrl,
-  interpretProjectCreate,
   joinBindingList,
   needsSelfHostsFollowUp,
-  pagesProjectExists,
   parsePagesProductionOrigin,
   parseStackArgv,
   parseWorkerOrigin,
@@ -69,9 +68,38 @@ test("parsePagesProductionOrigin ignores preview hashes", () => {
     "https://sub-hub-console.pages.dev",
   );
   assert.equal(parsePagesProductionOrigin("no urls"), null);
+});
+
+test("resolveConsoleOrigin prefers workers.dev from wrangler deploy", () => {
   assert.equal(
-    resolveConsoleOrigin("only https://aaaa.mine.pages.dev", "mine"),
-    "https://mine.pages.dev",
+    resolveConsoleOrigin(
+      "Published\n  https://sub-hub-console.example.workers.dev\nAlso https://sub-hub-console.pages.dev\n",
+    ),
+    "https://sub-hub-console.example.workers.dev",
+  );
+  assert.equal(
+    resolveConsoleOrigin(
+      "Preview https://deadbeef.sub-hub-console.pages.dev\nLive https://sub-hub-console.pages.dev/\n",
+    ),
+    "https://sub-hub-console.pages.dev",
+  );
+  assert.equal(resolveConsoleOrigin("no urls"), null);
+});
+
+test("consoleDeployArgv uses wrangler deploy and only overrides the name", () => {
+  assert.deepEqual(
+    consoleDeployArgv({
+      consoleWrangler: "/repo/apps/console/wrangler.toml",
+      pagesProject: DEFAULT_PAGES_PROJECT,
+    }),
+    ["deploy", "--config", "/repo/apps/console/wrangler.toml"],
+  );
+  assert.deepEqual(
+    consoleDeployArgv({
+      consoleWrangler: "/repo/apps/console/wrangler.toml",
+      pagesProject: "mine",
+    }),
+    ["deploy", "--config", "/repo/apps/console/wrangler.toml", "--name", "mine"],
   );
 });
 
@@ -105,23 +133,6 @@ test("joinBindingList and workerVarArgs skip empties and keep order", () => {
     ],
   );
   assert.deepEqual(workerVarArgs({}), []);
-});
-
-test("pages project helpers are fail-closed unless JSON names match", () => {
-  assert.equal(interpretProjectCreate(0, "", ""), "created");
-  assert.equal(
-    interpretProjectCreate(1, "", "A project with this name already exists"),
-    "exists",
-  );
-  assert.equal(interpretProjectCreate(1, "", "auth error"), "failed");
-  assert.equal(
-    pagesProjectExists(
-      '[{"name":"sub-hub-console","subdomain":"sub-hub-console.pages.dev"}]',
-      "sub-hub-console",
-    ),
-    true,
-  );
-  assert.equal(pagesProjectExists("not json", "sub-hub-console"), false);
 });
 
 test("needsSelfHostsFollowUp only when the published host is missing", () => {

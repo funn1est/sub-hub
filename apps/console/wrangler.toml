@@ -1,5 +1,9 @@
-# Git-connected Pages: set the dashboard root directory to apps/console
-# so this file is the project config. Do not add account_id.
+# Workers Static Assets. Git Builds can keep the default deploy command
+# (`npx wrangler deploy`). Dashboard root directory: apps/console.
+# Do not add account_id.
 name = "sub-hub-console"
-pages_build_output_dir = "./dist"
 compatibility_date = "2026-08-13"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
