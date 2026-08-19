@@ -1,13 +1,6 @@
-const MAX_DIRECT_SOURCES: usize = 5;
+use sub_hub_conversion::OutputTarget;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum OutputTarget {
-    Mihomo,
-    Quanx,
-    Singbox,
-    Loon,
-    Egern,
-}
+const MAX_DIRECT_SOURCES: usize = 5;
 
 pub(super) struct DirectQuery {
     pub(super) target: OutputTarget,

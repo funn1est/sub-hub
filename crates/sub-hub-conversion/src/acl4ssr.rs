@@ -29,6 +29,7 @@ use policy_compile::{
 };
 
 use crate::{
+    OutputTarget,
     egern::render_egern_from_policy_v1,
     loon::render_loon_from_policy_v1,
     mihomo::render_mihomo_from_policy_v1,
@@ -103,7 +104,7 @@ pub struct PreparedAcl4SsrRuleSetsV1 {
 }
 
 impl PreparedAcl4SsrRuleSetsV1 {
-    /// Consumes the bound stages and renders a Mihomo v1 document.
+    /// Consumes the bound stages and renders the document for `target`.
     ///
     /// `unique_rule_set_bodies` must contain one body per first-seen broker flight. Parsed typed
     /// entries are cached per flight and replayed at every declaration occurrence.
@@ -112,78 +113,15 @@ impl PreparedAcl4SsrRuleSetsV1 {
     ///
     /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
     /// or serialization failures. No partial document is returned.
-    pub fn render_mihomo_v1(
+    pub fn render_v1(
         self,
+        target: OutputTarget,
         unique_rule_set_bodies: &[&[u8]],
     ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
         if unique_rule_set_bodies.len() != self.flight_count {
             return Err(Acl4SsrRenderError::RuleSetAlignment);
         }
-        render(self, unique_rule_set_bodies, OutputFormat::Mihomo)
-    }
-
-    /// Consumes the bound stages and renders a Quantumult X document.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
-    /// or serialization failures. No partial document is returned.
-    pub fn render_quanx_v1(
-        self,
-        unique_rule_set_bodies: &[&[u8]],
-    ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
-        if unique_rule_set_bodies.len() != self.flight_count {
-            return Err(Acl4SsrRenderError::RuleSetAlignment);
-        }
-        render(self, unique_rule_set_bodies, OutputFormat::Quanx)
-    }
-
-    /// Consumes the bound stages and renders a sing-box document.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
-    /// or serialization failures. No partial document is returned.
-    pub fn render_singbox_v1(
-        self,
-        unique_rule_set_bodies: &[&[u8]],
-    ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
-        if unique_rule_set_bodies.len() != self.flight_count {
-            return Err(Acl4SsrRenderError::RuleSetAlignment);
-        }
-        render(self, unique_rule_set_bodies, OutputFormat::Singbox)
-    }
-
-    /// Consumes the bound stages and renders a Loon document.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
-    /// or serialization failures. No partial document is returned.
-    pub fn render_loon_v1(
-        self,
-        unique_rule_set_bodies: &[&[u8]],
-    ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
-        if unique_rule_set_bodies.len() != self.flight_count {
-            return Err(Acl4SsrRenderError::RuleSetAlignment);
-        }
-        render(self, unique_rule_set_bodies, OutputFormat::Loon)
-    }
-
-    /// Consumes the bound stages and renders an Egern document.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
-    /// or serialization failures. No partial document is returned.
-    pub fn render_egern_v1(
-        self,
-        unique_rule_set_bodies: &[&[u8]],
-    ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
-        if unique_rule_set_bodies.len() != self.flight_count {
-            return Err(Acl4SsrRenderError::RuleSetAlignment);
-        }
-        render(self, unique_rule_set_bodies, OutputFormat::Egern)
+        render(self, unique_rule_set_bodies, target)
     }
 
     /// Validates a successfully loaded prefix of the ordered Rule Set occurrence plan.
@@ -427,19 +365,10 @@ pub(crate) fn prepare(
     })
 }
 
-#[derive(Clone, Copy)]
-enum OutputFormat {
-    Mihomo,
-    Quanx,
-    Singbox,
-    Loon,
-    Egern,
-}
-
 fn render(
     mut bound: PreparedAcl4SsrRuleSetsV1,
     unique_bodies: &[&[u8]],
-    format: OutputFormat,
+    target: OutputTarget,
 ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
     let materialized = materialize_rules(
         &bound.prepared.config,
@@ -516,7 +445,7 @@ fn render(
         empty_groups: policy.report().empty_groups,
         ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
     };
-    match render_policy_bytes(format, &nodes, &policy) {
+    match render_policy_bytes(target, &nodes, &policy) {
         Ok(rendered) => Ok(Acl4SsrOutputV1 {
             bytes: rendered.bytes,
             report,
@@ -538,16 +467,16 @@ fn render(
 }
 
 fn render_policy_bytes(
-    format: OutputFormat,
+    target: OutputTarget,
     nodes: &[&crate::node::ProxyNode],
     policy: &CompiledPolicyV1,
 ) -> Result<crate::render::RenderedTargetV1, Acl4SsrRenderError> {
-    let render: RenderFromPolicyFn = match format {
-        OutputFormat::Mihomo => render_mihomo_from_policy_v1,
-        OutputFormat::Quanx => render_quanx_from_policy_v1,
-        OutputFormat::Singbox => render_singbox_from_policy_v1,
-        OutputFormat::Loon => render_loon_from_policy_v1,
-        OutputFormat::Egern => render_egern_from_policy_v1,
+    let render: RenderFromPolicyFn = match target {
+        OutputTarget::Mihomo => render_mihomo_from_policy_v1,
+        OutputTarget::Quanx => render_quanx_from_policy_v1,
+        OutputTarget::Singbox => render_singbox_from_policy_v1,
+        OutputTarget::Loon => render_loon_from_policy_v1,
+        OutputTarget::Egern => render_egern_from_policy_v1,
     };
     render(nodes, policy, MAX_OUTPUT_BYTES).map_err(|error| match error {
         AdapterRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,

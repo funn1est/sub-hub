@@ -1,6 +1,6 @@
 use sub_hub_conversion::{
-    DirectRenderError, SkipCountsV1, SubscriptionSourceV1, prepare_direct_subscription_v1,
-    prepare_subscription_v1,
+    DirectRenderError, OutputTarget, SkipCountsV1, SubscriptionSourceV1,
+    prepare_direct_subscription_v1, prepare_subscription_v1,
 };
 
 const VLESS: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
@@ -9,10 +9,32 @@ const HYSTERIA2: &str = "hysteria2://password@example.com:443#Plain";
 const RESERVED: &str = "vless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#direct";
 
 #[test]
+fn builtin_facade_dispatches_every_released_target() {
+    for target in [
+        OutputTarget::Mihomo,
+        OutputTarget::Quanx,
+        OutputTarget::Singbox,
+        OutputTarget::Loon,
+        OutputTarget::Egern,
+    ] {
+        let rendered = prepare_direct_subscription_v1(&[VLESS])
+            .expect("valid")
+            .render_builtin_v1(target)
+            .expect("vless is kept on every released target");
+        let inspected = prepare_direct_subscription_v1(&[VLESS])
+            .expect("valid")
+            .inspect_builtin_v1(target)
+            .expect("inspect matches render");
+        assert!(!rendered.as_bytes().is_empty());
+        assert_eq!(inspected, rendered.skip_counts());
+    }
+}
+
+#[test]
 fn mihomo_keeps_supported_nodes_and_counts_parse_skips() {
     let prepared = prepare_direct_subscription_v1(&[ANYTLS, VLESS]).expect("one valid node");
     let config = prepared
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("mihomo keeps vless");
     assert_eq!(
         config.skip_counts(),
@@ -32,7 +54,9 @@ fn mihomo_keeps_supported_nodes_and_counts_parse_skips() {
 #[test]
 fn quanx_counts_hysteria2_as_capability_and_reserved_name() {
     let prepared = prepare_direct_subscription_v1(&[HYSTERIA2, RESERVED, VLESS]).expect("mixed");
-    let config = prepared.render_builtin_quanx_v1().expect("vless remains");
+    let config = prepared
+        .render_builtin_v1(OutputTarget::Quanx)
+        .expect("vless remains");
     assert_eq!(
         config.skip_counts(),
         SkipCountsV1 {
@@ -51,7 +75,7 @@ fn quanx_counts_hysteria2_as_capability_and_reserved_name() {
 fn adapter_all_skipped_is_no_valid_nodes_with_counts() {
     let prepared = prepare_direct_subscription_v1(&[HYSTERIA2]).expect("parsed");
     let error = prepared
-        .render_builtin_quanx_v1()
+        .render_builtin_v1(OutputTarget::Quanx)
         .expect_err("qx drops hy2");
     assert_eq!(
         error,
@@ -68,9 +92,13 @@ fn adapter_all_skipped_is_no_valid_nodes_with_counts() {
 #[test]
 fn inspect_matches_render_counts_without_emitting_config() {
     let prepared = prepare_direct_subscription_v1(&[ANYTLS, HYSTERIA2, VLESS]).expect("mixed");
-    let inspected = prepared.inspect_builtin_quanx_v1().expect("one remains");
+    let inspected = prepared
+        .inspect_builtin_v1(OutputTarget::Quanx)
+        .expect("one remains");
     let prepared = prepare_direct_subscription_v1(&[ANYTLS, HYSTERIA2, VLESS]).expect("mixed");
-    let rendered = prepared.render_builtin_quanx_v1().expect("one remains");
+    let rendered = prepared
+        .render_builtin_v1(OutputTarget::Quanx)
+        .expect("one remains");
     assert_eq!(inspected, rendered.skip_counts());
     assert_eq!(
         inspected,
@@ -86,7 +114,7 @@ fn inspect_matches_render_counts_without_emitting_config() {
 fn inspect_all_skipped_is_no_valid_nodes() {
     let prepared = prepare_direct_subscription_v1(&[HYSTERIA2]).expect("parsed");
     let error = prepared
-        .inspect_builtin_quanx_v1()
+        .inspect_builtin_v1(OutputTarget::Quanx)
         .expect_err("none remain");
     assert_eq!(
         error,
@@ -107,7 +135,9 @@ fn skip_counts_debug_does_not_retain_canaries() {
     const NAME: &str = "secret-canary-name";
     let source = format!("hysteria2://{UUID}@{HOST}:443#{NAME}");
     let prepared = prepare_subscription_v1(&[SubscriptionSourceV1::Direct(&source)]).expect("ok");
-    let error = prepared.render_builtin_quanx_v1().expect_err("skipped");
+    let error = prepared
+        .render_builtin_v1(OutputTarget::Quanx)
+        .expect_err("skipped");
     let debug = format!("{error:?}");
     for canary in [UUID, HOST, NAME] {
         assert!(!debug.contains(canary), "{debug}");

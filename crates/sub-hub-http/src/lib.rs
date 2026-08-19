@@ -2,7 +2,7 @@ use std::fmt;
 
 use http::{HeaderValue, Method, StatusCode};
 use sub_hub_conversion::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, DirectRenderError, SkipCountsV1,
+    Acl4SsrPreparationError, Acl4SsrRenderError, DirectRenderError, OutputTarget,
     SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
 };
 use url::{Host, Url};
@@ -325,7 +325,7 @@ impl<A: RemoteAdapter> Application<A> {
         } = plan;
         let target = plan.parsed.target;
         if *method == Method::HEAD {
-            return match inspect_builtin(prepared, target) {
+            return match prepared.inspect_builtin_v1(target) {
                 Ok(skips) => {
                     let mut response = success_response(StatusCode::OK, Vec::new());
                     insert_subscription_user_info(&mut response, eligible_metadata);
@@ -336,13 +336,7 @@ impl<A: RemoteAdapter> Application<A> {
             };
         }
         let Some(config_url) = config_url else {
-            let rendered = match target {
-                query::OutputTarget::Mihomo => prepared.render_builtin_mihomo_v1(),
-                query::OutputTarget::Quanx => prepared.render_builtin_quanx_v1(),
-                query::OutputTarget::Singbox => prepared.render_builtin_singbox_v1(),
-                query::OutputTarget::Loon => prepared.render_builtin_loon_v1(),
-                query::OutputTarget::Egern => prepared.render_builtin_egern_v1(),
-            };
+            let rendered = prepared.render_builtin_v1(target);
             return match rendered {
                 Ok(config) => {
                     let skips = config.skip_counts();
@@ -467,7 +461,7 @@ impl<A: RemoteAdapter> Application<A> {
         config_url: Url,
         inbound_host: &str,
         eligible_metadata: Option<SubscriptionUserInfoV1>,
-        target: query::OutputTarget,
+        target: OutputTarget,
     ) -> Result<HttpResponse, ApplicationError> {
         let config_resource = RemoteResource {
             kind: ResourceKind::Config,
@@ -552,7 +546,7 @@ impl<A: RemoteAdapter> Application<A> {
             .iter()
             .map(Vec::as_slice)
             .collect::<Vec<_>>();
-        let rendered = render_acl4ssr_target(prepared, target, &unique_rule_set_bodies);
+        let rendered = prepared.render_v1(target, &unique_rule_set_bodies);
         match rendered {
             Ok(config) => {
                 let omitted_url_regex_count = config.report().omitted_url_regex_count();
@@ -653,19 +647,6 @@ struct SubRequestPlan {
     config_url: Option<Url>,
     canonical_sources: Vec<Option<String>>,
     unique_urls: Vec<Url>,
-}
-
-fn inspect_builtin(
-    prepared: sub_hub_conversion::PreparedSubscriptionV1,
-    target: query::OutputTarget,
-) -> Result<SkipCountsV1, DirectRenderError> {
-    match target {
-        query::OutputTarget::Mihomo => prepared.inspect_builtin_mihomo_v1(),
-        query::OutputTarget::Quanx => prepared.inspect_builtin_quanx_v1(),
-        query::OutputTarget::Singbox => prepared.inspect_builtin_singbox_v1(),
-        query::OutputTarget::Loon => prepared.inspect_builtin_loon_v1(),
-        query::OutputTarget::Egern => prepared.inspect_builtin_egern_v1(),
-    }
 }
 
 const fn map_direct_render_error(error: DirectRenderError) -> ApplicationError {
@@ -777,27 +758,13 @@ fn adjudicate_failed_rule_set_chunk(
     Err(error)
 }
 
-fn render_acl4ssr_target(
-    prepared: sub_hub_conversion::PreparedAcl4SsrRuleSetsV1,
-    target: query::OutputTarget,
-    unique_rule_set_bodies: &[&[u8]],
-) -> Result<sub_hub_conversion::Acl4SsrOutputV1, sub_hub_conversion::Acl4SsrRenderError> {
+fn subscription_response_for(target: OutputTarget, body: Vec<u8>) -> HttpResponse {
     match target {
-        query::OutputTarget::Mihomo => prepared.render_mihomo_v1(unique_rule_set_bodies),
-        query::OutputTarget::Quanx => prepared.render_quanx_v1(unique_rule_set_bodies),
-        query::OutputTarget::Singbox => prepared.render_singbox_v1(unique_rule_set_bodies),
-        query::OutputTarget::Loon => prepared.render_loon_v1(unique_rule_set_bodies),
-        query::OutputTarget::Egern => prepared.render_egern_v1(unique_rule_set_bodies),
-    }
-}
-
-fn subscription_response_for(target: query::OutputTarget, body: Vec<u8>) -> HttpResponse {
-    match target {
-        query::OutputTarget::Mihomo => subscription_response(body, "sub-hub-mihomo.yaml", true),
-        query::OutputTarget::Quanx => subscription_response(body, "sub-hub-quanx.conf", false),
-        query::OutputTarget::Singbox => subscription_response(body, "sub-hub-singbox.json", false),
-        query::OutputTarget::Loon => subscription_response(body, "sub-hub-loon.conf", false),
-        query::OutputTarget::Egern => subscription_response(body, "sub-hub-egern.yaml", false),
+        OutputTarget::Mihomo => subscription_response(body, "sub-hub-mihomo.yaml", true),
+        OutputTarget::Quanx => subscription_response(body, "sub-hub-quanx.conf", false),
+        OutputTarget::Singbox => subscription_response(body, "sub-hub-singbox.json", false),
+        OutputTarget::Loon => subscription_response(body, "sub-hub-loon.conf", false),
+        OutputTarget::Egern => subscription_response(body, "sub-hub-egern.yaml", false),
     }
 }
 

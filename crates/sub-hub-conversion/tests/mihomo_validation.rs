@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use sub_hub_conversion::prepare_direct_subscription_v1;
+use sub_hub_conversion::{OutputTarget, prepare_direct_subscription_v1};
 
 const MIHOMO_BINARY_ENV: &str = "SUB_HUB_MIHOMO_BIN";
 const REQUIRE_MIHOMO_ENV: &str = "SUB_HUB_REQUIRE_MIHOMO";
@@ -60,7 +60,7 @@ fn configured_official_mihomo_accepts_builtin_trojan() {
     verify_mihomo_version(&binary, &sandbox, expected_version);
     let rendered = prepare_direct_subscription_v1(&[VALID_TROJAN])
         .expect("fixed Trojan subscription must be valid")
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Trojan Mihomo render must succeed");
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the Trojan Mihomo acceptance fixture"));
@@ -79,7 +79,7 @@ fn configured_official_mihomo_accepts_builtin_vmess() {
     verify_mihomo_version(&binary, &sandbox, expected_version);
     let rendered = prepare_direct_subscription_v1(&[VALID_VMESS])
         .expect("fixed VMess subscription must be valid")
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin VMess Mihomo render must succeed");
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the VMess Mihomo acceptance fixture"));
@@ -98,7 +98,7 @@ fn configured_official_mihomo_accepts_builtin_hysteria2() {
     verify_mihomo_version(&binary, &sandbox, expected_version);
     let rendered = prepare_direct_subscription_v1(&[VALID_HYSTERIA2])
         .expect("fixed Hysteria2 subscription must be valid")
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Hysteria2 Mihomo render must succeed");
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the Hysteria2 Mihomo acceptance fixture"));
@@ -117,7 +117,7 @@ fn configured_official_mihomo_accepts_builtin_tuic() {
     verify_mihomo_version(&binary, &sandbox, expected_version);
     let rendered = prepare_direct_subscription_v1(&[VALID_TUIC])
         .expect("fixed TUIC subscription must be valid")
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin TUIC Mihomo render must succeed");
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the TUIC Mihomo acceptance fixture"));
@@ -279,7 +279,7 @@ fn render_acl4ssr_profile(root: &Path, config_path: &str) -> Vec<u8> {
     prepared
         .bind_rule_set_flights_v1(&flights)
         .expect("fixed corpus flight plan is bounded and dense")
-        .render_mihomo_v1(&body_refs)
+        .render_v1(OutputTarget::Mihomo, &body_refs)
         .expect("fixed corpus must render through the strict conversion seam")
         .into_bytes()
 }

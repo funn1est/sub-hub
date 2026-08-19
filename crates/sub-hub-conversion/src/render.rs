@@ -17,6 +17,7 @@ use base64::{
 use serde::Serialize;
 
 use crate::{
+    OutputTarget,
     egern::render_egern_from_policy_v1,
     loon::render_loon_from_policy_v1,
     mihomo::render_mihomo_from_policy_v1,
@@ -227,34 +228,53 @@ pub(crate) enum BuiltinRenderError {
     Serialization,
 }
 
+pub(crate) fn render_builtin_v1(
+    parsed: ParsedSubscriptionSources,
+    target: OutputTarget,
+) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
+    let render = match target {
+        OutputTarget::Mihomo => render_mihomo_from_policy_v1,
+        OutputTarget::Quanx => render_quanx_from_policy_v1,
+        OutputTarget::Singbox => render_singbox_from_policy_v1,
+        OutputTarget::Loon => render_loon_from_policy_v1,
+        OutputTarget::Egern => render_egern_from_policy_v1,
+    };
+    render_builtin_with_limit(parsed, render, MAX_OUTPUT_BYTES)
+}
+
+#[cfg(test)]
 pub(crate) fn render_builtin_mihomo_v1(
     parsed: ParsedSubscriptionSources,
 ) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
-    render_builtin_with_limit(parsed, render_mihomo_from_policy_v1, MAX_OUTPUT_BYTES)
+    render_builtin_v1(parsed, OutputTarget::Mihomo)
 }
 
+#[cfg(test)]
 pub(crate) fn render_builtin_quanx_v1(
     parsed: ParsedSubscriptionSources,
 ) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
-    render_builtin_with_limit(parsed, render_quanx_from_policy_v1, MAX_OUTPUT_BYTES)
+    render_builtin_v1(parsed, OutputTarget::Quanx)
 }
 
+#[cfg(test)]
 pub(crate) fn render_builtin_singbox_v1(
     parsed: ParsedSubscriptionSources,
 ) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
-    render_builtin_with_limit(parsed, render_singbox_from_policy_v1, MAX_OUTPUT_BYTES)
+    render_builtin_v1(parsed, OutputTarget::Singbox)
 }
 
+#[cfg(test)]
 pub(crate) fn render_builtin_loon_v1(
     parsed: ParsedSubscriptionSources,
 ) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
-    render_builtin_with_limit(parsed, render_loon_from_policy_v1, MAX_OUTPUT_BYTES)
+    render_builtin_v1(parsed, OutputTarget::Loon)
 }
 
+#[cfg(test)]
 pub(crate) fn render_builtin_egern_v1(
     parsed: ParsedSubscriptionSources,
 ) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
-    render_builtin_with_limit(parsed, render_egern_from_policy_v1, MAX_OUTPUT_BYTES)
+    render_builtin_v1(parsed, OutputTarget::Egern)
 }
 
 /// Names the accepted nodes, compiles the builtin topology, and renders one target.
@@ -368,34 +388,18 @@ pub(crate) fn inspect_builtin(
     }
 }
 
-pub(crate) fn inspect_builtin_mihomo_v1(
+pub(crate) fn inspect_builtin_v1(
     parsed: ParsedSubscriptionSources,
+    target: OutputTarget,
 ) -> Result<SkipCountsV1, BuiltinRenderError> {
-    inspect_builtin(parsed, crate::mihomo::classify_node)
-}
-
-pub(crate) fn inspect_builtin_quanx_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<SkipCountsV1, BuiltinRenderError> {
-    inspect_builtin(parsed, crate::quanx::classify_node)
-}
-
-pub(crate) fn inspect_builtin_singbox_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<SkipCountsV1, BuiltinRenderError> {
-    inspect_builtin(parsed, crate::singbox::classify_node)
-}
-
-pub(crate) fn inspect_builtin_loon_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<SkipCountsV1, BuiltinRenderError> {
-    inspect_builtin(parsed, crate::loon::classify_node)
-}
-
-pub(crate) fn inspect_builtin_egern_v1(
-    parsed: ParsedSubscriptionSources,
-) -> Result<SkipCountsV1, BuiltinRenderError> {
-    inspect_builtin(parsed, crate::egern::classify_node)
+    let classify = match target {
+        OutputTarget::Mihomo => crate::mihomo::classify_node,
+        OutputTarget::Quanx => crate::quanx::classify_node,
+        OutputTarget::Singbox => crate::singbox::classify_node,
+        OutputTarget::Loon => crate::loon::classify_node,
+        OutputTarget::Egern => crate::egern::classify_node,
+    };
+    inspect_builtin(parsed, classify)
 }
 
 /// Renders an endpoint host with a bare (bracket-free) IPv6 form.

@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use sub_hub_conversion::prepare_direct_subscription_v1;
+use sub_hub_conversion::{OutputTarget, prepare_direct_subscription_v1};
 
 const SING_BOX_BINARY_ENV: &str = "SUB_HUB_SING_BOX_BIN";
 const REQUIRE_SING_BOX_ENV: &str = "SUB_HUB_REQUIRE_SING_BOX";
@@ -36,7 +36,7 @@ fn configured_official_sing_box_accepts_builtin_document() {
     verify_sing_box_version(&binary, &sandbox);
     let rendered = prepare_direct_subscription_v1(&[VALID_DIRECT])
         .expect("fixed subscription must be valid")
-        .render_builtin_singbox_v1()
+        .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin sing-box render must succeed")
         .into_bytes();
     fs::write(&sandbox.config_file, rendered)
@@ -55,7 +55,7 @@ fn configured_official_sing_box_accepts_builtin_trojan() {
     verify_sing_box_version(&binary, &sandbox);
     let rendered = prepare_direct_subscription_v1(&[VALID_TROJAN])
         .expect("fixed Trojan subscription must be valid")
-        .render_builtin_singbox_v1()
+        .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin Trojan sing-box render must succeed")
         .into_bytes();
     fs::write(&sandbox.config_file, rendered)
@@ -74,7 +74,7 @@ fn configured_official_sing_box_accepts_builtin_vmess() {
     verify_sing_box_version(&binary, &sandbox);
     let rendered = prepare_direct_subscription_v1(&[VALID_VMESS])
         .expect("fixed VMess subscription must be valid")
-        .render_builtin_singbox_v1()
+        .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin VMess sing-box render must succeed")
         .into_bytes();
     fs::write(&sandbox.config_file, rendered)
@@ -93,7 +93,7 @@ fn configured_official_sing_box_accepts_builtin_hysteria2() {
     verify_sing_box_version(&binary, &sandbox);
     let rendered = prepare_direct_subscription_v1(&[VALID_HYSTERIA2])
         .expect("fixed Hysteria2 subscription must be valid")
-        .render_builtin_singbox_v1()
+        .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin Hysteria2 sing-box render must succeed")
         .into_bytes();
     fs::write(&sandbox.config_file, rendered)
@@ -112,7 +112,7 @@ fn configured_official_sing_box_accepts_builtin_tuic() {
     verify_sing_box_version(&binary, &sandbox);
     let rendered = prepare_direct_subscription_v1(&[VALID_TUIC])
         .expect("fixed TUIC subscription must be valid")
-        .render_builtin_singbox_v1()
+        .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin TUIC sing-box render must succeed")
         .into_bytes();
     fs::write(&sandbox.config_file, rendered)

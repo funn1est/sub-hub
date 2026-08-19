@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sub_hub_conversion::{
-    RemoteSourceFailureV1, SkipCountsV1, SubscriptionPreparationError, SubscriptionSourceV1,
-    prepare_subscription_v1,
+    OutputTarget, RemoteSourceFailureV1, SkipCountsV1, SubscriptionPreparationError,
+    SubscriptionSourceV1, prepare_subscription_v1,
 };
 
 const ALPHA: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
@@ -10,7 +10,7 @@ const BETA: &str = "vless://fedcba98-7654-3210-fedc-ba9876543210@example.net:844
 fn render(sources: &[SubscriptionSourceV1<'_>]) -> Vec<u8> {
     prepare_subscription_v1(sources)
         .expect("valid subscription sources")
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Mihomo config")
         .into_bytes()
 }

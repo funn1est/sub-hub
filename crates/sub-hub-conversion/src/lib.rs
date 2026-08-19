@@ -27,6 +27,8 @@ mod share_uri;
 
 mod skip;
 
+mod target;
+
 pub use acl4ssr::{
     Acl4SsrConversionReportV1, Acl4SsrOutputV1, Acl4SsrPreparationError, Acl4SsrRenderError,
     Acl4SsrRuleSetRequestV1, PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
@@ -37,3 +39,4 @@ pub use direct_subscription::{
     SubscriptionSourceV1, prepare_direct_subscription_v1, prepare_subscription_v1,
 };
 pub use skip::SkipCountsV1;
+pub use target::OutputTarget;

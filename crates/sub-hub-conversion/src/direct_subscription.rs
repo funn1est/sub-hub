@@ -1,12 +1,8 @@
 use std::fmt;
 
 use crate::{
-    render::{
-        BuiltinRenderError, inspect_builtin_egern_v1, inspect_builtin_loon_v1,
-        inspect_builtin_mihomo_v1, inspect_builtin_quanx_v1, inspect_builtin_singbox_v1,
-        render_builtin_egern_v1, render_builtin_loon_v1, render_builtin_mihomo_v1,
-        render_builtin_quanx_v1, render_builtin_singbox_v1,
-    },
+    OutputTarget,
+    render::{BuiltinRenderError, inspect_builtin_v1, render_builtin_v1},
     skip::SkipCountsV1,
     subscription_source::{
         NodeOccurrence, ParsedSubscriptionSources, SubscriptionParseError, SubscriptionSourceInput,
@@ -47,104 +43,30 @@ impl PreparedSubscriptionV1 {
         &self.parsed.remote_decoded_bytes
     }
 
-    /// Consumes the prepared subscription and renders the builtin Mihomo v1 document.
+    /// Consumes the prepared subscription and renders the builtin document for `target`.
     ///
     /// # Errors
     ///
     /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
-    /// limit, or [`DirectRenderError::Internal`] when naming or serialization cannot complete.
-    pub fn render_builtin_mihomo_v1(self) -> Result<RenderedConfig, DirectRenderError> {
-        map_builtin_render(render_builtin_mihomo_v1(self.parsed))
+    /// limit, [`DirectRenderError::NoValidNodes`] when every node is dropped, or
+    /// [`DirectRenderError::Internal`] when naming or serialization cannot complete.
+    pub fn render_builtin_v1(
+        self,
+        target: OutputTarget,
+    ) -> Result<RenderedConfig, DirectRenderError> {
+        map_builtin_render(render_builtin_v1(self.parsed, target))
     }
 
-    /// Consumes the prepared subscription and renders the builtin Quantumult X document.
+    /// Classifies nodes for `target` without serializing a document.
     ///
     /// # Errors
     ///
-    /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
-    /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
-    pub fn render_builtin_quanx_v1(self) -> Result<RenderedConfig, DirectRenderError> {
-        map_builtin_render(render_builtin_quanx_v1(self.parsed))
-    }
-
-    /// Consumes the prepared subscription and renders the builtin sing-box document.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
-    /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
-    pub fn render_builtin_singbox_v1(self) -> Result<RenderedConfig, DirectRenderError> {
-        map_builtin_render(render_builtin_singbox_v1(self.parsed))
-    }
-
-    /// Consumes the prepared subscription and renders the builtin Loon document.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
-    /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
-    pub fn render_builtin_loon_v1(self) -> Result<RenderedConfig, DirectRenderError> {
-        map_builtin_render(render_builtin_loon_v1(self.parsed))
-    }
-
-    /// Consumes the prepared subscription and renders the builtin Egern document.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
-    /// limit, or [`DirectRenderError::Internal`] when naming or rendering cannot complete.
-    pub fn render_builtin_egern_v1(self) -> Result<RenderedConfig, DirectRenderError> {
-        map_builtin_render(render_builtin_egern_v1(self.parsed))
-    }
-
-    /// Classifies nodes for Mihomo without serializing a document.
-    ///
-    /// # Errors
-    ///
-    /// Same closed set as [`Self::render_builtin_mihomo_v1`], except
-    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
-    pub fn inspect_builtin_mihomo_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
-        map_builtin_inspect(inspect_builtin_mihomo_v1(self.parsed))
-    }
-
-    /// Classifies nodes for Quantumult X without serializing a document.
-    ///
-    /// # Errors
-    ///
-    /// Same closed set as [`Self::render_builtin_quanx_v1`], except
-    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
-    pub fn inspect_builtin_quanx_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
-        map_builtin_inspect(inspect_builtin_quanx_v1(self.parsed))
-    }
-
-    /// Classifies nodes for sing-box without serializing a document.
-    ///
-    /// # Errors
-    ///
-    /// Same closed set as [`Self::render_builtin_singbox_v1`], except
-    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
-    pub fn inspect_builtin_singbox_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
-        map_builtin_inspect(inspect_builtin_singbox_v1(self.parsed))
-    }
-
-    /// Classifies nodes for Loon without serializing a document.
-    ///
-    /// # Errors
-    ///
-    /// Same closed set as [`Self::render_builtin_loon_v1`], except
-    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
-    pub fn inspect_builtin_loon_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
-        map_builtin_inspect(inspect_builtin_loon_v1(self.parsed))
-    }
-
-    /// Classifies nodes for Egern without serializing a document.
-    ///
-    /// # Errors
-    ///
-    /// Same closed set as [`Self::render_builtin_egern_v1`], except
-    /// [`DirectRenderError::NoValidNodes`] when every node is dropped.
-    pub fn inspect_builtin_egern_v1(self) -> Result<SkipCountsV1, DirectRenderError> {
-        map_builtin_inspect(inspect_builtin_egern_v1(self.parsed))
+    /// Same closed set as [`Self::render_builtin_v1`].
+    pub fn inspect_builtin_v1(
+        self,
+        target: OutputTarget,
+    ) -> Result<SkipCountsV1, DirectRenderError> {
+        map_builtin_inspect(inspect_builtin_v1(self.parsed, target))
     }
 }
 

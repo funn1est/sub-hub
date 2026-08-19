@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 use sub_hub_conversion::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, PreparedAcl4SsrV1, SubscriptionSourceV1,
-    prepare_direct_subscription_v1, prepare_subscription_v1,
+    Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget, PreparedAcl4SsrV1,
+    SubscriptionSourceV1, prepare_direct_subscription_v1, prepare_subscription_v1,
 };
 
 const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
@@ -20,7 +20,7 @@ impl DistinctRuleSetFlights for PreparedAcl4SsrV1 {
     ) -> Result<sub_hub_conversion::Acl4SsrOutputV1, Acl4SsrRenderError> {
         let flights = (0..self.rule_set_requests().len()).collect::<Vec<_>>();
         self.bind_rule_set_flights_v1(&flights)?
-            .render_mihomo_v1(bodies)
+            .render_v1(OutputTarget::Mihomo, bodies)
     }
 }
 
@@ -157,7 +157,7 @@ fn duplicate_rule_set_flight_replays_typed_entries_per_occurrence() {
     let output = prepared
         .bind_rule_set_flights_v1(&[0, 0])
         .unwrap()
-        .render_mihomo_v1(&[b"DOMAIN,example.org\n"])
+        .render_v1(OutputTarget::Mihomo, &[b"DOMAIN,example.org\n"])
         .unwrap();
     let yaml = std::str::from_utf8(output.as_bytes()).unwrap();
     assert!(yaml.contains("- DOMAIN,example.org,PROXY\n"));
@@ -183,7 +183,7 @@ fn duplicate_rule_set_occurrences_still_consume_the_semantic_rule_budget() {
         .unwrap()
         .bind_rule_set_flights_v1(&[0, 0])
         .unwrap()
-        .render_mihomo_v1(&[body.as_bytes()])
+        .render_v1(OutputTarget::Mihomo, &[body.as_bytes()])
         .unwrap_err();
     assert_eq!(error, Acl4SsrRenderError::ConversionLimit);
 }

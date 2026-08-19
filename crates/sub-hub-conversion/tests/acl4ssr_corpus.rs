@@ -7,7 +7,8 @@ use std::{
 };
 
 use sub_hub_conversion::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, PreparedAcl4SsrV1, prepare_direct_subscription_v1,
+    Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget, PreparedAcl4SsrV1,
+    prepare_direct_subscription_v1,
 };
 
 const CORPUS_DIR_ENV: &str = "SUB_HUB_ACL4SSR_CORPUS_DIR";
@@ -120,7 +121,7 @@ fn verify_profile(
         .collect::<Vec<_>>();
     let body_refs = bodies.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let output = bind_distinct(prepared)
-        .render_mihomo_v1(&body_refs)
+        .render_v1(OutputTarget::Mihomo, &body_refs)
         .expect("fixed corpus must render through the strict conversion seam");
     assert_eq!(
         output.report().omitted_url_regex_count(),
@@ -163,7 +164,7 @@ fn verify_profile(
             .prepare_acl4ssr_config_v1(&config)
             .unwrap(),
     )
-    .render_mihomo_v1(&changed_refs)
+    .render_v1(OutputTarget::Mihomo, &changed_refs)
     .unwrap_err();
     assert_eq!(changed, Acl4SsrRenderError::UnsupportedRule);
 }

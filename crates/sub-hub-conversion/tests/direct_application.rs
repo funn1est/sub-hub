@@ -1,7 +1,8 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use proptest::prelude::*;
 use sub_hub_conversion::{
-    DirectPreparationError, DirectRenderError, SkipCountsV1, prepare_direct_subscription_v1,
+    DirectPreparationError, DirectRenderError, OutputTarget, SkipCountsV1,
+    prepare_direct_subscription_v1,
 };
 
 const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha";
@@ -11,7 +12,7 @@ fn direct_application_prepares_and_renders_builtin_mihomo() {
     let prepared =
         prepare_direct_subscription_v1(&[VALID_DIRECT]).expect("valid direct subscription");
     let config = prepared
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Mihomo config");
 
     assert_eq!(
@@ -100,7 +101,7 @@ fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
     let prepared = prepare_direct_subscription_v1(&["anytls://example.com:443", VALID_DIRECT])
         .expect("one accepted direct occurrence");
     let config = prepared
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Mihomo config");
     assert_eq!(config.as_bytes(), SINGLE_VLESS_YAML);
 }
@@ -110,7 +111,7 @@ fn duplicate_direct_occurrences_are_retained_in_declaration_order() {
     let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT, VALID_DIRECT])
         .expect("duplicate direct occurrences remain valid");
     let config = prepared
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Mihomo config");
     let yaml = std::str::from_utf8(config.as_bytes()).expect("UTF-8 Mihomo YAML");
 
@@ -131,7 +132,9 @@ fn direct_render_maps_the_public_output_limit() {
     let prepared = prepare_direct_subscription_v1(&[&source]).expect("valid large direct URI");
 
     assert_eq!(
-        prepared.render_builtin_mihomo_v1().unwrap_err(),
+        prepared
+            .render_builtin_v1(OutputTarget::Mihomo)
+            .unwrap_err(),
         DirectRenderError::ConversionLimit
     );
 }
@@ -150,7 +153,7 @@ fn direct_application_debug_and_errors_do_not_expose_input_or_config() {
     }
 
     let config = prepared
-        .render_builtin_mihomo_v1()
+        .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Mihomo config");
     let config_debug = format!("{config:?}");
     for secret in [SECRET_UUID, SECRET_HOST, SECRET_NAME] {
@@ -207,8 +210,8 @@ proptest! {
             (Err(first), Err(second)) => prop_assert_eq!(first, second),
             (Ok(first), Ok(second)) => {
                 match (
-                    first.render_builtin_mihomo_v1(),
-                    second.render_builtin_mihomo_v1(),
+                    first.render_builtin_v1(OutputTarget::Mihomo),
+                    second.render_builtin_v1(OutputTarget::Mihomo),
                 ) {
                     (Ok(first), Ok(second)) => prop_assert_eq!(first.as_bytes(), second.as_bytes()),
                     (Err(first), Err(second)) => prop_assert_eq!(first, second),
