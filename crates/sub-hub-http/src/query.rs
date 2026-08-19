@@ -2,20 +2,20 @@ use sub_hub_conversion::OutputTarget;
 
 const MAX_DIRECT_SOURCES: usize = 5;
 
-pub(super) struct DirectQuery {
-    pub(super) target: OutputTarget,
-    pub(super) sources: Vec<String>,
-    pub(super) config: Option<String>,
-    pub(super) append_info: bool,
+pub(crate) struct DirectQuery {
+    pub(crate) target: OutputTarget,
+    pub(crate) sources: Vec<String>,
+    pub(crate) config: Option<String>,
+    pub(crate) append_info: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum QueryError {
+pub(crate) enum QueryError {
     InvalidRequest,
     InvalidTarget,
 }
 
-pub(super) fn parse_application_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
+pub(crate) fn parse_application_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
     parse_query(raw_query)
 }
 
@@ -128,7 +128,7 @@ const fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-pub(super) fn is_https_source(source: &str) -> bool {
+pub(crate) fn is_https_source(source: &str) -> bool {
     has_ascii_prefix(source, "https://")
 }
 

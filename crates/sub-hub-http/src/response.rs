@@ -1,5 +1,5 @@
 use http::{HeaderMap, HeaderValue, StatusCode, header};
-use sub_hub_conversion::SkipCountsV1;
+use sub_hub_conversion::{OutputTarget, SkipCountsV1};
 
 use crate::{JSON_CONTENT_TYPE, NO_STORE, TEXT_CONTENT_TYPE};
 
@@ -98,6 +98,30 @@ pub(crate) fn subscription_response(
             .insert("profile-update-interval", HeaderValue::from_static("24"));
     }
     response
+}
+
+pub(crate) fn subscription_response_for(target: OutputTarget, body: Vec<u8>) -> HttpResponse {
+    match target {
+        OutputTarget::Mihomo => subscription_response(body, "sub-hub-mihomo.yaml", true),
+        OutputTarget::Quanx => subscription_response(body, "sub-hub-quanx.conf", false),
+        OutputTarget::Singbox => subscription_response(body, "sub-hub-singbox.json", false),
+        OutputTarget::Loon => subscription_response(body, "sub-hub-loon.conf", false),
+        OutputTarget::Egern => subscription_response(body, "sub-hub-egern.yaml", false),
+    }
+}
+
+pub(crate) fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_regex_count: u8) {
+    let omitted = match omitted_url_regex_count {
+        1 => HeaderValue::from_static("URL-REGEX=1"),
+        9 => HeaderValue::from_static("URL-REGEX=9"),
+        _ => return,
+    };
+    response
+        .headers
+        .insert("x-subconverter-result", HeaderValue::from_static("lossy"));
+    response
+        .headers
+        .insert("x-subconverter-omitted-rules", omitted);
 }
 
 pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
