@@ -33,7 +33,12 @@ pub(crate) fn render_mihomo_from_policy_v1(
             .map(|node| MihomoProxy::from(*node))
             .collect(),
         proxy_groups: policy.groups().iter().map(mihomo_group).collect(),
-        rules: policy.rules().iter().map(render_clash_rule).collect(),
+        rules: policy
+            .rules()
+            .iter()
+            .filter(|rule| !matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)))
+            .map(render_clash_rule)
+            .collect(),
     };
     let comments = comment_prefix(
         policy.report().omitted_url_regex,
@@ -85,6 +90,9 @@ pub(crate) fn render_clash_rule(rule: &CompiledRuleV1) -> String {
         ),
         RuleMatcherV1::GeoIpCn => format!("GEOIP,CN,{target}"),
         RuleMatcherV1::Match => format!("MATCH,{target}"),
+        RuleMatcherV1::UrlRegex(_) => {
+            unreachable!("URL-REGEX is omitted before Mihomo render")
+        }
     }
 }
 

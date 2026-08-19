@@ -202,6 +202,7 @@ pub(crate) enum RuleMatcherV1 {
     },
     GeoIpCn,
     Match,
+    UrlRegex(String),
 }
 
 impl fmt::Debug for RuleMatcherV1 {
@@ -222,6 +223,7 @@ impl fmt::Debug for RuleMatcherV1 {
                 .finish_non_exhaustive(),
             Self::GeoIpCn => formatter.write_str("GeoIpCn"),
             Self::Match => formatter.write_str("Match"),
+            Self::UrlRegex(_) => formatter.write_str("UrlRegex"),
         }
     }
 }

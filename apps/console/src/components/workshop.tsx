@@ -22,6 +22,18 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.tsx"
 import { Badge } from "@/components/ui/badge.tsx"
 import { Button } from "@/components/ui/button.tsx"
 import {
+  Combobox,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxList,
+  ComboboxSeparator,
+} from "@/components/ui/combobox.tsx"
+import {
   Card,
   CardAction,
   CardContent,
@@ -59,7 +71,12 @@ import { Switch } from "@/components/ui/switch.tsx"
 import { Textarea } from "@/components/ui/textarea.tsx"
 import { toast } from "@/components/ui/toast.tsx"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx"
-import { knownErrorTitle, skippedSummary, t } from "@/lib/i18n.ts"
+import {
+  knownErrorTitle,
+  skippedSummary,
+  t,
+  type Messages,
+} from "@/lib/i18n.ts"
 import type { Locale, PersistedWorkshop, Theme } from "@/lib/persist.ts"
 import {
   classifyFetchFailure,
@@ -74,8 +91,11 @@ import {
   type PreviewBodyKind,
 } from "@/lib/preview.ts"
 import {
-  ACL4SSR_FULL_URL,
-  ACL4SSR_ONLINE_URL,
+  ACL4SSR_FULL_FILES,
+  ACL4SSR_MINI_FILES,
+  ACL4SSR_ONLINE_FILES,
+  acl4ssrConfigLabel,
+  acl4ssrConfigUrl,
   assembleSubscription,
   clashInstallUrl,
   configPresetOf,
@@ -85,8 +105,19 @@ import {
   parseServiceOrigin,
   parseSubscriptionUrl,
   TARGETS,
+  type Acl4ssrConfigFile,
   type Target,
 } from "@/lib/workshop.ts"
+
+type ConfigChoice = {
+  id: "none" | "custom" | Acl4ssrConfigFile
+  label: string
+}
+
+type ConfigChoiceGroup = {
+  value: string
+  items: ConfigChoice[]
+}
 
 type WorkshopProps = {
   state: PersistedWorkshop
@@ -128,8 +159,14 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
     parseHttpsResourceUrl(state.configUrl) !== null
   const canonicalOrigin = parseServiceOrigin(state.serviceOrigin)
   const preset = configPresetOf(state.configUrl)
-
   const [revealToken, setRevealToken] = React.useState(false)
+  const [pickingCustom, setPickingCustom] = React.useState(false)
+  const configGroups = React.useMemo(() => configChoiceGroups(copy), [copy])
+  const selectedConfig = selectedConfigChoice(
+    configGroups,
+    preset,
+    pickingCustom
+  )
   const [pasteRaw, setPasteRaw] = React.useState("")
   const [pasteError, setPasteError] = React.useState<string | null>(null)
   const [pasteWarnings, setPasteWarnings] = React.useState<string[]>([])
@@ -196,6 +233,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
       return
     }
     setPasteError(null)
+    setPickingCustom(false)
     setPasteWarnings(
       parsed.warnings.map((warning) => copy.pasteWarnings[warning])
     )
@@ -475,53 +513,81 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
                   </ToggleGroup>
                 </Field>
                 <Field>
-                  <FieldLabel>{copy.config}</FieldLabel>
-                  <ToggleGroup
-                    variant="outline"
-                    size="sm"
-                    value={[preset === "custom" ? "custom" : preset]}
-                    onValueChange={(value) => {
-                      const next = value[0]
-                      if (next === "builtin") {
+                  <FieldLabel htmlFor="config-preset">{copy.config}</FieldLabel>
+                  <Combobox
+                    items={configGroups}
+                    value={selectedConfig}
+                    onValueChange={(item) => {
+                      if (item == null || !("id" in item)) {
+                        return
+                      }
+                      if (item.id === "none") {
+                        setPickingCustom(false)
                         patch({ configUrl: "" })
-                      } else if (next === "online") {
-                        patch({ configUrl: ACL4SSR_ONLINE_URL })
-                      } else if (next === "full") {
-                        patch({ configUrl: ACL4SSR_FULL_URL })
+                        return
                       }
+                      if (item.id === "custom") {
+                        setPickingCustom(true)
+                        return
+                      }
+                      setPickingCustom(false)
+                      patch({ configUrl: acl4ssrConfigUrl(item.id) })
                     }}
-                    spacing={2}
-                    className="flex-wrap"
+                    itemToStringValue={(item) =>
+                      "label" in item ? item.label : item.value
+                    }
                   >
-                    <ToggleGroupItem value="builtin">
-                      {copy.configBuiltin}
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="online">
-                      {copy.configOnline}
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="full">
-                      {copy.configFull}
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="custom">
-                      {copy.configCustom}
-                    </ToggleGroupItem>
-                  </ToggleGroup>
-                </Field>
-                <Field data-invalid={!configValid || undefined}>
-                  <FieldLabel htmlFor="config-url">{copy.configUrl}</FieldLabel>
-                  <InputGroup>
-                    <InputGroupInput
-                      id="config-url"
-                      value={state.configUrl}
+                    <ComboboxInput
+                      id="config-preset"
+                      className="w-full"
+                      autoComplete="off"
                       spellCheck={false}
-                      aria-invalid={!configValid || undefined}
-                      placeholder="https://"
-                      onChange={(event) =>
-                        patch({ configUrl: event.target.value })
-                      }
                     />
-                  </InputGroup>
+                    <ComboboxContent>
+                      <ComboboxEmpty>{copy.configEmpty}</ComboboxEmpty>
+                      <ComboboxList>
+                        {(group: ConfigChoiceGroup, index: number) => (
+                          <ComboboxGroup key={group.value} items={group.items}>
+                            <ComboboxLabel>{group.value}</ComboboxLabel>
+                            <ComboboxCollection>
+                              {(item: ConfigChoice) => (
+                                <ComboboxItem key={item.id} value={item}>
+                                  {item.label}
+                                </ComboboxItem>
+                              )}
+                            </ComboboxCollection>
+                            {index < configGroups.length - 1 ? (
+                              <ComboboxSeparator />
+                            ) : null}
+                          </ComboboxGroup>
+                        )}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
+                  <FieldDescription>{copy.configHint}</FieldDescription>
                 </Field>
+                {pickingCustom || preset.kind === "custom" ? (
+                  <Field data-invalid={!configValid || undefined}>
+                    <FieldLabel htmlFor="config-url">
+                      {copy.configUrl}
+                    </FieldLabel>
+                    <InputGroup>
+                      <InputGroupInput
+                        id="config-url"
+                        value={state.configUrl}
+                        spellCheck={false}
+                        aria-invalid={!configValid || undefined}
+                        placeholder="https://"
+                        onChange={(event) => {
+                          const next = event.target.value
+                          const nextPreset = configPresetOf(next)
+                          setPickingCustom(nextPreset.kind === "custom")
+                          patch({ configUrl: next })
+                        }}
+                      />
+                    </InputGroup>
+                  </Field>
+                ) : null}
                 <Field orientation="horizontal">
                   <FieldContent>
                     <FieldLabel htmlFor="append-info">
@@ -879,6 +945,61 @@ function PreviewCard({
       ) : null}
     </Card>
   )
+}
+
+function configChoiceGroups(copy: Messages): ConfigChoiceGroup[] {
+  return [
+    {
+      value: copy.configNone,
+      items: [{ id: "none", label: copy.configNone }],
+    },
+    {
+      value: copy.configOnline,
+      items: ACL4SSR_ONLINE_FILES.map((file) => ({
+        id: file,
+        label: acl4ssrConfigLabel(file),
+      })),
+    },
+    {
+      value: copy.configMini,
+      items: ACL4SSR_MINI_FILES.map((file) => ({
+        id: file,
+        label: acl4ssrConfigLabel(file),
+      })),
+    },
+    {
+      value: copy.configFull,
+      items: ACL4SSR_FULL_FILES.map((file) => ({
+        id: file,
+        label: acl4ssrConfigLabel(file),
+      })),
+    },
+    {
+      value: copy.configCustom,
+      items: [{ id: "custom", label: copy.configCustom }],
+    },
+  ]
+}
+
+function selectedConfigChoice(
+  groups: readonly ConfigChoiceGroup[],
+  preset: ReturnType<typeof configPresetOf>,
+  pickingCustom: boolean
+): ConfigChoice {
+  const id =
+    pickingCustom || preset.kind === "custom"
+      ? "custom"
+      : preset.kind === "none"
+        ? "none"
+        : preset.file
+  for (const group of groups) {
+    const found = group.items.find((item) => item.id === id)
+    if (found !== undefined) {
+      return found
+    }
+  }
+  const fallback = groups[0]?.items[0]
+  return fallback ?? { id: "none", label: "" }
 }
 
 function LocaleMenu({

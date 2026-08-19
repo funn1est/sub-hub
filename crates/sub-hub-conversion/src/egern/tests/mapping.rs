@@ -179,6 +179,10 @@ fn process_name_is_omitted_and_load_balance_uses_hash() {
                 PolicyMemberV1::Direct,
             ),
             CompiledRuleV1::new(
+                RuleMatcherV1::UrlRegex("example\\.com/path".to_owned()),
+                PolicyMemberV1::Direct,
+            ),
+            CompiledRuleV1::new(
                 RuleMatcherV1::IpCidr {
                     value: "10.0.0.0/8".to_owned(),
                     version: IpVersion::V4,
@@ -205,6 +209,8 @@ fn process_name_is_omitted_and_load_balance_uses_hash() {
     assert!(text.contains("default:\n    policy: DIRECT"));
     assert!(!text.contains("Telegram"));
     assert!(!text.contains("process"));
+    assert!(!text.contains("URL-REGEX"));
+    assert!(!text.contains("example\\.com/path"));
 }
 
 #[test]

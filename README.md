@@ -30,8 +30,13 @@ The current compatibility surface contains only:
 Hysteria2 (`hysteria2://` / `hy2://`), or TUIC v5 (`tuic://uuid:password@host:port`)
 share URIs, or
 HTTPS subscription URLs whose raw/Base64 contents contain supported share URIs.
-An optional HTTPS `config` value selects a supported strict ACL4SSR INI
-configuration and its remote Rule Sets. Quantumult X skips gRPC nodes and VLESS
+An optional HTTPS `config` value selects a strict ACL4SSR INI configuration
+and its remote Rule Sets. Absent or empty `config=` uses the default PROXY/AUTO
+policy; that is not a remote Rule frontend. `URL-REGEX` rules are emitted for
+Loon and omitted on the other targets. The Console lists the 18
+`ACL4SSR_Online*.ini` files from ACL4SSR `master`
+(`https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/`);
+that branch moves. Quantumult X skips gRPC nodes and VLESS
 Vision without Reality. sing-box keeps those combinations, omits GeoIP CN rules,
 and normalizes fallback groups to `urltest` and load-balance groups to
 `selector`. Loon keeps TCP Reality+Vision and WebSocket, skips gRPC and unpaired

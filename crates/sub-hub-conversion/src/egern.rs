@@ -511,7 +511,7 @@ fn render_rules(
                 no_resolve: None,
             }),
             RuleMatcherV1::Match => RuleEntry::default_policy(policy),
-            RuleMatcherV1::ProcessName(_) => continue,
+            RuleMatcherV1::ProcessName(_) | RuleMatcherV1::UrlRegex(_) => continue,
         };
         rendered.push(entry);
     }

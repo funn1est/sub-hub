@@ -553,7 +553,14 @@ fn render_rules(
             }
             RuleMatcherV1::GeoIpCn => format!("GEOIP,CN,{policy}"),
             RuleMatcherV1::Match => format!("FINAL,{policy}"),
+            RuleMatcherV1::UrlRegex(value)
+                if !value.is_empty()
+                    && !value.chars().any(|character| character.is_ascii_control()) =>
+            {
+                format!("URL-REGEX,{value},{policy}")
+            }
             RuleMatcherV1::ProcessName(_)
+            | RuleMatcherV1::UrlRegex(_)
             | RuleMatcherV1::Domain(_)
             | RuleMatcherV1::DomainSuffix(_)
             | RuleMatcherV1::DomainKeyword(_)

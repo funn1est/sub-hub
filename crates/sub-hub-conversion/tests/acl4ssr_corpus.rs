@@ -6,10 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sub_hub_conversion::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget, PreparedAcl4SsrV1,
-    prepare_direct_subscription_v1,
-};
+use sub_hub_conversion::{OutputTarget, PreparedAcl4SsrV1, prepare_direct_subscription_v1};
 
 const CORPUS_DIR_ENV: &str = "SUB_HUB_ACL4SSR_CORPUS_DIR";
 const REQUIRE_CORPUS_ENV: &str = "SUB_HUB_REQUIRE_ACL4SSR_CORPUS";
@@ -90,7 +87,7 @@ fn pinned_online_and_full_corpus_cross_the_opaque_conversion_seam() {
         7,
         &FULL_OUTPUT,
     );
-    a_semantic_full_config_change_loses_the_profile_exception(&root);
+    a_semantic_full_config_change_is_still_accepted(&root);
 }
 
 fn verify_profile(
@@ -165,8 +162,11 @@ fn verify_profile(
             .unwrap(),
     )
     .render_v1(OutputTarget::Mihomo, &changed_refs)
-    .unwrap_err();
-    assert_eq!(changed, Acl4SsrRenderError::UnsupportedRule);
+    .expect("URL-REGEX pattern bytes are not a render gate");
+    assert_eq!(
+        changed.report().omitted_url_regex_count(),
+        expected_omitted_count
+    );
 }
 
 fn assert_output_structure(output: &[u8], expected: &ExpectedOutputStructure) {
@@ -228,7 +228,7 @@ fn count_values<'a>(values: impl IntoIterator<Item = &'a str>) -> BTreeMap<&'a s
     counts
 }
 
-fn a_semantic_full_config_change_loses_the_profile_exception(root: &Path) {
+fn a_semantic_full_config_change_is_still_accepted(root: &Path) {
     let config = read_corpus_file(root, "Clash/config/ACL4SSR_Online_Full_MultiMode.ini");
     let config = String::from_utf8(config).expect("fixed config must be UTF-8");
     let changed = config.replacen(
@@ -237,13 +237,11 @@ fn a_semantic_full_config_change_loses_the_profile_exception(root: &Path) {
         1,
     );
     assert_ne!(changed, config);
-    assert_eq!(
-        prepare_direct_subscription_v1(&[VALID_DIRECT])
-            .unwrap()
-            .prepare_acl4ssr_config_v1(changed.as_bytes())
-            .unwrap_err(),
-        Acl4SsrPreparationError::InvalidConfig
-    );
+    let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT])
+        .unwrap()
+        .prepare_acl4ssr_config_v1(changed.as_bytes())
+        .expect("a fingerprint change is not a prepare gate");
+    assert_eq!(prepared.rule_set_requests().len(), 31);
 }
 
 fn read_corpus_file(root: &Path, relative: &str) -> Vec<u8> {

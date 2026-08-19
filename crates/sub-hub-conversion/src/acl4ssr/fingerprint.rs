@@ -1,11 +1,9 @@
-//! Stage 2: config fingerprint hashing, pinned profile policies, and
-//! profile-gated capability validation.
+//! Stage 2: config fingerprint hashing and the promoted digest table.
 //!
 //! Owns the domain-separated wire encodings (config fingerprint and omitted
-//! Rule Set evidence) plus the promoted digest table that gates them.
+//! Rule Set evidence). Rendering no longer gates on these digests.
 
 use super::{
-    Acl4SsrPreparationError, Acl4SsrRenderError,
     ini::{Config, Directive, GroupMember, GroupType, RuleSource, TargetRef},
     sha256,
 };
@@ -162,36 +160,24 @@ fn encode_text<O: WireOutput>(output: &mut O, value: &str) -> Result<(), ()> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(super) enum ProfileKind {
     Online,
     Full,
 }
 
+#[allow(dead_code)]
 struct ProfilePolicy {
     kind: ProfileKind,
     config_preimage_bytes: usize,
     config_digest: [u8; 32],
-    evidence_preimage_bytes: usize,
-    evidence_digest: [u8; 32],
-    omitted_distribution: &'static [ExpectedOmittedPolicy],
-    legacy_probe_hints: &'static [ExpectedLegacyProbeHint],
-}
-
-struct ExpectedOmittedPolicy {
-    target: &'static str,
-    count: usize,
-}
-
-struct ExpectedLegacyProbeHint {
-    group_name: &'static str,
-    kind: GroupType,
-    tolerance: u16,
 }
 
 // These values were promoted only after an independent parse of the pinned Git
 // blob corpus agreed with the Rust encoder on all four preimage lengths and
 // SHA-256 digests. This table intentionally cannot be changed by request,
 // environment, KV, or runtime configuration.
+#[allow(dead_code)]
 const PROFILE_POLICIES: &[ProfilePolicy] = &[
     ProfilePolicy {
         kind: ProfileKind::Online,
@@ -201,17 +187,6 @@ const PROFILE_POLICIES: &[ProfilePolicy] = &[
             0xbd, 0x30, 0x59, 0x2b, 0x17, 0x29, 0xa8, 0x93, 0xe6, 0xbf, 0x77, 0x6e, 0x14, 0x27,
             0x4b, 0x2d, 0xaf, 0x58,
         ],
-        evidence_preimage_bytes: 167,
-        evidence_digest: [
-            0x8c, 0xfb, 0xc9, 0x0f, 0xbf, 0x87, 0xcc, 0x5b, 0x87, 0x42, 0x32, 0xf5, 0x2a, 0x31,
-            0x60, 0x2f, 0x80, 0x38, 0x09, 0x43, 0x7d, 0x63, 0x69, 0x04, 0x1c, 0x10, 0xfc, 0x2f,
-            0xb4, 0x83, 0xb3, 0xd8,
-        ],
-        omitted_distribution: &[ExpectedOmittedPolicy {
-            target: "🌍 国外媒体",
-            count: 1,
-        }],
-        legacy_probe_hints: &[],
     },
     ProfilePolicy {
         kind: ProfileKind::Full,
@@ -221,41 +196,10 @@ const PROFILE_POLICIES: &[ProfilePolicy] = &[
             0x18, 0xdc, 0xc6, 0x22, 0xd1, 0x09, 0x0a, 0x20, 0x7f, 0x29, 0x93, 0xea, 0x3f, 0x9e,
             0xd2, 0x88, 0x57, 0x79,
         ],
-        evidence_preimage_bytes: 863,
-        evidence_digest: [
-            0x8d, 0x4b, 0x98, 0x6b, 0xcf, 0xd2, 0x49, 0x8c, 0x45, 0x0d, 0xb3, 0x09, 0x01, 0xf2,
-            0xe4, 0x97, 0x6d, 0x3f, 0xd9, 0x5f, 0x25, 0xa2, 0xa1, 0xe0, 0x9b, 0xb2, 0x4d, 0x7f,
-            0x2b, 0xa3, 0x7d, 0x20,
-        ],
-        omitted_distribution: &[
-            ExpectedOmittedPolicy {
-                target: "🎯 全球直连",
-                count: 7,
-            },
-            ExpectedOmittedPolicy {
-                target: "🌏 国内媒体",
-                count: 1,
-            },
-            ExpectedOmittedPolicy {
-                target: "🌍 国外媒体",
-                count: 1,
-            },
-        ],
-        legacy_probe_hints: &[
-            ExpectedLegacyProbeHint {
-                group_name: "🔯 故障转移",
-                kind: GroupType::Fallback,
-                tolerance: 50,
-            },
-            ExpectedLegacyProbeHint {
-                group_name: "🔮 负载均衡",
-                kind: GroupType::LoadBalance,
-                tolerance: 50,
-            },
-        ],
     },
 ];
 
+#[allow(dead_code)]
 pub(super) fn lookup_profile(preimage_bytes: usize, digest: &[u8; 32]) -> Option<ProfileKind> {
     PROFILE_POLICIES
         .iter()
@@ -263,143 +207,6 @@ pub(super) fn lookup_profile(preimage_bytes: usize, digest: &[u8; 32]) -> Option
             entry.config_preimage_bytes == preimage_bytes && entry.config_digest == *digest
         })
         .map(|entry| entry.kind)
-}
-
-fn profile_policy(kind: ProfileKind) -> Option<&'static ProfilePolicy> {
-    PROFILE_POLICIES.iter().find(|entry| entry.kind == kind)
-}
-
-pub(super) fn validate_target_capability(
-    config: &Config,
-    profile: Option<ProfileKind>,
-) -> Result<(), Acl4SsrPreparationError> {
-    let policy = profile
-        .map(|profile| profile_policy(profile).ok_or(Acl4SsrPreparationError::Internal))
-        .transpose()?;
-    let mut observed_legacy_hints = 0;
-    for group in &config.groups {
-        let tolerance = group
-            .payload
-            .as_ref()
-            .and_then(|payload| payload.probe.tolerance);
-        if let Some(tolerance) = tolerance
-            && group.kind != GroupType::UrlTest
-        {
-            observed_legacy_hints += 1;
-            let allowed = policy.is_some_and(|policy| {
-                policy.legacy_probe_hints.iter().any(|expected| {
-                    group.name == expected.group_name
-                        && group.kind == expected.kind
-                        && tolerance == expected.tolerance
-                })
-            });
-            if !allowed {
-                return Err(Acl4SsrPreparationError::InvalidConfig);
-            }
-        }
-    }
-    if observed_legacy_hints != policy.map_or(0, |policy| policy.legacy_probe_hints.len()) {
-        return Err(Acl4SsrPreparationError::InvalidConfig);
-    }
-    Ok(())
-}
-
-fn target_name(target: &TargetRef) -> &str {
-    match target {
-        TargetRef::Direct => "DIRECT",
-        TargetRef::Reject => "REJECT",
-        TargetRef::Group(name) => name,
-    }
-}
-
-pub(super) struct OmittedEvidenceAccumulator {
-    policy: &'static ProfilePolicy,
-    output: HashedWire,
-    expected_entry_count: usize,
-    entry_count: usize,
-    distribution: Vec<usize>,
-}
-
-impl OmittedEvidenceAccumulator {
-    pub(super) fn new(
-        profile: ProfileKind,
-        config_fingerprint: [u8; 32],
-    ) -> Result<Self, Acl4SsrRenderError> {
-        let policy = profile_policy(profile).ok_or(Acl4SsrRenderError::Internal)?;
-        let expected_total = policy
-            .omitted_distribution
-            .iter()
-            .try_fold(0_usize, |total, expected| total.checked_add(expected.count))
-            .ok_or(Acl4SsrRenderError::Internal)?;
-        let mut output = HashedWire::new();
-        encode_lp16_ascii(&mut output, b"sub-hub/OmittedRuleEvidence/SHA-256")
-            .map_err(|()| Acl4SsrRenderError::ConversionLimit)?;
-        output
-            .write(&1_u16.to_be_bytes())
-            .and_then(|()| output.write_byte(1))
-            .and_then(|()| output.write(&config_fingerprint))
-            .and_then(|()| encode_count(&mut output, expected_total))
-            .map_err(|()| Acl4SsrRenderError::ConversionLimit)?;
-        Ok(Self {
-            policy,
-            output,
-            expected_entry_count: expected_total,
-            entry_count: 0,
-            distribution: vec![0; policy.omitted_distribution.len()],
-        })
-    }
-
-    pub(super) fn push(
-        &mut self,
-        remote_source_ordinal: u32,
-        url_regex_ordinal: u32,
-        target: &TargetRef,
-        pattern: &str,
-    ) -> Result<(), Acl4SsrRenderError> {
-        self.entry_count = self
-            .entry_count
-            .checked_add(1)
-            .ok_or(Acl4SsrRenderError::ConversionLimit)?;
-        if let Some(index) = self
-            .policy
-            .omitted_distribution
-            .iter()
-            .position(|expected| expected.target == target_name(target))
-        {
-            self.distribution[index] = self.distribution[index]
-                .checked_add(1)
-                .ok_or(Acl4SsrRenderError::ConversionLimit)?;
-        }
-        self.output
-            .write_byte(1)
-            .and_then(|()| self.output.write(&remote_source_ordinal.to_be_bytes()))
-            .and_then(|()| self.output.write(&url_regex_ordinal.to_be_bytes()))
-            .and_then(|()| encode_target(&mut self.output, target))
-            .and_then(|()| encode_text(&mut self.output, pattern))
-            .map_err(|()| Acl4SsrRenderError::ConversionLimit)
-    }
-
-    pub(super) fn finish(self) -> Result<usize, Acl4SsrRenderError> {
-        let distribution_matches = self
-            .policy
-            .omitted_distribution
-            .iter()
-            .zip(&self.distribution)
-            .all(|(expected, observed)| expected.count == *observed);
-        if self.entry_count != self.expected_entry_count || !distribution_matches {
-            return Err(Acl4SsrRenderError::UnsupportedRule);
-        }
-        let (preimage_bytes, digest) = self
-            .output
-            .finish()
-            .map_err(|()| Acl4SsrRenderError::ConversionLimit)?;
-        if preimage_bytes != self.policy.evidence_preimage_bytes
-            || digest != self.policy.evidence_digest
-        {
-            return Err(Acl4SsrRenderError::UnsupportedRule);
-        }
-        Ok(self.entry_count)
-    }
 }
 
 #[cfg(test)]

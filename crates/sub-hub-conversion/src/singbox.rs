@@ -434,7 +434,7 @@ fn render_rules(
                 outbound,
                 ..RouteRule::empty()
             },
-            RuleMatcherV1::GeoIpCn | RuleMatcherV1::Match => continue,
+            RuleMatcherV1::GeoIpCn | RuleMatcherV1::Match | RuleMatcherV1::UrlRegex(_) => continue,
         };
         rendered.push(route);
     }

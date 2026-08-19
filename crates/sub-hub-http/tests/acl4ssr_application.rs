@@ -83,7 +83,7 @@ fn get_applies_remote_acl4ssr_config_and_rule_sets() {
 }
 
 #[test]
-fn head_validates_config_url_without_loading_config_or_rule_sets() {
+fn head_with_config_loads_config_and_inspects_without_rule_sets() {
     let requested_kinds = Arc::new(Mutex::new(Vec::new()));
     let application = Application::new(
         AclResources {
@@ -111,12 +111,11 @@ fn head_validates_config_url_without_loading_config_or_rule_sets() {
 
     assert_eq!(response.status(), StatusCode::OK);
     assert!(response.body().is_empty());
-    assert!(
-        requested_kinds
-            .lock()
-            .expect("test recorder lock")
-            .is_empty()
+    assert_eq!(
+        *requested_kinds.lock().expect("test recorder lock"),
+        [ResourceKind::Config]
     );
+    requested_kinds.lock().expect("test recorder lock").clear();
 
     let forbidden_query = format!(
         "target=clash&url={}&config={}",

@@ -611,6 +611,7 @@ fn render_rules(rules: &[CompiledRuleV1]) -> Vec<String> {
             RuleMatcherV1::GeoIpCn => format!("geoip, cn, {policy}"),
             RuleMatcherV1::Match => format!("final, {policy}"),
             RuleMatcherV1::ProcessName(_)
+            | RuleMatcherV1::UrlRegex(_)
             | RuleMatcherV1::Domain(_)
             | RuleMatcherV1::DomainSuffix(_)
             | RuleMatcherV1::DomainKeyword(_)

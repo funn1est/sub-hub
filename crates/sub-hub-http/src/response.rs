@@ -111,10 +111,11 @@ pub(crate) fn subscription_response_for(target: OutputTarget, body: Vec<u8>) -> 
 }
 
 pub(crate) fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_regex_count: u8) {
-    let omitted = match omitted_url_regex_count {
-        1 => HeaderValue::from_static("URL-REGEX=1"),
-        9 => HeaderValue::from_static("URL-REGEX=9"),
-        _ => return,
+    if omitted_url_regex_count == 0 {
+        return;
+    }
+    let Ok(omitted) = HeaderValue::from_str(&format!("URL-REGEX={omitted_url_regex_count}")) else {
+        return;
     };
     response
         .headers

@@ -305,11 +305,28 @@ fn generic_url_regex_and_malformed_rule_sets_fail_closed() {
             .prepare_acl4ssr_config_v1(config.as_bytes())
             .unwrap()
     };
-    assert_eq!(
-        prepare()
-            .render_mihomo_v1(&[b"URL-REGEX,secret,opaque,pattern"])
-            .unwrap_err(),
-        Acl4SsrRenderError::UnsupportedRule
+    let omitted = prepare()
+        .render_mihomo_v1(&[b"URL-REGEX,secret,opaque,pattern"])
+        .expect("generic URL-REGEX is compiled and omitted on Mihomo");
+    assert_eq!(omitted.report().omitted_url_regex_count(), 1);
+    assert!(
+        omitted.as_bytes().starts_with(
+            b"# subconverter: lossy conversion; unsupported URL-REGEX rules omitted\n"
+        )
+    );
+    let omitted_text = std::str::from_utf8(omitted.as_bytes()).unwrap();
+    assert!(!omitted_text.contains("- URL-REGEX,"));
+    assert!(!omitted_text.contains("secret,opaque,pattern"));
+    let loon = prepare()
+        .bind_rule_set_flights_v1(&[0])
+        .unwrap()
+        .render_v1(OutputTarget::Loon, &[b"URL-REGEX,example.com/path"])
+        .expect("Loon emits URL-REGEX");
+    assert_eq!(loon.report().omitted_url_regex_count(), 0);
+    assert!(
+        std::str::from_utf8(loon.as_bytes())
+            .unwrap()
+            .contains("URL-REGEX,example.com/path,PROXY")
     );
     let output = prepare()
         .render_mihomo_v1(&[b"DOMAIN, example.com\n"])
@@ -360,7 +377,15 @@ fn staged_values_and_errors_do_not_leak_attacker_controlled_text() {
         .unwrap();
     assert!(!format!("{prepared:?}").contains("secret-canary"));
     assert!(!format!("{:?}", prepared.rule_set_requests()[0]).contains("secret-canary"));
-    let error = prepared.render_mihomo_v1(&[b"URL-REGEX,secret-pattern"]);
+    let output = prepared
+        .render_mihomo_v1(&[b"URL-REGEX,secret-pattern"])
+        .expect("generic URL-REGEX is omitted, not a closed error");
+    assert!(!format!("{output:?}").contains("secret"));
+    let error = prepare_direct_subscription_v1(&[VALID_DIRECT])
+        .unwrap()
+        .prepare_acl4ssr_config_v1(config.as_bytes())
+        .unwrap()
+        .render_mihomo_v1(&[b"URL-REGEX,secret\tpattern"]);
     let error = error.unwrap_err();
     assert!(!format!("{error:?}").contains("secret"));
     assert!(!error.to_string().contains("secret"));
@@ -385,7 +410,6 @@ fn declared_urls_group_fields_and_probe_numbers_are_strict() {
         "custom_proxy_group=Q`url-test`.*`https://probe.example/x`300,",
         "custom_proxy_group=Q`url-test`.*`https://probe.example/x`300,,",
         "custom_proxy_group=Q`url-test`.*`https://probe.example/x`300,timeout,50",
-        "custom_proxy_group=Q`fallback`.*`https://probe.example/x`300,,50",
         "ruleset=P,http://rules.example/x",
         "ruleset=P,https://127.0.0.1/x",
         "ruleset=P,https://user@rules.example/x",
@@ -413,6 +437,28 @@ fn declared_urls_group_fields_and_probe_numbers_are_strict() {
         .prepare_acl4ssr_config_v1(config.as_bytes())
         .unwrap();
     assert_eq!(prepared.rule_set_requests()[0].url(), declared);
+}
+
+#[test]
+fn non_url_test_tolerance_is_ignored_on_any_config() {
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "custom_proxy_group=P`select`.*\n",
+        "custom_proxy_group=Q`fallback`.*`https://probe.example/x`300,,50\n",
+        "ruleset=P,[]FINAL\n",
+        "overwrite_original_rules=true\n",
+    );
+    let output = prepare_direct_subscription_v1(&[VALID_DIRECT])
+        .unwrap()
+        .prepare_acl4ssr_config_v1(config.as_bytes())
+        .expect("legacy probe hints are ignored, not rejected")
+        .render_mihomo_v1(&[])
+        .unwrap();
+    assert_eq!(output.report().ignored_legacy_probe_hint_count(), 1);
+    let yaml = std::str::from_utf8(output.as_bytes()).unwrap();
+    assert!(yaml.contains("name: Q\n  type: fallback\n"));
+    assert!(!yaml.contains("tolerance:"));
 }
 
 #[test]

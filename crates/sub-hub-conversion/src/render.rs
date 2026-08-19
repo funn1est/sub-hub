@@ -536,7 +536,10 @@ pub(crate) fn shared_probe_url(policy: &CompiledPolicyV1) -> Option<&str> {
             urls.push(url);
         }
     }
-    (urls.len() == 1).then_some(urls[0])
+    match urls.as_slice() {
+        [url] => Some(*url),
+        _ => None,
+    }
 }
 
 /// Node-name validation shared by targets without their own separator grammar

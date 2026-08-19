@@ -48,6 +48,13 @@ Preview is a simple `GET`. The Conversion Service does not answer `OPTIONS`.
 When the service skipped nodes, Preview shows the counts from
 `x-subconverter-skipped`; it does not fetch a second URL.
 
+The Workshop lists the 18 `ACL4SSR_Online*.ini` files from
+`https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/`.
+`master` moves; the Console does not pin a commit. The default is no remote
+config (`config=` omitted, PROXY/AUTO). A custom HTTPS URL is the only case
+that shows a URL field. `URL-REGEX` is emitted for Loon and omitted on other
+targets.
+
 ## Build
 
 ```sh

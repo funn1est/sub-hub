@@ -1,3 +1,4 @@
+use http::StatusCode;
 use sub_hub_conversion::{Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget};
 use url::Url;
 
@@ -8,48 +9,47 @@ use crate::{
     remote_url::canonical_remote_url,
     response::{
         ApplicationError, HttpResponse, insert_lossy_headers, insert_skip_headers,
-        subscription_response_for,
+        subscription_response_for, success_response,
     },
     userinfo::{SubscriptionUserInfoV1, insert_subscription_user_info},
 };
 
 impl<A: RemoteAdapter> Application<A> {
-    pub(crate) async fn render_acl4ssr(
+    pub(crate) async fn inspect_acl4ssr(
         &self,
         prepared: sub_hub_conversion::PreparedSubscriptionV1,
-        mut broker: BrokerSession<'_, A>,
+        broker: BrokerSession<'_, A>,
         config_url: Url,
         inbound_host: &str,
         eligible_metadata: Option<SubscriptionUserInfoV1>,
         target: OutputTarget,
     ) -> Result<HttpResponse, ApplicationError> {
-        let config_resource = RemoteResource {
-            kind: ResourceKind::Config,
-            url: config_url,
-            max_body_bytes: MAX_CONFIG_BYTES,
-            capture_subscription_user_info: false,
-        };
-        let mut config_responses = match broker.load(std::slice::from_ref(&config_resource)).await {
-            Ok(responses) => responses,
-            Err(error) => return Err(error),
-        };
-        let Some(config_response) = config_responses.pop() else {
-            return Err(ApplicationError::Internal);
-        };
-        let config_body = config_response.into_response().body;
-        broker.account_decoded(&config_resource, config_body.len())?;
-        let prepared = match prepared.prepare_acl4ssr_config_v1(&config_body) {
-            Ok(prepared) => prepared,
-            Err(Acl4SsrPreparationError::InvalidConfig) => {
-                return Err(ApplicationError::RemoteFailure);
+        let (prepared, _broker) = self
+            .load_prepared_acl4ssr(prepared, broker, config_url, inbound_host)
+            .await?;
+        match prepared.inspect_v1(target) {
+            Ok(skips) => {
+                let mut response = success_response(StatusCode::OK, Vec::new());
+                insert_subscription_user_info(&mut response, eligible_metadata);
+                insert_skip_headers(&mut response, skips);
+                Ok(response)
             }
-            Err(Acl4SsrPreparationError::ConversionLimit) => {
-                return Err(ApplicationError::ConversionLimit);
-            }
-            Err(Acl4SsrPreparationError::Internal) => {
-                return Err(ApplicationError::Internal);
-            }
-        };
+            Err(error) => Err(map_acl4ssr_render_error(error)),
+        }
+    }
+
+    pub(crate) async fn render_acl4ssr(
+        &self,
+        prepared: sub_hub_conversion::PreparedSubscriptionV1,
+        broker: BrokerSession<'_, A>,
+        config_url: Url,
+        inbound_host: &str,
+        eligible_metadata: Option<SubscriptionUserInfoV1>,
+        target: OutputTarget,
+    ) -> Result<HttpResponse, ApplicationError> {
+        let (prepared, mut broker) = self
+            .load_prepared_acl4ssr(prepared, broker, config_url, inbound_host)
+            .await?;
 
         let mut canonical_rule_sets = Vec::with_capacity(prepared.rule_set_requests().len());
         let mut flight_by_occurrence = Vec::with_capacity(prepared.rule_set_requests().len());
@@ -119,6 +119,44 @@ impl<A: RemoteAdapter> Application<A> {
             }
             Err(error) => Err(map_acl4ssr_render_error(error)),
         }
+    }
+
+    async fn load_prepared_acl4ssr<'a>(
+        &self,
+        prepared: sub_hub_conversion::PreparedSubscriptionV1,
+        mut broker: BrokerSession<'a, A>,
+        config_url: Url,
+        _inbound_host: &str,
+    ) -> Result<(sub_hub_conversion::PreparedAcl4SsrV1, BrokerSession<'a, A>), ApplicationError>
+    {
+        let config_resource = RemoteResource {
+            kind: ResourceKind::Config,
+            url: config_url,
+            max_body_bytes: MAX_CONFIG_BYTES,
+            capture_subscription_user_info: false,
+        };
+        let mut config_responses = match broker.load(std::slice::from_ref(&config_resource)).await {
+            Ok(responses) => responses,
+            Err(error) => return Err(error),
+        };
+        let Some(config_response) = config_responses.pop() else {
+            return Err(ApplicationError::Internal);
+        };
+        let config_body = config_response.into_response().body;
+        broker.account_decoded(&config_resource, config_body.len())?;
+        let prepared = match prepared.prepare_acl4ssr_config_v1(&config_body) {
+            Ok(prepared) => prepared,
+            Err(Acl4SsrPreparationError::InvalidConfig) => {
+                return Err(ApplicationError::RemoteFailure);
+            }
+            Err(Acl4SsrPreparationError::ConversionLimit) => {
+                return Err(ApplicationError::ConversionLimit);
+            }
+            Err(Acl4SsrPreparationError::Internal) => {
+                return Err(ApplicationError::Internal);
+            }
+        };
+        Ok((prepared, broker))
     }
 
     async fn fill_rule_set_bodies(

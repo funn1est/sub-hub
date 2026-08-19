@@ -178,6 +178,10 @@ fn process_name_is_omitted_and_fallback_load_balance_are_normalized() {
                 PolicyMemberV1::Direct,
             ),
             CompiledRuleV1::new(
+                RuleMatcherV1::UrlRegex("example\\.com/path".to_owned()),
+                PolicyMemberV1::Direct,
+            ),
+            CompiledRuleV1::new(
                 RuleMatcherV1::IpCidr {
                     value: "10.0.0.0/8".to_owned(),
                     version: IpVersion::V4,
@@ -204,6 +208,7 @@ fn process_name_is_omitted_and_fallback_load_balance_are_normalized() {
         "Hash = load-balance,Alpha,url = https://www.gstatic.com/generate_204,interval = 30,algorithm = pcc"
     ));
     assert!(text.contains("IP-CIDR,10.0.0.0/8,DIRECT,no-resolve"));
+    assert!(text.contains("URL-REGEX,example\\.com/path,DIRECT"));
     assert!(text.contains("FINAL,DIRECT"));
     assert!(!text.contains("PROCESS"));
     assert!(!text.contains("Telegram"));

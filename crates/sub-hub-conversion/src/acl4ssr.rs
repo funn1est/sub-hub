@@ -1,7 +1,7 @@
 //! ACL4SSR INI frontend: public prepare/render façade.
 //!
 //! The pipeline stages live in submodules — [`ini`] (parsing and reference
-//! resolution), [`fingerprint`] (config hashing and pinned profile policies),
+//! resolution), [`fingerprint`] (config hashing used by tests),
 //! and [`policy_compile`] (Rule Set materialization and policy compilation).
 //! This root module owns the public staged types, the closed error enums, and
 //! per-target render dispatch.
@@ -15,11 +15,9 @@ mod sha256;
 
 use std::fmt;
 
+use fingerprint::hash_config_fingerprint;
 #[cfg(test)]
 use fingerprint::{OmittedEvidenceEntry, encode_config_fingerprint, encode_omitted_evidence};
-use fingerprint::{
-    ProfileKind, hash_config_fingerprint, lookup_profile, validate_target_capability,
-};
 #[cfg(test)]
 use ini::TargetRef;
 use ini::{Config, Directive, GroupMember, RuleSource};
@@ -33,10 +31,10 @@ use crate::{
     egern::render_egern_from_policy_v1,
     loon::render_loon_from_policy_v1,
     mihomo::render_mihomo_from_policy_v1,
-    node_name::{NamedNodeOccurrence, resolve_node_names},
+    node_name::{NamedNodeOccurrence, NamedSubscriptionSources, resolve_node_names},
     policy::CompiledPolicyV1,
     quanx::render_quanx_from_policy_v1,
-    render::{AdapterRenderError, MAX_OUTPUT_BYTES, RenderFromPolicyFn},
+    render::{AdapterRenderError, MAX_OUTPUT_BYTES, NodeKeep, RenderFromPolicyFn},
     singbox::render_singbox_from_policy_v1,
     skip::SkipCountsV1,
     subscription_source::ParsedSubscriptionSources,
@@ -47,8 +45,6 @@ const MAX_REGEX_EVALUATIONS: usize = 2_000_000;
 pub struct PreparedAcl4SsrV1 {
     parsed_subscription: ParsedSubscriptionSources,
     config: Config,
-    fingerprint: [u8; 32],
-    profile: Option<ProfileKind>,
     requests: Vec<Acl4SsrRuleSetRequestV1>,
 }
 
@@ -56,6 +52,25 @@ impl PreparedAcl4SsrV1 {
     #[must_use]
     pub fn rule_set_requests(&self) -> &[Acl4SsrRuleSetRequestV1] {
         &self.requests
+    }
+
+    /// Classifies nodes for `target` using this config's reserved group names.
+    ///
+    /// Does not load or parse Rule Sets and does not serialize a document.
+    ///
+    /// # Errors
+    ///
+    /// Same closed node-naming and all-skipped set as rendering.
+    pub fn inspect_v1(self, target: OutputTarget) -> Result<SkipCountsV1, Acl4SsrRenderError> {
+        let group_names = self
+            .config
+            .groups
+            .iter()
+            .map(|group| group.name.as_str())
+            .collect::<Vec<_>>();
+        let named = resolve_node_names(self.parsed_subscription, &group_names)
+            .map_err(|_| Acl4SsrRenderError::Internal)?;
+        inspect_named_nodes(&named, target)
     }
 
     /// Binds the ordered request occurrences to the broker's first-seen unique flights.
@@ -129,7 +144,7 @@ impl PreparedAcl4SsrRuleSetsV1 {
     /// This is an error-arbitration seam for an orchestrator that must compare an earlier loaded
     /// body error with a later transport failure. `occurrence_exclusive` is the first remote
     /// declaration not yet available; inline rules before that declaration remain part of the
-    /// prefix. It performs no I/O, naming, expansion, evidence completion, or rendering.
+    /// prefix. It performs no I/O, naming, expansion, or rendering.
     ///
     /// # Errors
     ///
@@ -162,14 +177,7 @@ impl PreparedAcl4SsrRuleSetsV1 {
                         .flight_by_occurrence
                         .get(remote_index)
                         .ok_or(Acl4SsrRenderError::RuleSetAlignment)?;
-                    let entries = parsed.entries(flight, &mut total_rule_count)?;
-                    if self.prepared.profile.is_none()
-                        && entries
-                            .iter()
-                            .any(|entry| matches!(entry, RuleEntry::UrlRegex(_)))
-                    {
-                        return Err(Acl4SsrRenderError::UnsupportedRule);
-                    }
+                    parsed.entries(flight, &mut total_rule_count)?;
                     remote_index += 1;
                 }
                 RuleSource::GeoIpCn | RuleSource::Final => {
@@ -339,10 +347,7 @@ pub(crate) fn prepare(
     bytes: &[u8],
 ) -> Result<PreparedAcl4SsrV1, Acl4SsrPreparationError> {
     let config = Config::parse(bytes)?;
-    let (preimage_bytes, fingerprint) =
-        hash_config_fingerprint(&config).map_err(|()| Acl4SsrPreparationError::ConversionLimit)?;
-    let profile = lookup_profile(preimage_bytes, &fingerprint);
-    validate_target_capability(&config, profile)?;
+    hash_config_fingerprint(&config).map_err(|()| Acl4SsrPreparationError::ConversionLimit)?;
     let requests = config
         .directives
         .iter()
@@ -359,8 +364,6 @@ pub(crate) fn prepare(
     Ok(PreparedAcl4SsrV1 {
         parsed_subscription,
         config,
-        fingerprint,
-        profile,
         requests,
     })
 }
@@ -372,8 +375,6 @@ fn render(
 ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
     let materialized = materialize_rules(
         &bound.prepared.config,
-        bound.prepared.profile,
-        bound.prepared.fingerprint,
         unique_bodies,
         &bound.flight_by_occurrence,
         &mut bound.parsed_rule_sets,
@@ -441,7 +442,13 @@ fn render(
         omitted_url_regex_count,
     )?;
     let report = Acl4SsrConversionReportV1 {
-        omitted_url_regex: policy.report().omitted_url_regex,
+        omitted_url_regex: match target {
+            OutputTarget::Loon => 0,
+            OutputTarget::Mihomo
+            | OutputTarget::Quanx
+            | OutputTarget::Singbox
+            | OutputTarget::Egern => policy.report().omitted_url_regex,
+        },
         empty_groups: policy.report().empty_groups,
         ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
     };
@@ -492,4 +499,48 @@ fn render_policy_bytes(
         },
         AdapterRenderError::Internal => Acl4SsrRenderError::Internal,
     })
+}
+
+fn inspect_named_nodes(
+    named: &NamedSubscriptionSources,
+    target: OutputTarget,
+) -> Result<SkipCountsV1, Acl4SsrRenderError> {
+    let classify = match target {
+        OutputTarget::Mihomo => crate::mihomo::classify_node,
+        OutputTarget::Quanx => crate::quanx::classify_node,
+        OutputTarget::Singbox => crate::singbox::classify_node,
+        OutputTarget::Loon => crate::loon::classify_node,
+        OutputTarget::Egern => crate::egern::classify_node,
+    };
+    let parse = u32::try_from(
+        named
+            .occurrences()
+            .iter()
+            .filter(|occurrence| matches!(occurrence, NamedNodeOccurrence::Rejected { .. }))
+            .count(),
+    )
+    .unwrap_or(u32::MAX);
+    let mut capability = 0_u32;
+    let mut name = 0_u32;
+    let mut remaining = 0_u32;
+    for occurrence in named.occurrences() {
+        let NamedNodeOccurrence::Accepted { node, .. } = occurrence else {
+            continue;
+        };
+        match classify(node) {
+            NodeKeep::Keep => remaining = remaining.saturating_add(1),
+            NodeKeep::Name => name = name.saturating_add(1),
+            NodeKeep::Capability => capability = capability.saturating_add(1),
+        }
+    }
+    let skips = SkipCountsV1 {
+        parse,
+        capability,
+        name,
+    };
+    if remaining == 0 {
+        Err(Acl4SsrRenderError::NoValidNodes { skips })
+    } else {
+        Ok(skips)
+    }
 }

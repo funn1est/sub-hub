@@ -8,7 +8,6 @@ use std::{collections::BTreeSet, net::IpAddr};
 
 use super::{
     Acl4SsrRenderError,
-    fingerprint::{OmittedEvidenceAccumulator, ProfileKind},
     ini::{
         Config, Directive, Group, GroupMember, GroupType, RuleSource, TargetRef, ascii_outer_trim,
         has_bare_carriage_return,
@@ -92,20 +91,15 @@ pub(super) fn compile_acl4ssr_policy(
 
 pub(super) fn materialize_rules(
     config: &Config,
-    profile: Option<ProfileKind>,
-    config_fingerprint: [u8; 32],
     unique_bodies: &[&[u8]],
     flight_by_occurrence: &[usize],
     parsed_rule_sets: &mut [Option<Vec<RuleEntry>>],
 ) -> Result<MaterializedRules, Acl4SsrRenderError> {
     let mut rules = Vec::new();
     let mut rendered_bytes = 0_usize;
-    let mut evidence = profile
-        .map(|profile| OmittedEvidenceAccumulator::new(profile, config_fingerprint))
-        .transpose()?;
+    let mut omitted_url_regex_count = 0_usize;
     let mut parsed = ParsedRuleSetFlights::new(unique_bodies, parsed_rule_sets);
     let mut remote_body_index = 0;
-    let mut remote_source_ordinal = 0_u32;
     let mut rule_count = 0_usize;
     for directive in &config.directives {
         let Directive::Ruleset { target, source } = directive else {
@@ -117,34 +111,19 @@ pub(super) fn materialize_rules(
                     .get(remote_body_index)
                     .ok_or(Acl4SsrRenderError::RuleSetAlignment)?;
                 let entries = parsed.entries(flight, &mut rule_count)?;
-                let mut url_regex_ordinal = 0_u32;
                 for entry in entries {
-                    match entry {
-                        RuleEntry::UrlRegex(pattern) => {
-                            let accumulator = evidence
-                                .as_mut()
-                                .ok_or(Acl4SsrRenderError::UnsupportedRule)?;
-                            accumulator.push(
-                                remote_source_ordinal,
-                                url_regex_ordinal,
-                                target,
-                                pattern,
-                            )?;
-                            url_regex_ordinal = url_regex_ordinal
-                                .checked_add(1)
-                                .ok_or(Acl4SsrRenderError::ConversionLimit)?;
-                        }
-                        entry => push_compiled_rule(
-                            &mut rules,
-                            compiled_rule(entry, target),
-                            &mut rendered_bytes,
-                        )?,
+                    if matches!(entry, RuleEntry::UrlRegex(_)) {
+                        omitted_url_regex_count = omitted_url_regex_count
+                            .checked_add(1)
+                            .ok_or(Acl4SsrRenderError::ConversionLimit)?;
                     }
+                    push_compiled_rule(
+                        &mut rules,
+                        compiled_rule(entry, target),
+                        &mut rendered_bytes,
+                    )?;
                 }
                 remote_body_index += 1;
-                remote_source_ordinal = remote_source_ordinal
-                    .checked_add(1)
-                    .ok_or(Acl4SsrRenderError::ConversionLimit)?;
             }
             RuleSource::GeoIpCn => {
                 increment_rule_count(&mut rule_count)?;
@@ -167,10 +146,6 @@ pub(super) fn materialize_rules(
     if remote_body_index != flight_by_occurrence.len() {
         return Err(Acl4SsrRenderError::RuleSetAlignment);
     }
-    let omitted_url_regex_count = match evidence {
-        Some(evidence) => evidence.finish()?,
-        None => 0,
-    };
     Ok(MaterializedRules {
         rules,
         omitted_url_regex_count,
@@ -363,13 +338,22 @@ fn push_compiled_rule(
     rendered_bytes: &mut usize,
 ) -> Result<(), Acl4SsrRenderError> {
     *rendered_bytes = rendered_bytes
-        .checked_add(render_clash_rule(&rule).len())
+        .checked_add(compiled_rule_budget_bytes(&rule))
         .ok_or(Acl4SsrRenderError::ConversionLimit)?;
     if *rendered_bytes > MAX_OUTPUT_BYTES {
         return Err(Acl4SsrRenderError::ConversionLimit);
     }
     output.push(rule);
     Ok(())
+}
+
+fn compiled_rule_budget_bytes(rule: &CompiledRuleV1) -> usize {
+    match rule.matcher() {
+        RuleMatcherV1::UrlRegex(pattern) => {
+            "URL-REGEX,".len() + pattern.len() + 1 + rule.target().as_symbol().len()
+        }
+        _ => render_clash_rule(rule).len(),
+    }
 }
 
 fn compiled_rule(entry: &RuleEntry, target: &TargetRef) -> CompiledRuleV1 {
@@ -392,7 +376,7 @@ fn compiled_rule(entry: &RuleEntry, target: &TargetRef) -> CompiledRuleV1 {
             },
             no_resolve: *no_resolve,
         },
-        RuleEntry::UrlRegex(_) => unreachable!("URL-REGEX is gated before rendering"),
+        RuleEntry::UrlRegex(pattern) => RuleMatcherV1::UrlRegex(pattern.clone()),
     };
     CompiledRuleV1::new(matcher, policy_member(target))
 }

@@ -233,6 +233,10 @@ fn fallback_and_load_balance_are_normalized_and_geoip_cn_is_omitted() {
         vec![
             CompiledRuleV1::new(RuleMatcherV1::GeoIpCn, PolicyMemberV1::Direct),
             CompiledRuleV1::new(
+                RuleMatcherV1::UrlRegex("example\\.com/path".to_owned()),
+                PolicyMemberV1::Direct,
+            ),
+            CompiledRuleV1::new(
                 RuleMatcherV1::DomainSuffix("example.com".to_owned()),
                 PolicyMemberV1::Group("Fallback".to_owned()),
             ),
@@ -257,6 +261,8 @@ fn fallback_and_load_balance_are_normalized_and_geoip_cn_is_omitted() {
     assert!(text.contains("\"type\": \"selector\""));
     assert!(text.contains("\"tag\": \"Hash\""));
     assert!(!text.contains("geoip"));
+    assert!(!text.contains("URL-REGEX"));
+    assert!(!text.contains("example\\.com/path"));
     assert!(text.contains("\"domain_suffix\""));
     assert!(text.contains("example.com"));
     assert!(text.contains("\"final\": \"Fallback\""));

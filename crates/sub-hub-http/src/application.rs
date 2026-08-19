@@ -181,6 +181,18 @@ impl<A: RemoteAdapter> Application<A> {
         } = plan;
         let target = plan.parsed.target;
         if *method == Method::HEAD {
+            if let Some(config_url) = config_url {
+                return self
+                    .inspect_acl4ssr(
+                        prepared,
+                        broker,
+                        config_url,
+                        &inbound_host,
+                        eligible_metadata,
+                        target,
+                    )
+                    .await;
+            }
             return match prepared.inspect_builtin_v1(target) {
                 Ok(skips) => {
                     let mut response = success_response(StatusCode::OK, Vec::new());
