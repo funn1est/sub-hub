@@ -26,6 +26,23 @@ pub(crate) enum ApplicationError {
 }
 
 impl HttpResponse {
+    /// Host-local 400 that never enters [`crate::Application::handle`].
+    #[must_use]
+    pub fn invalid_request() -> Self {
+        error_response(ApplicationError::InvalidRequest)
+    }
+
+    /// Host-local 500 that never enters [`crate::Application::handle`].
+    #[must_use]
+    pub fn internal_error() -> Self {
+        error_response(ApplicationError::Internal)
+    }
+
+    /// HEAD suppress: drop document bytes, keep headers.
+    pub fn suppress_body(&mut self) {
+        self.body.clear();
+    }
+
     #[must_use]
     pub const fn status(&self) -> StatusCode {
         self.status

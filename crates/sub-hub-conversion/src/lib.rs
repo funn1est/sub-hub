@@ -42,7 +42,7 @@ pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 
 pub use acl4ssr::{
     Acl4SsrConversionReportV1, Acl4SsrOutputV1, Acl4SsrPreparationError, Acl4SsrRenderError,
-    Acl4SsrRuleSetRequestV1, PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
+    Acl4SsrRuleSetBinder, Acl4SsrRuleSetRequestV1, PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
 };
 pub use direct_subscription::{
     ConversionRenderError, PreparedSubscriptionV1, RemoteSourceFailureV1, RenderedConfig,

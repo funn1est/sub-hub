@@ -2,8 +2,8 @@ use sub_hub_conversion::{Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarg
 use url::Url;
 
 use crate::{
-    MAX_ACTIVE_RESOURCES, MAX_CONFIG_BYTES, MAX_RULE_SET_BYTES, RemoteAdapter, RemoteResponse,
-    ResourceKind,
+    MAX_ACTIVE_RESOURCES, MAX_CONFIG_BYTES, MAX_RULE_SET_BYTES, MAX_TOTAL_DECODED_BYTES,
+    RemoteAdapter, RemoteResponse, ResourceKind,
     application::Application,
     broker::{BrokerSession, RemoteLoadBatch, RemoteResource},
     remote_url::accept_outbound_url,
@@ -25,41 +25,34 @@ impl<A: RemoteAdapter> Application<A> {
             .load_prepared_acl4ssr(prepared, broker, config_url, inbound_host)
             .await?;
 
-        let mut occurrence_urls = Vec::with_capacity(prepared.rule_set_requests().len());
-        for request in prepared.rule_set_requests() {
-            let Ok(url) =
-                accept_outbound_url(request.url(), &self.self_hosts, inbound_host, |port| {
-                    self.adapter.supports_https_port(port)
-                })
-            else {
+        let request_urls = prepared
+            .rule_set_requests()
+            .iter()
+            .map(|request| request.url().to_owned())
+            .collect::<Vec<_>>();
+        let mut binder = prepared.rule_set_binder();
+        let mut occurrence_urls = Vec::with_capacity(request_urls.len());
+        for raw in &request_urls {
+            let Ok(url) = accept_outbound_url(raw, &self.self_hosts, inbound_host, |port| {
+                self.adapter.supports_https_port(port)
+            }) else {
                 return Err(ApplicationError::RemoteFailure);
             };
-            occurrence_urls.push(url);
-            let occurrence_canonical = occurrence_urls
-                .iter()
-                .map(|url| url.as_str().to_owned())
-                .collect::<Vec<_>>();
-            let unique_count =
-                sub_hub_conversion::UniqueFlightsV1::bind(&occurrence_canonical).flight_count();
+            let unique_count = binder
+                .push_canonical(url.as_str())
+                .map_err(map_acl4ssr_render_error)?;
             broker.check_reservation_capacity(unique_count)?;
+            occurrence_urls.push(url);
         }
-        let occurrence_canonical = occurrence_urls
-            .iter()
-            .map(|url| url.as_str().to_owned())
-            .collect::<Vec<_>>();
-        let mut prepared = match prepared.bind_canonical_urls_v1(&occurrence_canonical) {
+        let mut prepared = match binder.finish() {
             Ok(prepared) => prepared,
             Err(error) => return Err(map_acl4ssr_render_error(error)),
         };
-        let mut rule_set_resources = Vec::with_capacity(prepared.unique_canonical_urls().len());
-        for flight in 0..prepared.unique_canonical_urls().len() {
-            let occurrence = prepared
-                .first_occurrence_of_flight(flight)
-                .ok_or(ApplicationError::Internal)?;
-            let url = occurrence_urls
-                .get(occurrence)
-                .cloned()
-                .ok_or(ApplicationError::Internal)?;
+        let unique_urls = prepared
+            .unique_values(&occurrence_urls)
+            .map_err(map_acl4ssr_render_error)?;
+        let mut rule_set_resources = Vec::with_capacity(unique_urls.len());
+        for url in unique_urls {
             rule_set_resources.push(RemoteResource {
                 kind: ResourceKind::RuleSet,
                 url,
@@ -76,17 +69,11 @@ impl<A: RemoteAdapter> Application<A> {
             .collect::<Vec<_>>();
         let rendered = prepared.render_v1(target, &unique_rule_set_bodies);
         match rendered {
-            Ok(config) => {
-                let omitted_url_regex_count = config.report().omitted_url_regex_count();
-                let skips = config.skip_counts();
-                Ok(crate::application::finish_subscription(
-                    target,
-                    config.into_bytes(),
-                    skips,
-                    eligible_metadata,
-                    omitted_url_regex_count,
-                ))
-            }
+            Ok(config) => Ok(crate::application::finish_subscription(
+                target,
+                config.into_rendered_config(),
+                eligible_metadata,
+            )),
             Err(error) => Err(map_acl4ssr_render_error(error)),
         }
     }
@@ -199,20 +186,21 @@ fn adjudicate_loaded_rule_set_prefix(
     rule_set_resources: &[RemoteResource],
     rule_set_bodies: &[Vec<u8>],
 ) -> Result<(), ApplicationError> {
-    let available_occurrence_count = prepared.covered_occurrence_count(rule_set_bodies.len());
     let unique_bodies = rule_set_bodies
         .iter()
         .map(Vec::as_slice)
         .collect::<Vec<_>>();
-    let body_lengths = rule_set_bodies.iter().map(Vec::len).collect::<Vec<_>>();
-    let crossing = broker.first_decoded_crossing(
-        &rule_set_resources[..rule_set_bodies.len()],
-        &body_lengths,
-        prepared.flights(),
-        available_occurrence_count,
-    )?;
+    let accounted_unique = rule_set_resources[..rule_set_bodies.len()]
+        .iter()
+        .map(|resource| broker.already_accounted(resource))
+        .collect::<Vec<_>>();
     prepared
-        .check_loaded_prefix(&unique_bodies, crossing)
+        .check_loaded_prefix_with_decoded_budget(
+            &unique_bodies,
+            &accounted_unique,
+            broker.decoded_byte_count(),
+            MAX_TOTAL_DECODED_BYTES,
+        )
         .map_err(map_acl4ssr_render_error)
 }
 

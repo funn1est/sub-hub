@@ -160,6 +160,16 @@ describe("assembleSubscription", () => {
         input({ configUrl: "http://insecure.example/x.ini" })
       ).url
     ).toBeNull()
+    expect(
+      assembleSubscription(
+        input({ sources: ["http://insecure.example/sub"] })
+      ).url
+    ).toBeNull()
+    expect(
+      assembleSubscription(
+        input({ configUrl: "https://127.0.0.1/acl.ini" })
+      ).url
+    ).toBeNull()
   })
 })
 
@@ -244,6 +254,36 @@ describe("parseSubscriptionUrl", () => {
         `http://127.0.0.1:25500/sub/?target=clash&url=${VLESS_ENCODED}`
       ).ok
     ).toBe(false)
+  })
+
+  it("warns on insert, empty url slots, and http sources without copying them", () => {
+    const insert = parseSubscriptionUrl(
+      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&insert=true`
+    )
+    expect(insert.ok).toBe(true)
+    if (insert.ok) {
+      expect(insert.warnings).toContain("invalid-insert")
+    }
+
+    const emptySlots = parseSubscriptionUrl(
+      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}%7C%7C${VLESS_ENCODED}`
+    )
+    expect(emptySlots.ok).toBe(true)
+    if (emptySlots.ok) {
+      expect(emptySlots.warnings).toContain("empty-sources")
+      expect(emptySlots.workshop.sources).toEqual([VLESS, VLESS])
+    }
+
+    const httpSource = parseSubscriptionUrl(
+      "http://127.0.0.1:25500/sub?target=clash&url=http%3A%2F%2Finsecure.example%2Fsub"
+    )
+    expect(httpSource.ok).toBe(true)
+    if (httpSource.ok) {
+      expect(httpSource.warnings).toContain("http-sources")
+      expect(httpSource.workshop.sources).toEqual([
+        "http://insecure.example/sub",
+      ])
+    }
   })
 
   it("warns on an unknown target and does not write window.location", () => {
@@ -344,6 +384,22 @@ describe("applyPaste, canPreview, showsClashInstall", () => {
     expect(configSelectionId({ kind: "none" }, false)).toBe("none")
     expect(configSelectionId({ kind: "custom" }, false)).toBe("custom")
     expect(configSelectionId({ kind: "none" }, true)).toBe("custom")
+  })
+
+  it("Preview GETs the assembled Subscription URL", () => {
+    const assembled = assembleSubscription(input())
+    expect(canPreview(assembled)).toBe(true)
+    expect(assembled.url).toBe(
+      "http://127.0.0.1:25500/sub?target=clash&url=" + VLESS_ENCODED
+    )
+    expect(canPreview(assembleSubscription(input({ serviceOrigin: "" })))).toBe(
+      false
+    )
+    expect(
+      canPreview(
+        assembleSubscription(input({ sources: ["http://insecure.example/sub"] }))
+      )
+    ).toBe(false)
   })
 })
 

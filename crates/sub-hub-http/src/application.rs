@@ -2,8 +2,8 @@ use std::fmt;
 
 use http::Method;
 use sub_hub_conversion::{
-    ConversionRenderError, OutputTarget, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, UniqueFlightsV1, prefix_preparation_error_v1, prepare_subscription_v1,
+    ConversionRenderError, OutputTarget, RenderedConfig, SubscriptionPreparationError,
+    UniqueFlightsV1,
 };
 use url::Url;
 
@@ -145,7 +145,9 @@ impl<A: RemoteAdapter> Application<A> {
                 .iter()
                 .map(|url| url.as_ref().map(Url::as_str)),
         );
-        let unique_urls = unique_urls_from_occurrences(&occurrence_urls, &flights)?;
+        let unique_urls = flights
+            .unique_values(&occurrence_urls)
+            .ok_or(ApplicationError::Internal)?;
 
         Ok(SubRequestPlan {
             parsed,
@@ -169,16 +171,7 @@ impl<A: RemoteAdapter> Application<A> {
         let target = plan.parsed.target;
         let Some(config_url) = config_url else {
             return match prepared.render_builtin_v1(target) {
-                Ok(config) => {
-                    let skips = config.skip_counts();
-                    Ok(finish_subscription(
-                        target,
-                        config.into_bytes(),
-                        skips,
-                        eligible_metadata,
-                        0,
-                    ))
-                }
+                Ok(config) => Ok(finish_subscription(target, config, eligible_metadata)),
                 Err(error) => Err(map_direct_render_error(error)),
             };
         };
@@ -252,19 +245,10 @@ impl<A: RemoteAdapter> Application<A> {
             });
             loaded.push(response.body);
         }
-        let source_plan = parsed
-            .sources
-            .iter()
-            .enumerate()
-            .map(|(occurrence, source)| match flights.flight_of(occurrence) {
-                None => Ok::<_, ApplicationError>(SubscriptionSourceV1::Direct(source)),
-                Some(index) => loaded
-                    .get(index)
-                    .map(|body| SubscriptionSourceV1::Remote(body.as_slice()))
-                    .ok_or(ApplicationError::Internal),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let prepared = prepare_subscription_v1(&source_plan).map_err(map_subscription_error)?;
+        let prepared = flights
+            .prepare_subscription(&parsed.sources, &loaded)
+            .ok_or(ApplicationError::Internal)?
+            .map_err(map_subscription_error)?;
         account_decoded_sources(&mut broker, &prepared, flights, &subscription_resources)?;
         let eligible_metadata =
             if parsed.append_info && parsed.sources.len() == 1 && unique_urls.len() == 1 {
@@ -296,32 +280,14 @@ struct SubRequestPlan {
     unique_urls: Vec<Url>,
 }
 
-fn unique_urls_from_occurrences(
-    occurrence_urls: &[Option<Url>],
-    flights: &UniqueFlightsV1,
-) -> Result<Vec<Url>, ApplicationError> {
-    (0..flights.flight_count())
-        .map(|flight| {
-            let occurrence = flights
-                .first_occurrence_of_flight(flight)
-                .ok_or(ApplicationError::Internal)?;
-            occurrence_urls
-                .get(occurrence)
-                .and_then(Option::as_ref)
-                .cloned()
-                .ok_or(ApplicationError::Internal)
-        })
-        .collect()
-}
-
 pub(crate) fn finish_subscription(
     target: OutputTarget,
-    body: Vec<u8>,
-    skips: SkipCountsV1,
+    config: RenderedConfig,
     metadata: Option<SubscriptionUserInfoV1>,
-    omitted_url_regex: u8,
 ) -> HttpResponse {
-    let mut response = subscription_response_for(target, body);
+    let skips = config.skip_counts();
+    let omitted_url_regex = config.omitted_url_regex();
+    let mut response = subscription_response_for(target, config.into_bytes());
     insert_subscription_user_info(&mut response, metadata);
     attach_conversion_headers(&mut response, skips, omitted_url_regex);
     response
@@ -352,18 +318,14 @@ fn account_decoded_sources(
     flights: &UniqueFlightsV1,
     subscription_resources: &[RemoteResource],
 ) -> Result<(), ApplicationError> {
-    for (source_index, decoded) in prepared.remote_decoded_bytes_by_source().iter().enumerate() {
-        let Some(decoded) = decoded else { continue };
-        let Some(unique_index) = flights.flight_of(source_index) else {
-            return Err(ApplicationError::Internal);
-        };
-        if flights.first_occurrence_of_flight(unique_index) != Some(source_index) {
-            continue;
-        }
+    let accounts = flights
+        .unique_decoded_accounts(prepared)
+        .ok_or(ApplicationError::Internal)?;
+    for (unique_index, decoded) in accounts {
         let Some(resource) = subscription_resources.get(unique_index) else {
             return Err(ApplicationError::Internal);
         };
-        broker.account_decoded(resource, *decoded)?;
+        broker.account_decoded(resource, decoded)?;
     }
     Ok(())
 }
@@ -374,27 +336,12 @@ fn preparation_error_before_remote_failure(
     loaded: &[Option<crate::RemoteResponse>],
     failed_unique_index: usize,
 ) -> Result<Option<ApplicationError>, ApplicationError> {
-    let failed_source_index = flights
-        .first_occurrence_of_flight(failed_unique_index)
+    let loaded_bodies = loaded
+        .iter()
+        .map(|response| response.as_ref().map(|response| response.body.as_slice()))
+        .collect::<Vec<_>>();
+    let prefix = flights
+        .prefix_error_before_unique_failure(sources, &loaded_bodies, failed_unique_index)
         .ok_or(ApplicationError::Internal)?;
-    if failed_source_index == 0 {
-        return Ok(None);
-    }
-
-    let mut source_plan = Vec::with_capacity(failed_source_index);
-    for occurrence in 0..failed_source_index {
-        match flights.flight_of(occurrence) {
-            None => source_plan.push(SubscriptionSourceV1::Direct(&sources[occurrence])),
-            Some(unique_index) => {
-                let body = loaded
-                    .get(unique_index)
-                    .and_then(Option::as_ref)
-                    .map(|response| response.body.as_slice())
-                    .ok_or(ApplicationError::Internal)?;
-                source_plan.push(SubscriptionSourceV1::Remote(body));
-            }
-        }
-    }
-
-    Ok(prefix_preparation_error_v1(&source_plan).map(map_subscription_error))
+    Ok(prefix.map(map_subscription_error))
 }

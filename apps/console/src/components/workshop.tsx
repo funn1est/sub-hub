@@ -84,27 +84,27 @@ import {
   type PreviewState,
 } from "@/lib/preview.ts"
 import {
-  MAX_SOURCES,
-  TARGETS,
-  isTarget,
-  parseAccessToken,
-} from "@/lib/service-contract.ts"
-import {
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
+  MAX_SOURCES,
+  TARGETS,
+  accessTokenFieldValid,
   acl4ssrConfigLabel,
   acl4ssrConfigUrl,
   applyPaste,
   assembleSubscription,
   canPreview,
   clashInstallUrl,
+  configFieldValid,
   configPresetOf,
   configSelectionId,
-  parseHttpsResourceUrl,
+  isTarget,
+  originFieldValid,
   parseServiceOrigin,
   parseSubscriptionUrl,
   showsClashInstall,
+  sourceFieldInvalid,
   type Acl4ssrConfigFile,
 } from "@/lib/workshop.ts"
 
@@ -134,13 +134,9 @@ type VersionState =
 export function Workshop({ state, onChange, banner }: WorkshopProps) {
   const copy = t(state.locale)
   const assembled = assembleSubscription(state)
-  const originValid =
-    state.serviceOrigin.trim().length === 0 ||
-    parseServiceOrigin(state.serviceOrigin) !== null
-  const tokenValid = parseAccessToken(state.accessToken).ok
-  const configValid =
-    state.configUrl.trim().length === 0 ||
-    parseHttpsResourceUrl(state.configUrl) !== null
+  const originValid = originFieldValid(state.serviceOrigin)
+  const tokenValid = accessTokenFieldValid(state.accessToken)
+  const configValid = configFieldValid(state.configUrl)
   const canonicalOrigin = parseServiceOrigin(state.serviceOrigin)
   const preset = configPresetOf(state.configUrl)
   const [revealToken, setRevealToken] = React.useState(false)
@@ -232,10 +228,9 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
     setPreview({ status: "loading" })
     setPreview(
       await runPreview({
-        url: assembled.url,
+        assembled,
         target: state.target,
         pageHttps: window.location.protocol === "https:",
-        serviceOrigin: canonicalOrigin ?? state.serviceOrigin,
       })
     )
   }
@@ -371,7 +366,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
             >
               <FieldGroup>
                 {state.sources.map((source, index) => {
-                  const invalid = source.includes("|")
+                  const invalid = sourceFieldInvalid(source)
                   return (
                     <Field key={index} data-invalid={invalid || undefined}>
                       <FieldLabel

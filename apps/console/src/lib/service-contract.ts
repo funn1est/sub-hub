@@ -79,6 +79,11 @@ export function isQueryKey(key: string): boolean {
   return QUERY_KEY_SET.has(key)
 }
 
+/** HTTP `query.rs`: ASCII `http://` prefix is rejected. */
+export function isHttpSource(source: string): boolean {
+  return source.slice(0, 7).toLowerCase() === "http://"
+}
+
 export function fallbackDownloadName(target: Target): string {
   switch (target) {
     case "clash":
@@ -155,6 +160,9 @@ export type PasteWarning =
   | "invalid-target"
   | "invalid-token"
   | "invalid-append-info"
+  | "invalid-insert"
+  | "empty-sources"
+  | "http-sources"
 
 export type SubGetDecode =
   | {
@@ -327,7 +335,19 @@ export function decodeSubGetTarget(raw: string): SubGetDecode {
 
   const urlParam = values.get("url")
   if (urlParam !== undefined && urlParam.length > 0) {
-    decoded.sources = urlParam.split("|")
+    const sources = urlParam.split("|")
+    if (sources.some((source) => source.length === 0)) {
+      decoded.warnings.push("empty-sources")
+    }
+    if (sources.some((source) => isHttpSource(source))) {
+      decoded.warnings.push("http-sources")
+    }
+    decoded.sources = sources.filter((source) => source.length > 0)
+  }
+
+  const insert = values.get("insert")
+  if (insert !== undefined && insert !== "false") {
+    decoded.warnings.push("invalid-insert")
   }
 
   const config = values.get("config")

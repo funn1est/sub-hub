@@ -7,6 +7,7 @@ import {
   type SkipCounts,
   type Target,
 } from "./service-contract.ts"
+import type { Assembled } from "./workshop.ts"
 
 export {
   VERSION_BODY,
@@ -141,15 +142,14 @@ export type PreviewFetch = (url: string) => Promise<{
 }>
 
 export async function runPreview(input: {
-  url: string
+  assembled: Assembled & { url: string }
   target: Target
   pageHttps: boolean
-  serviceOrigin: string
   fetchImpl?: PreviewFetch
 }): Promise<PreviewOutcome> {
   const fetchImpl = input.fetchImpl ?? fetch
   try {
-    const response = await fetchImpl(input.url)
+    const response = await fetchImpl(input.assembled.url)
     const body = await response.text()
     const truncated = truncatePreviewBody(body)
     const headers = readSubGetHeaders(response.headers, input.target)
@@ -165,11 +165,17 @@ export async function runPreview(input: {
       filename: headers.filename ?? "",
     }
   } catch {
+    let serviceOrigin = input.assembled.url
+    try {
+      serviceOrigin = new URL(input.assembled.url).origin
+    } catch {
+      serviceOrigin = input.assembled.url
+    }
     return {
       status: "unreachable",
       cause: classifyFetchFailure({
         pageHttps: input.pageHttps,
-        serviceOrigin: input.serviceOrigin,
+        serviceOrigin,
       }),
     }
   }

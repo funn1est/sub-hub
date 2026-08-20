@@ -108,29 +108,10 @@ impl Hysteria2Ports {
         }
     }
 
-    pub(crate) fn render_official(&self) -> String {
+    pub(crate) fn hop_atoms(&self) -> Option<&[Hysteria2PortAtom]> {
         match self {
-            Self::Single(port) => port.get().to_string(),
-            Self::Hop(atoms) => {
-                let mut rendered = String::new();
-                for (index, atom) in atoms.iter().enumerate() {
-                    if index > 0 {
-                        rendered.push(',');
-                    }
-                    atom.write_official(&mut rendered);
-                }
-                rendered
-            }
-        }
-    }
-
-    pub(crate) fn render_singbox(&self) -> Vec<String> {
-        match self {
-            Self::Single(port) => vec![format!("{0}:{0}", port.get())],
-            Self::Hop(atoms) => atoms
-                .iter()
-                .map(Hysteria2PortAtom::render_singbox)
-                .collect(),
+            Self::Hop(atoms) => Some(atoms),
+            Self::Single(_) => None,
         }
     }
 
@@ -165,22 +146,15 @@ impl Hysteria2PortAtom {
         }
     }
 
-    fn write_official(&self, output: &mut String) {
+    pub(crate) const fn bounds(&self) -> (u16, u16) {
         match *self {
-            Self::Single(port) => output.push_str(&port.get().to_string()),
-            Self::Range { start, end } => {
-                output.push_str(&start.get().to_string());
-                output.push('-');
-                output.push_str(&end.get().to_string());
-            }
+            Self::Single(port) => (port.get(), port.get()),
+            Self::Range { start, end } => (start.get(), end.get()),
         }
     }
 
-    fn render_singbox(&self) -> String {
-        match *self {
-            Self::Single(port) => format!("{0}:{0}", port.get()),
-            Self::Range { start, end } => format!("{}:{}", start.get(), end.get()),
-        }
+    pub(crate) const fn is_range(&self) -> bool {
+        matches!(self, Self::Range { .. })
     }
 }
 

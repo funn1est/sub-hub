@@ -33,6 +33,7 @@ fn builtin_facade_dispatches_every_released_target() {
             .render_builtin_v1(target)
             .expect("vless is kept on every released target");
         assert!(!rendered.as_bytes().is_empty());
+        assert_eq!(rendered.omitted_url_regex(), 0);
         assert_eq!(
             rendered.skip_counts(),
             SkipCountsV1 {

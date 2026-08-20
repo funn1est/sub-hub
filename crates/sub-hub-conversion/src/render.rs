@@ -22,6 +22,7 @@ use crate::{
     egern::render_egern_from_policy_v1,
     loon::render_loon_from_policy_v1,
     mihomo::render_mihomo_from_policy_v1,
+    node::hysteria2::Hysteria2Ports,
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::vless::{ClientFingerprint, RealityOptions},
     node::{Host, ProxyNode},
@@ -120,12 +121,6 @@ pub(crate) type RenderFromPolicyFn =
 /// Whether a named, parse-accepted node is kept by one target adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NodeKeep {
-    /// Encoder must not return this as failure; [`KeptNodes::encode`] maps it to Internal.
-    #[allow(
-        dead_code,
-        reason = "defensive: encode treats Keep-as-error as Internal"
-    )]
-    Keep,
     Name,
     Capability,
 }
@@ -138,7 +133,7 @@ pub(crate) struct KeptNodes {
 }
 
 impl KeptNodes {
-    /// Keep-pass accounting: Name/Capability skips, Keep-as-error is Internal.
+    /// Keep-pass accounting: Name and Capability skips.
     pub(crate) fn from_encoded<T>(
         results: impl IntoIterator<Item = Result<T, NodeKeep>>,
     ) -> Result<(Self, Vec<T>), AdapterRenderError> {
@@ -150,7 +145,6 @@ impl KeptNodes {
                 Ok(item) => items.push(item),
                 Err(NodeKeep::Name) => name_skips = name_skips.saturating_add(1),
                 Err(NodeKeep::Capability) => capability_skips = capability_skips.saturating_add(1),
-                Err(NodeKeep::Keep) => return Err(AdapterRenderError::Internal),
             }
         }
         if items.is_empty() {
@@ -178,10 +172,25 @@ impl KeptNodes {
     }
 }
 
+/// Keep-pass plus tag unzip shared by text/JSON adapters that encode `(tag, item)`.
+pub(crate) fn keep_tagged<'a, T>(
+    named_nodes: &[&'a ProxyNode],
+    encode: impl FnMut(&'a ProxyNode) -> Result<(String, T), NodeKeep>,
+) -> Result<(KeptNodes, Vec<String>, Vec<T>), AdapterRenderError> {
+    let (kept, encoded) = KeptNodes::encode(named_nodes, encode)?;
+    let mut tags = Vec::with_capacity(encoded.len());
+    let mut items = Vec::with_capacity(encoded.len());
+    for (tag, item) in encoded {
+        tags.push(tag);
+        items.push(item);
+    }
+    Ok((kept, tags, items))
+}
+
 /// Tag then capability: the `encode_node` shape shared by text/JSON adapters.
-pub(crate) fn keep_named<T>(
-    tag: Option<&str>,
-    encode: impl FnOnce(&str) -> Option<T>,
+pub(crate) fn keep_named<'a, T>(
+    tag: Option<&'a str>,
+    encode: impl FnOnce(&'a str) -> Option<T>,
 ) -> Result<(String, T), NodeKeep> {
     let Some(tag) = tag else {
         return Err(NodeKeep::Name);
@@ -248,13 +257,6 @@ pub(crate) fn bounded_text(
     ))
 }
 
-/// Named nodes plus compiled policy, rendered through the closed adapter module.
-pub(crate) struct PolicyDocument {
-    pub(crate) bytes: Vec<u8>,
-    pub(crate) skips: SkipCountsV1,
-    pub(crate) omitted_url_regex: u8,
-}
-
 #[derive(Clone, Copy)]
 pub(crate) enum NamedPolicyError {
     NoValidNodes { skips: SkipCountsV1 },
@@ -289,7 +291,7 @@ pub(crate) fn render_named_policy(
     policy: &CompiledPolicyV1,
     target: OutputTarget,
     limit_bytes: usize,
-) -> Result<PolicyDocument, NamedPolicyError> {
+) -> Result<crate::RenderedConfig, NamedPolicyError> {
     render_named_policy_with(named, policy, render_fn(target), limit_bytes)
 }
 
@@ -298,7 +300,7 @@ fn render_named_policy_with(
     policy: &CompiledPolicyV1,
     render: RenderFromPolicyFn,
     limit_bytes: usize,
-) -> Result<PolicyDocument, NamedPolicyError> {
+) -> Result<crate::RenderedConfig, NamedPolicyError> {
     let parse = named.parse_skip_count();
     let nodes = accepted_nodes(named);
     if nodes.is_empty() {
@@ -307,15 +309,15 @@ fn render_named_policy_with(
         });
     }
     match render(&nodes, policy, limit_bytes) {
-        Ok(rendered) => Ok(PolicyDocument {
-            bytes: rendered.bytes,
-            skips: SkipCountsV1 {
+        Ok(rendered) => Ok(crate::RenderedConfig::from_parts(
+            rendered.bytes,
+            SkipCountsV1 {
                 parse,
                 capability: rendered.capability_skips,
                 name: rendered.name_skips,
             },
-            omitted_url_regex: rendered.omitted_url_regex,
-        }),
+            rendered.omitted_url_regex,
+        )),
         Err(error) => Err(NamedPolicyError::from_adapter(error, parse)),
     }
 }
@@ -324,6 +326,7 @@ fn render_named_policy_with(
 pub(crate) struct BuiltinRenderOutput {
     config: Vec<u8>,
     diagnostics: BuiltinRenderDiagnostics,
+    omitted_url_regex: u8,
 }
 
 impl BuiltinRenderOutput {
@@ -335,9 +338,9 @@ impl BuiltinRenderOutput {
         &self.config
     }
 
-    pub(crate) fn into_rendered(self) -> (Vec<u8>, SkipCountsV1) {
+    pub(crate) fn into_rendered(self) -> (Vec<u8>, SkipCountsV1, u8) {
         let skips = self.diagnostics.skip_counts();
-        (self.config, skips)
+        (self.config, skips, self.omitted_url_regex)
     }
 
     #[cfg_attr(
@@ -356,6 +359,7 @@ impl fmt::Debug for BuiltinRenderOutput {
             .field("config", &"[REDACTED]")
             .field("config_len", &self.config.len())
             .field("diagnostics", &self.diagnostics)
+            .field("omitted_url_regex", &self.omitted_url_regex)
             .finish()
     }
 }
@@ -513,10 +517,13 @@ pub(crate) fn render_builtin_with_limit(
     let policy = compile_builtin_policy_v1(&accepted_nodes(&named));
     match render_named_policy_with(&named, &policy, render, limit_bytes) {
         Ok(document) => {
-            diagnostics.with_keep_counts(document.skips.capability, document.skips.name);
+            let skips = document.skip_counts();
+            diagnostics.with_keep_counts(skips.capability, skips.name);
+            let omitted_url_regex = document.omitted_url_regex();
             Ok(BuiltinRenderOutput {
-                config: document.bytes,
+                config: document.into_bytes(),
                 diagnostics,
+                omitted_url_regex,
             })
         }
         Err(NamedPolicyError::NoValidNodes { skips }) => {
@@ -528,6 +535,38 @@ pub(crate) fn render_builtin_with_limit(
         }
         Err(NamedPolicyError::Internal) => Err(BuiltinRenderError::Serialization),
     }
+}
+
+/// Official comma-hop spelling shared by Mihomo and Egern. `None` when not a hop.
+pub(crate) fn hysteria2_official_ports(ports: &Hysteria2Ports) -> Option<String> {
+    let atoms = ports.hop_atoms()?;
+    let mut rendered = String::new();
+    for (index, atom) in atoms.iter().enumerate() {
+        if index > 0 {
+            rendered.push(',');
+        }
+        let (start, end) = atom.bounds();
+        rendered.push_str(&start.to_string());
+        if atom.is_range() {
+            rendered.push('-');
+            rendered.push_str(&end.to_string());
+        }
+    }
+    Some(rendered)
+}
+
+/// sing-box `server_ports` hop spelling. `None` when not a hop.
+pub(crate) fn hysteria2_singbox_ports(ports: &Hysteria2Ports) -> Option<Vec<String>> {
+    let atoms = ports.hop_atoms()?;
+    Some(
+        atoms
+            .iter()
+            .map(|atom| {
+                let (start, end) = atom.bounds();
+                format!("{start}:{end}")
+            })
+            .collect(),
+    )
 }
 
 /// Renders an endpoint host with a bare (bracket-free) IPv6 form.
@@ -828,6 +867,34 @@ mod tests {
         assert_eq!(
             keep_named(Some("tag"), |tag| Some(tag.len())),
             Ok(("tag".to_owned(), 3))
+        );
+    }
+
+    #[test]
+    fn hysteria2_hop_spelling_lives_on_the_adapter_helpers() {
+        use std::num::NonZeroU16;
+
+        use crate::node::hysteria2::{Hysteria2PortAtom, Hysteria2Ports};
+
+        use super::{hysteria2_official_ports, hysteria2_singbox_ports};
+
+        let port = |value: u16| NonZeroU16::new(value).expect("port");
+        let ports = Hysteria2Ports::hop(vec![
+            Hysteria2PortAtom::Single(port(123)),
+            Hysteria2PortAtom::range(port(5000), port(6000)).expect("range"),
+        ])
+        .expect("hop");
+        assert_eq!(
+            hysteria2_official_ports(&ports).as_deref(),
+            Some("123,5000-6000")
+        );
+        assert_eq!(
+            hysteria2_singbox_ports(&ports),
+            Some(vec!["123:123".to_owned(), "5000:6000".to_owned()])
+        );
+        assert_eq!(
+            hysteria2_official_ports(&Hysteria2Ports::Single(port(443))),
+            None
         );
     }
 

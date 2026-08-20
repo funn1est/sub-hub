@@ -12,10 +12,10 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, map_compiled_rules,
-        policy_member_token, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
-        render_fingerprint, render_host_plain, serialize_bounded, shadowsocks_method,
-        shadowsocks_password,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex,
+        hysteria2_official_ports, map_compiled_rules, policy_member_token,
+        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_fingerprint,
+        render_host_plain, serialize_bounded, shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -314,10 +314,7 @@ impl<'a> MihomoHysteria2Proxy<'a> {
             kind: "hysteria2",
             server: render_host_plain(node.endpoint().host()),
             port: node.endpoint().port().get(),
-            ports: hysteria2
-                .ports()
-                .is_hop()
-                .then(|| hysteria2.ports().render_official()),
+            ports: hysteria2_official_ports(hysteria2.ports()),
             password: hysteria2.auth().expose(),
             udp: true,
             obfs,

@@ -47,25 +47,48 @@ impl UniqueFlightsV1 {
         }
     }
 
+    pub(crate) fn empty() -> Self {
+        Self {
+            unique_urls: Vec::new(),
+            flight_by_occurrence: Vec::new(),
+        }
+    }
+
+    /// Appends one remote occurrence. Returns the unique-flight count afterwards.
+    pub(crate) fn push_remote(&mut self, url: &str) -> usize {
+        let flight = self
+            .unique_urls
+            .iter()
+            .position(|existing: &String| existing == url)
+            .unwrap_or_else(|| {
+                self.unique_urls.push(url.to_owned());
+                self.unique_urls.len() - 1
+            });
+        self.flight_by_occurrence.push(Some(flight));
+        self.unique_urls.len()
+    }
+
     /// First-seen unique canonical URLs, aligned with unique fetch bodies.
     #[must_use]
-    pub fn unique_urls(&self) -> &[String] {
+    #[cfg(test)]
+    pub(crate) fn unique_urls(&self) -> &[String] {
         &self.unique_urls
     }
 
     #[must_use]
-    pub fn flight_count(&self) -> usize {
+    pub(crate) fn flight_count(&self) -> usize {
         self.unique_urls.len()
     }
 
     #[must_use]
-    pub fn occurrence_count(&self) -> usize {
+    pub(crate) fn occurrence_count(&self) -> usize {
         self.flight_by_occurrence.len()
     }
 
     /// Declaration-order canonical URLs. Direct occurrences are omitted.
     #[must_use]
-    pub fn occurrence_urls(&self) -> Vec<String> {
+    #[cfg(test)]
+    pub(crate) fn occurrence_urls(&self) -> Vec<String> {
         self.flight_by_occurrence
             .iter()
             .filter_map(|flight| flight.map(|index| self.unique_urls[index].clone()))
@@ -73,13 +96,14 @@ impl UniqueFlightsV1 {
     }
 
     #[must_use]
-    pub fn flight_of(&self, occurrence: usize) -> Option<usize> {
+    pub(crate) fn flight_of(&self, occurrence: usize) -> Option<usize> {
         self.flight_by_occurrence.get(occurrence).copied().flatten()
     }
 
     /// Dense flight index per occurrence. `None` when any occurrence is direct.
     #[must_use]
-    pub fn dense_flights(&self) -> Option<Vec<usize>> {
+    #[cfg(test)]
+    pub(crate) fn dense_flights(&self) -> Option<Vec<usize>> {
         self.flight_by_occurrence.iter().copied().collect()
     }
 
@@ -87,7 +111,7 @@ impl UniqueFlightsV1 {
     ///
     /// Direct (non-remote) occurrences are covered without a fetch.
     #[must_use]
-    pub fn covered_occurrence_count(&self, unique_loaded: usize) -> usize {
+    pub(crate) fn covered_occurrence_count(&self, unique_loaded: usize) -> usize {
         self.flight_by_occurrence
             .iter()
             .take_while(|flight| match flight {
@@ -98,11 +122,110 @@ impl UniqueFlightsV1 {
     }
 
     #[must_use]
-    pub fn first_occurrence_of_flight(&self, flight: usize) -> Option<usize> {
+    pub(crate) fn first_occurrence_of_flight(&self, flight: usize) -> Option<usize> {
         self.flight_by_occurrence
             .iter()
             .position(|candidate| *candidate == Some(flight))
     }
+
+    /// First-seen occurrence values, one per unique flight.
+    #[must_use]
+    pub fn unique_values<T: Clone>(&self, occurrence_values: &[Option<T>]) -> Option<Vec<T>> {
+        if occurrence_values.len() != self.occurrence_count() {
+            return None;
+        }
+        (0..self.flight_count())
+            .map(|flight| {
+                let occurrence = self.first_occurrence_of_flight(flight)?;
+                occurrence_values
+                    .get(occurrence)
+                    .and_then(Option::as_ref)
+                    .cloned()
+            })
+            .collect()
+    }
+
+    /// First-seen occurrence values when every occurrence is remote.
+    #[must_use]
+    pub(crate) fn unique_required_values<T: Clone>(
+        &self,
+        occurrence_values: &[T],
+    ) -> Option<Vec<T>> {
+        if occurrence_values.len() != self.occurrence_count() {
+            return None;
+        }
+        (0..self.flight_count())
+            .map(|flight| {
+                let occurrence = self.first_occurrence_of_flight(flight)?;
+                occurrence_values.get(occurrence).cloned()
+            })
+            .collect()
+    }
+
+    /// First-occurrence decoded sizes to account, as `(unique_index, bytes)`.
+    #[must_use]
+    pub(crate) fn accounts_for_occurrence_decoded(
+        &self,
+        occurrence_decoded: &[Option<usize>],
+    ) -> Option<Vec<(usize, usize)>> {
+        if occurrence_decoded.len() != self.occurrence_count() {
+            return None;
+        }
+        let mut accounts = Vec::new();
+        for (source_index, decoded) in occurrence_decoded.iter().enumerate() {
+            let Some(decoded) = *decoded else {
+                continue;
+            };
+            let unique_index = self.flight_of(source_index)?;
+            if self.first_occurrence_of_flight(unique_index) != Some(source_index) {
+                continue;
+            }
+            accounts.push((unique_index, decoded));
+        }
+        Some(accounts)
+    }
+
+    pub(crate) fn decoded_budget(
+        &self,
+        unique_body_lengths: &[usize],
+        accounted_unique: &[bool],
+        already_decoded_bytes: usize,
+        cap: usize,
+    ) -> Result<DecodedBudget, ()> {
+        if unique_body_lengths.len() != accounted_unique.len() {
+            return Err(());
+        }
+        let unique_loaded = unique_body_lengths.len();
+        let occurrence_count = self.covered_occurrence_count(unique_loaded);
+        let mut decoded_bytes = already_decoded_bytes;
+        let mut counted = vec![false; unique_loaded];
+        for occurrence_index in 0..occurrence_count {
+            let unique_index = self.flight_of(occurrence_index).ok_or(())?;
+            if unique_index >= unique_loaded {
+                return Err(());
+            }
+            if counted[unique_index] || accounted_unique[unique_index] {
+                continue;
+            }
+            counted[unique_index] = true;
+            let Some(sum) = decoded_bytes.checked_add(unique_body_lengths[unique_index]) else {
+                return Ok(DecodedBudget::Overflow);
+            };
+            decoded_bytes = sum;
+            if decoded_bytes > cap {
+                return Ok(DecodedBudget::Crossing(occurrence_index));
+            }
+        }
+        Ok(DecodedBudget::Within)
+    }
+}
+
+/// Decoded-byte walk over Unique-flight occurrences.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DecodedBudget {
+    Within,
+    Crossing(usize),
+    Overflow,
 }
 
 impl fmt::Debug for UniqueFlightsV1 {
@@ -166,5 +289,20 @@ mod tests {
         assert_eq!(flights.first_occurrence_of_flight(0), Some(1));
         assert_eq!(flights.covered_occurrence_count(0), 1);
         assert_eq!(flights.covered_occurrence_count(1), 4);
+
+        let occurrence_values = [
+            None,
+            Some("https://upstream.example/a"),
+            Some("https://upstream.example/a"),
+            None,
+        ];
+        assert_eq!(
+            flights.unique_values(&occurrence_values).as_deref(),
+            Some(&["https://upstream.example/a"][..])
+        );
+        assert_eq!(
+            flights.accounts_for_occurrence_decoded(&[None, Some(10), Some(10), None]),
+            Some(vec![(0, 10)])
+        );
     }
 }

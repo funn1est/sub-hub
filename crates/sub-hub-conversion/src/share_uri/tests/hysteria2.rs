@@ -70,11 +70,12 @@ fn hysteria2_accepts_salamander_gecko_and_hop() {
         panic!("expected Hysteria2")
     };
     assert!(hop.ports().is_hop());
-    assert_eq!(hop.ports().render_official(), "123,5000-6000");
-    assert_eq!(
-        hop.ports().render_singbox(),
-        vec!["123:123".to_owned(), "5000:6000".to_owned()]
-    );
+    let atoms = hop.ports().hop_atoms().expect("hop atoms");
+    assert_eq!(atoms.len(), 2);
+    assert_eq!(atoms[0].bounds(), (123, 123));
+    assert!(!atoms[0].is_range());
+    assert_eq!(atoms[1].bounds(), (5000, 6000));
+    assert!(atoms[1].is_range());
 
     let ipv6 = parse_share_uri("hysteria2://@[2001:db8::1]:443,8443/").expect("IPv6 hop");
     assert_eq!(

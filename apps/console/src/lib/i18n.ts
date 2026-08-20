@@ -123,6 +123,12 @@ export const messages = {
       "invalid-token":
         "The pasted path token is not valid AccessToken grammar.",
       "invalid-append-info": "The pasted append_info value was ignored.",
+      "invalid-insert":
+        "The pasted insert value was ignored; insert is never reassembled.",
+      "empty-sources":
+        "Empty url slots were ignored and will not be copied onto a new URL.",
+      "http-sources":
+        "http:// subscription sources are rejected by the Conversion Service and will not emit a Subscription URL.",
     } satisfies Record<PasteWarning, string>,
   },
   zh: {
@@ -210,6 +216,10 @@ export const messages = {
       "invalid-target": "粘贴的 target 不是已释放的 token。",
       "invalid-token": "粘贴的 path token 不符合 AccessToken 语法。",
       "invalid-append-info": "粘贴的 append_info 值已被忽略。",
+      "invalid-insert": "粘贴的 insert 值已被忽略；assemble 从不写出 insert。",
+      "empty-sources": "空的 url 槽已被忽略，不会复制到新 URL。",
+      "http-sources":
+        "Conversion Service 拒绝 http:// 订阅源，不会发出 Subscription URL。",
     } satisfies Record<PasteWarning, string>,
   },
 } as const

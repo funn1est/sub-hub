@@ -9,11 +9,11 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, keep_named,
-        map_compiled_rules, plain_group_tag, plain_node_tag, policy_member_token,
-        probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
-        render_host_plain, serialize_bounded, shadowsocks_method, shadowsocks_password,
-        shared_probe_url,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, hysteria2_official_ports,
+        keep_named, keep_tagged, map_compiled_rules, plain_group_tag, plain_node_tag,
+        policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
+        reject_when_empty, render_host_plain, serialize_bounded, shadowsocks_method,
+        shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -22,14 +22,7 @@ pub(crate) fn render_egern_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, encoded) = KeptNodes::encode(named_nodes, encode_node)?;
-    let mut valid_tags = Vec::with_capacity(encoded.len());
-    let mut proxies = Vec::with_capacity(encoded.len());
-    for (tag, entry) in encoded {
-        valid_tags.push(tag);
-        proxies.push(entry);
-    }
-
+    let (kept, valid_tags, proxies) = keep_tagged(named_nodes, encode_node)?;
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let policy_groups = render_groups(policy, &valid)?;
     let (rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
@@ -163,10 +156,7 @@ fn hysteria2_proxy(
         obfs_password,
         skip_tls_verify: pin.is_none().then_some(false),
         fingerprint_sha256: pin,
-        port_hopping: hysteria2
-            .ports()
-            .is_hop()
-            .then(|| hysteria2.ports().render_official()),
+        port_hopping: hysteria2_official_ports(hysteria2.ports()),
     })
 }
 

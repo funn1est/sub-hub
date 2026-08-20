@@ -1,8 +1,10 @@
 import {
   GET_TARGET_LIMIT_BYTES,
   MAX_SOURCES,
+  TARGETS,
   decodeSubGetTarget,
   encodeSubGetTarget,
+  isHttpSource,
   isTarget,
   parseAccessToken,
   type PasteWarning,
@@ -22,6 +24,8 @@ export {
   type Acl4ssrConfigFile,
   type ConfigPreset,
 } from "./acl4ssr-catalog.ts"
+
+export { MAX_SOURCES, TARGETS, isTarget }
 
 export function clashInstallUrl(subscriptionUrl: string): string {
   return `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`
@@ -103,7 +107,49 @@ export function parseHttpsResourceUrl(raw: string): string | null {
   if (url.hash !== "") {
     return null
   }
+  if (isForbiddenOutboundHost(url.hostname)) {
+    return null
+  }
   return url.href
+}
+
+function isForbiddenOutboundHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "")
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "local" ||
+    host.endsWith(".local") ||
+    host === "internal" ||
+    host.endsWith(".internal") ||
+    host === "home.arpa" ||
+    host.endsWith(".home.arpa")
+  ) {
+    return true
+  }
+  if (host.includes(":")) {
+    return true
+  }
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) {
+    return true
+  }
+  return false
+}
+
+export function originFieldValid(raw: string): boolean {
+  return raw.trim().length === 0 || parseServiceOrigin(raw) !== null
+}
+
+export function accessTokenFieldValid(raw: string): boolean {
+  return parseAccessToken(raw).ok
+}
+
+export function configFieldValid(raw: string): boolean {
+  return raw.trim().length === 0 || parseHttpsResourceUrl(raw) !== null
+}
+
+export function sourceFieldInvalid(source: string): boolean {
+  return source.includes("|") || isHttpSource(source.trim())
 }
 
 export function nonemptySources(sources: readonly string[]): string[] {
@@ -125,7 +171,7 @@ export function assembleSubscription(
     !token.ok ||
     sources.length === 0 ||
     sources.length > MAX_SOURCES ||
-    sources.some((source) => source.includes("|")) ||
+    sources.some((source) => source.includes("|") || isHttpSource(source)) ||
     !isTarget(input.target) ||
     (config.length > 0 && parseHttpsResourceUrl(config) === null)
   ) {

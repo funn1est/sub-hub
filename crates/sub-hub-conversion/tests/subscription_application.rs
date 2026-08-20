@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sub_hub_conversion::{
     OutputTarget, RemoteSourceFailureV1, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, prefix_preparation_error_v1, prepare_subscription_v1,
+    SubscriptionSourceV1, UniqueFlightsV1, prefix_preparation_error_v1, prepare_subscription_v1,
 };
 
 const ALPHA: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
@@ -90,6 +90,35 @@ fn source_count_and_direct_occurrence_framing_are_strict() {
             SubscriptionPreparationError::InvalidInput
         );
     }
+}
+
+#[test]
+fn unique_flights_zip_direct_and_unique_remote_bodies() {
+    let alpha = ALPHA.to_owned();
+    let remote = "https://upstream.example/a".to_owned();
+    let flights =
+        UniqueFlightsV1::bind_optional([None, Some(remote.as_str()), Some(remote.as_str())]);
+    let sources = vec![alpha, remote.clone(), remote];
+    let bodies = vec![BETA.as_bytes().to_vec()];
+    let prepared = flights
+        .prepare_subscription(&sources, &bodies)
+        .expect("aligned")
+        .expect("parsed");
+    assert_eq!(
+        prepared.remote_decoded_bytes_by_source(),
+        &[None, Some(BETA.len()), Some(BETA.len())]
+    );
+    assert_eq!(
+        flights.unique_decoded_accounts(&prepared),
+        Some(vec![(0, BETA.len())])
+    );
+    let bytes = prepared
+        .render_builtin_v1(OutputTarget::Mihomo)
+        .expect("builtin")
+        .into_bytes();
+    let yaml = std::str::from_utf8(&bytes).expect("utf-8");
+    assert!(yaml.contains("- name: Alpha\n"));
+    assert!(yaml.contains("- name: Beta\n"));
 }
 
 #[test]

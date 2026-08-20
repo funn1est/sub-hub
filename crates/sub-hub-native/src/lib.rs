@@ -4,7 +4,6 @@ use axum::{
     extract::State,
     http::{Request, Response, StatusCode, header, uri::Authority},
 };
-use http::HeaderValue;
 use std::{
     fmt,
     future::Future,
@@ -15,9 +14,9 @@ use std::{
     time::Instant,
 };
 use sub_hub_http::{
-    AccessTokens, Application, CorsOrigins, HttpRequest, HttpsHopHeaders, RemoteAdapter,
-    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, canonicalize_inbound_host,
-    interpret_https_headers, is_globally_reachable, request_origin,
+    AccessTokens, Application, CorsOrigins, HttpRequest, HttpResponse, HttpsHopHeaders,
+    RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
+    canonicalize_inbound_host, interpret_https_headers, is_globally_reachable, request_origin,
 };
 use url::{Host, Url};
 
@@ -483,12 +482,7 @@ async fn handle_request(
         return static_response;
     }
 
-    let status = shared_response.status();
-    let headers = shared_response.headers().clone();
-    let mut response = Response::new(Body::from(shared_response.into_body()));
-    *response.status_mut() = status;
-    *response.headers_mut() = headers;
-    response
+    into_axum_response(shared_response)
 }
 
 fn one_host_header(headers: &http::HeaderMap) -> Option<String> {
@@ -512,21 +506,20 @@ fn normalize_authority_host(raw: &str) -> Option<String> {
 }
 
 fn invalid_request_response(suppress_body: bool) -> Response<Body> {
-    let body = if suppress_body {
-        Body::empty()
-    } else {
-        Body::from("Invalid request!")
-    };
-    let mut response = Response::new(body);
-    *response.status_mut() = StatusCode::BAD_REQUEST;
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("text/plain;charset=utf-8"),
-    );
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
+    let mut response = HttpResponse::invalid_request();
+    if suppress_body {
+        response.suppress_body();
+    }
+    into_axum_response(response)
+}
+
+fn into_axum_response(response: HttpResponse) -> Response<Body> {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let mut mapped = Response::new(Body::from(response.into_body()));
+    *mapped.status_mut() = status;
+    *mapped.headers_mut() = headers;
+    mapped
 }
 
 fn unicode_environment_value(name: &str) -> Result<Option<String>, ConfigError> {

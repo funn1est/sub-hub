@@ -84,10 +84,14 @@ pub async fn fetch(
     let suppress_body = request.method() == http::Method::HEAD;
     let mapped = match handle_request(request, &environment).await {
         Ok(response) => map_application_response(response),
-        Err(HostFailure::InvalidRequest) => fixed_response(400, b"Invalid request!", suppress_body),
-        Err(HostFailure::InvalidConfiguration) => {
-            fixed_response(500, b"Internal Server Error", suppress_body)
-        }
+        Err(HostFailure::InvalidRequest) => map_application_response(host_error_response(
+            sub_hub_http::HttpResponse::invalid_request(),
+            suppress_body,
+        )),
+        Err(HostFailure::InvalidConfiguration) => map_application_response(host_error_response(
+            sub_hub_http::HttpResponse::internal_error(),
+            suppress_body,
+        )),
     };
     mapped.or_else(|_| fixed_internal_error(suppress_body))
 }
@@ -290,22 +294,21 @@ fn is_managed_response_header(name: &HeaderName) -> bool {
     name == http::header::CONTENT_LENGTH || name == http::header::TRANSFER_ENCODING
 }
 
-fn fixed_internal_error(suppress_body: bool) -> worker::Result<Response> {
-    fixed_response(500, b"Internal Server Error", suppress_body)
+fn host_error_response(
+    mut response: sub_hub_http::HttpResponse,
+    suppress_body: bool,
+) -> sub_hub_http::HttpResponse {
+    if suppress_body {
+        response.suppress_body();
+    }
+    response
 }
 
-fn fixed_response(status: u16, body: &[u8], suppress_body: bool) -> worker::Result<Response> {
-    let headers = Headers::new();
-    headers.set("Content-Type", "text/plain;charset=utf-8")?;
-    headers.set("Cache-Control", "no-store")?;
-    let body = if suppress_body {
-        Vec::new()
-    } else {
-        body.to_vec()
-    };
-    Ok(Response::from_bytes(body)?
-        .with_status(status)
-        .with_headers(headers))
+fn fixed_internal_error(suppress_body: bool) -> worker::Result<Response> {
+    map_application_response(host_error_response(
+        sub_hub_http::HttpResponse::internal_error(),
+        suppress_body,
+    ))
 }
 
 fn monotonic_millis() -> u64 {

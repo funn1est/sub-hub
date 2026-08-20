@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::{
     MAX_SUBSCRIPTION_SOURCES, OutputTarget,
+    flight::UniqueFlightsV1,
     render::{BuiltinRenderError, render_builtin_v1},
     skip::SkipCountsV1,
     subscription_source::{
@@ -34,8 +35,7 @@ impl PreparedSubscriptionV1 {
     ///
     /// Direct occurrences are `None`. Remote sources are `Some(bytes)`, where `bytes` is the raw
     /// source length or the decoded whole-source Base64 length. Duplicate resource occurrences are
-    /// deliberately retained; a broker that performed single-flight loading must deduplicate these
-    /// values by its own resource identity before aggregate accounting.
+    /// deliberately retained; Unique-flight accounting keeps first-seen sizes only.
     #[must_use]
     pub fn remote_decoded_bytes_by_source(&self) -> &[Option<usize>] {
         &self.parsed.remote_decoded_bytes
@@ -54,8 +54,12 @@ impl PreparedSubscriptionV1 {
     ) -> Result<RenderedConfig, ConversionRenderError> {
         match render_builtin_v1(self.parsed, target) {
             Ok(output) => {
-                let (bytes, skips) = output.into_rendered();
-                Ok(RenderedConfig { bytes, skips })
+                let (bytes, skips, omitted_url_regex) = output.into_rendered();
+                Ok(RenderedConfig {
+                    bytes,
+                    skips,
+                    omitted_url_regex,
+                })
             }
             Err(error) => Err(map_builtin_error(error)),
         }
@@ -87,9 +91,22 @@ impl fmt::Debug for PreparedSubscriptionV1 {
 pub struct RenderedConfig {
     bytes: Vec<u8>,
     skips: SkipCountsV1,
+    omitted_url_regex: u8,
 }
 
 impl RenderedConfig {
+    pub(crate) const fn from_parts(
+        bytes: Vec<u8>,
+        skips: SkipCountsV1,
+        omitted_url_regex: u8,
+    ) -> Self {
+        Self {
+            bytes,
+            skips,
+            omitted_url_regex,
+        }
+    }
+
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
@@ -104,6 +121,12 @@ impl RenderedConfig {
     pub const fn skip_counts(&self) -> SkipCountsV1 {
         self.skips
     }
+
+    /// URL-REGEX matchers omitted by Keep-pass. No remote config is always 0.
+    #[must_use]
+    pub const fn omitted_url_regex(&self) -> u8 {
+        self.omitted_url_regex
+    }
 }
 
 impl fmt::Debug for RenderedConfig {
@@ -113,6 +136,7 @@ impl fmt::Debug for RenderedConfig {
             .field("bytes", &"[REDACTED]")
             .field("bytes_len", &self.bytes.len())
             .field("skips", &self.skips)
+            .field("omitted_url_regex", &self.omitted_url_regex)
             .finish()
     }
 }
@@ -278,5 +302,79 @@ pub fn prefix_preparation_error_v1(
     match prepare_subscription_v1(prefix) {
         Ok(_) | Err(SubscriptionPreparationError::NoValidNodes { .. }) => None,
         Err(error) => Some(error),
+    }
+}
+
+impl UniqueFlightsV1 {
+    /// Declaration-order Direct/Remote plan from unique bodies in first-seen order.
+    #[must_use]
+    pub(crate) fn subscription_sources<'a>(
+        &self,
+        sources: &'a [String],
+        unique_bodies: &'a [Vec<u8>],
+    ) -> Option<Vec<SubscriptionSourceV1<'a>>> {
+        if sources.len() != self.occurrence_count() || unique_bodies.len() != self.flight_count() {
+            return None;
+        }
+        (0..sources.len())
+            .map(|occurrence| match self.flight_of(occurrence) {
+                None => Some(SubscriptionSourceV1::Direct(sources[occurrence].as_str())),
+                Some(index) => unique_bodies
+                    .get(index)
+                    .map(|body| SubscriptionSourceV1::Remote(body.as_slice())),
+            })
+            .collect()
+    }
+
+    /// Unique bodies in first-seen order, zipped back onto declaration sources and prepared.
+    ///
+    /// `None` is Unique-flight alignment failure (caller bug).
+    #[must_use]
+    pub fn prepare_subscription(
+        &self,
+        sources: &[String],
+        unique_bodies: &[Vec<u8>],
+    ) -> Option<Result<PreparedSubscriptionV1, SubscriptionPreparationError>> {
+        Some(prepare_subscription_v1(
+            &self.subscription_sources(sources, unique_bodies)?,
+        ))
+    }
+
+    /// First-occurrence decoded sizes to account, as `(unique_index, bytes)`.
+    #[must_use]
+    pub fn unique_decoded_accounts(
+        &self,
+        prepared: &PreparedSubscriptionV1,
+    ) -> Option<Vec<(usize, usize)>> {
+        self.accounts_for_occurrence_decoded(prepared.remote_decoded_bytes_by_source())
+    }
+
+    /// Error already visible on the declaration prefix before `failed_unique_index`.
+    pub fn prefix_error_before_unique_failure(
+        &self,
+        sources: &[String],
+        loaded: &[Option<impl AsRef<[u8]>>],
+        failed_unique_index: usize,
+    ) -> Option<Option<SubscriptionPreparationError>> {
+        let failed_source_index = self.first_occurrence_of_flight(failed_unique_index)?;
+        if failed_source_index == 0 {
+            return Some(None);
+        }
+        if failed_source_index > sources.len() {
+            return None;
+        }
+        let mut source_plan = Vec::with_capacity(failed_source_index);
+        for (occurrence, source) in sources.iter().enumerate().take(failed_source_index) {
+            match self.flight_of(occurrence) {
+                None => {
+                    source_plan.push(SubscriptionSourceV1::Direct(source.as_str()));
+                }
+                Some(unique_index) => {
+                    let body = loaded.get(unique_index)?.as_ref()?.as_ref();
+                    source_plan.push(SubscriptionSourceV1::Remote(body));
+                }
+            }
+        }
+        Some(prefix_preparation_error_v1(&source_plan))
     }
 }

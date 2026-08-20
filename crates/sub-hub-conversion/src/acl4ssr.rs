@@ -58,6 +58,67 @@ impl PreparedAcl4SsrV1 {
             parsed_rule_sets: (0..flight_count).map(|_| None).collect(),
         })
     }
+
+    /// Incremental Unique-flight bind for Rule Set occurrence URLs.
+    ///
+    /// HTTP accepts each occurrence URL, pushes the canonical form, and checks
+    /// unique capacity before the next accept so unique-cap beats a later invalid URL.
+    #[must_use]
+    pub fn rule_set_binder(self) -> Acl4SsrRuleSetBinder {
+        Acl4SsrRuleSetBinder {
+            prepared: self,
+            flights: UniqueFlightsV1::empty(),
+        }
+    }
+}
+
+/// Unique-flight session for Rule Set occurrence URLs in declaration order.
+pub struct Acl4SsrRuleSetBinder {
+    prepared: PreparedAcl4SsrV1,
+    flights: UniqueFlightsV1,
+}
+
+impl fmt::Debug for Acl4SsrRuleSetBinder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Acl4SsrRuleSetBinder")
+            .field("pushed_occurrence_count", &self.flights.occurrence_count())
+            .field("unique_flight_count", &self.flights.flight_count())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Acl4SsrRuleSetBinder {
+    /// Pushes one accepted canonical URL. Returns the unique-flight count afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Acl4SsrRenderError::RuleSetAlignment`] when more URLs are pushed than
+    /// [`PreparedAcl4SsrV1::rule_set_requests`].
+    pub fn push_canonical(&mut self, url: &str) -> Result<usize, Acl4SsrRenderError> {
+        if self.flights.occurrence_count() >= self.prepared.requests.len() {
+            return Err(Acl4SsrRenderError::RuleSetAlignment);
+        }
+        Ok(self.flights.push_remote(url))
+    }
+
+    /// Completes the bind once every Rule Set occurrence has a canonical URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Acl4SsrRenderError::RuleSetAlignment`] when the pushed count is not
+    /// declaration-aligned.
+    pub fn finish(self) -> Result<PreparedAcl4SsrRuleSetsV1, Acl4SsrRenderError> {
+        if self.flights.occurrence_count() != self.prepared.requests.len() {
+            return Err(Acl4SsrRenderError::RuleSetAlignment);
+        }
+        let flight_count = self.flights.flight_count();
+        Ok(PreparedAcl4SsrRuleSetsV1 {
+            prepared: self.prepared,
+            flights: self.flights,
+            parsed_rule_sets: (0..flight_count).map(|_| None).collect(),
+        })
+    }
 }
 
 pub struct PreparedAcl4SsrRuleSetsV1 {
@@ -105,32 +166,37 @@ impl PreparedAcl4SsrRuleSetsV1 {
 
     /// How many declaration occurrences are covered by the first `unique_loaded` flights.
     #[must_use]
-    pub fn covered_occurrence_count(&self, unique_loaded: usize) -> usize {
+    pub(crate) fn covered_occurrence_count(&self, unique_loaded: usize) -> usize {
         self.flights.covered_occurrence_count(unique_loaded)
     }
 
     /// Canonical URLs in declaration order.
     #[must_use]
-    pub fn occurrence_urls(&self) -> Vec<String> {
+    #[cfg(test)]
+    pub(crate) fn occurrence_urls(&self) -> Vec<String> {
         self.flights.occurrence_urls()
-    }
-
-    /// First declaration occurrence of a unique Rule Set flight.
-    #[must_use]
-    pub fn first_occurrence_of_flight(&self, flight: usize) -> Option<usize> {
-        self.flights.first_occurrence_of_flight(flight)
-    }
-
-    /// Unique-flight table bound for these Rule Set occurrences.
-    #[must_use]
-    pub fn flights(&self) -> &UniqueFlightsV1 {
-        &self.flights
     }
 
     /// First-seen unique canonical URLs, aligned with unique Rule Set bodies.
     #[must_use]
-    pub fn unique_canonical_urls(&self) -> &[String] {
+    #[cfg(test)]
+    pub(crate) fn unique_canonical_urls(&self) -> &[String] {
         self.flights.unique_urls()
+    }
+
+    /// First-seen occurrence values, one per unique Rule Set flight.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Acl4SsrRenderError::Internal`] when `occurrence_values` is not
+    /// declaration-aligned with this Unique-flight table.
+    pub fn unique_values<T: Clone>(
+        &self,
+        occurrence_values: &[T],
+    ) -> Result<Vec<T>, Acl4SsrRenderError> {
+        self.flights
+            .unique_required_values(occurrence_values)
+            .ok_or(Acl4SsrRenderError::Internal)
     }
 
     /// Grammar and budget check for a loaded unique prefix.
@@ -154,6 +220,44 @@ impl PreparedAcl4SsrRuleSetsV1 {
             return Err(Acl4SsrRenderError::ConversionLimit);
         }
         self.validate_loaded_unique_prefix_v1(unique_rule_set_bodies)
+    }
+
+    /// Grammar check plus Conversion Service decoded-byte budget for a loaded unique prefix.
+    ///
+    /// `accounted_unique` is aligned with `unique_rule_set_bodies`: already-accounted
+    /// unique flights are skipped when walking declaration order.
+    ///
+    /// # Errors
+    ///
+    /// Same closed errors as [`Self::check_loaded_prefix`], or
+    /// [`Acl4SsrRenderError::ConversionLimit`] when the decoded-byte cap is crossed
+    /// or saturates.
+    pub fn check_loaded_prefix_with_decoded_budget(
+        &mut self,
+        unique_rule_set_bodies: &[&[u8]],
+        accounted_unique: &[bool],
+        already_decoded_bytes: usize,
+        decoded_byte_cap: usize,
+    ) -> Result<(), Acl4SsrRenderError> {
+        let lengths = unique_rule_set_bodies
+            .iter()
+            .map(|body| body.len())
+            .collect::<Vec<_>>();
+        match self.flights.decoded_budget(
+            &lengths,
+            accounted_unique,
+            already_decoded_bytes,
+            decoded_byte_cap,
+        ) {
+            Err(()) => Err(Acl4SsrRenderError::Internal),
+            Ok(crate::flight::DecodedBudget::Overflow) => Err(Acl4SsrRenderError::ConversionLimit),
+            Ok(crate::flight::DecodedBudget::Within) => {
+                self.check_loaded_prefix(unique_rule_set_bodies, None)
+            }
+            Ok(crate::flight::DecodedBudget::Crossing(occurrence)) => {
+                self.check_loaded_prefix(unique_rule_set_bodies, Some(occurrence))
+            }
+        }
     }
 
     fn validate_loaded_unique_prefix_v1(
@@ -235,6 +339,22 @@ impl Acl4SsrOutputV1 {
     #[must_use]
     pub const fn skip_counts(&self) -> SkipCountsV1 {
         self.skips
+    }
+
+    /// URL-REGEX matchers omitted by Keep-pass.
+    #[must_use]
+    pub const fn omitted_url_regex(&self) -> u8 {
+        self.report.omitted_url_regex_count()
+    }
+
+    /// Keep-pass document for the Conversion Service response headers.
+    #[must_use]
+    pub fn into_rendered_config(self) -> crate::RenderedConfig {
+        crate::RenderedConfig::from_parts(
+            self.bytes,
+            self.skips,
+            self.report.omitted_url_regex_count(),
+        )
     }
 }
 
@@ -373,15 +493,19 @@ fn render(
 
     let policy = compile_acl4ssr_policy(&prepared.config.groups, &node_names, rules)?;
     match render_named_policy(&named, &policy, target, MAX_OUTPUT_BYTES) {
-        Ok(document) => Ok(Acl4SsrOutputV1 {
-            bytes: document.bytes,
-            report: Acl4SsrConversionReportV1 {
-                omitted_url_regex: document.omitted_url_regex,
-                empty_groups: policy.report().empty_groups,
-                ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
-            },
-            skips: document.skips,
-        }),
+        Ok(document) => {
+            let omitted_url_regex = document.omitted_url_regex();
+            let skips = document.skip_counts();
+            Ok(Acl4SsrOutputV1 {
+                bytes: document.into_bytes(),
+                report: Acl4SsrConversionReportV1 {
+                    omitted_url_regex,
+                    empty_groups: policy.report().empty_groups,
+                    ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
+                },
+                skips,
+            })
+        }
         Err(error) => Err(Acl4SsrRenderError::from(error)),
     }
 }
@@ -447,5 +571,25 @@ mod tests {
                 .unwrap_err(),
             Acl4SsrRenderError::RuleSetAlignment
         );
+    }
+
+    #[test]
+    fn rule_set_binder_counts_unique_flights_before_finish() {
+        let mut binder = two_remote_rule_sets().rule_set_binder();
+        assert_eq!(
+            binder
+                .push_canonical("https://rules.example/first.list")
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            binder
+                .push_canonical("https://rules.example/first.list")
+                .unwrap(),
+            1
+        );
+        let bound = binder.finish().unwrap();
+        assert_eq!(bound.unique_canonical_urls().len(), 1);
+        assert_eq!(bound.covered_occurrence_count(1), 2);
     }
 }

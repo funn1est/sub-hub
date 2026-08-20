@@ -10,10 +10,10 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1},
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, map_compiled_rules,
-        plain_group_tag, plain_node_tag, policy_member_token, probe_url_or_default,
-        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_fingerprint,
-        render_host_plain, shadowsocks_method, shadowsocks_password,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, hysteria2_singbox_ports, keep_named,
+        keep_tagged, map_compiled_rules, plain_group_tag, plain_node_tag, policy_member_token,
+        probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
+        render_fingerprint, render_host_plain, shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -24,14 +24,7 @@ pub(crate) fn render_singbox_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, encoded) = KeptNodes::encode(named_nodes, encode_node)?;
-    let mut valid_tags = Vec::with_capacity(encoded.len());
-    let mut node_outbounds = Vec::with_capacity(encoded.len());
-    for (tag, outbound) in encoded {
-        valid_tags.push(tag);
-        node_outbounds.push(outbound);
-    }
-
+    let (kept, valid_tags, node_outbounds) = keep_tagged(named_nodes, encode_node)?;
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let group_outbounds = render_groups(policy, &valid)?;
     let first_group = policy
@@ -88,13 +81,9 @@ pub(crate) fn render_singbox_from_policy_v1(
 }
 
 fn encode_node(node: &ProxyNode) -> Result<(String, Outbound<'_>), NodeKeep> {
-    let Some(tag) = plain_node_tag(node.name().as_str()) else {
-        return Err(NodeKeep::Name);
-    };
-    let Some(outbound) = node_outbound(node, tag) else {
-        return Err(NodeKeep::Capability);
-    };
-    Ok((tag.to_owned(), outbound))
+    keep_named(plain_node_tag(node.name().as_str()), |tag| {
+        node_outbound(node, tag)
+    })
 }
 
 fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Option<Outbound<'a>> {
@@ -149,10 +138,9 @@ fn hysteria2_outbound<'a>(
     {
         return None;
     }
-    let (server_port, server_ports) = if hysteria2.ports().is_hop() {
-        (None, Some(hysteria2.ports().render_singbox()))
-    } else {
-        (Some(node.endpoint().port().get()), None)
+    let (server_port, server_ports) = match hysteria2_singbox_ports(hysteria2.ports()) {
+        Some(ports) => (None, Some(ports)),
+        None => (Some(node.endpoint().port().get()), None),
     };
     let obfs = hysteria2.obfs().map(|obfs| Hysteria2ObfsObject {
         kind: obfs.token(),

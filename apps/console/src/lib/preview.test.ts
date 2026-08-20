@@ -150,13 +150,18 @@ describe("download filename", () => {
   })
 })
 
+function assembledUrl(url: string) {
+  return { url, getTarget: "/sub", overLimit: false }
+}
+
 describe("runPreview", () => {
   it("returns a done Preview from the Subscription URL GET", async () => {
     const outcome = await runPreview({
-      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
+      assembled: assembledUrl(
+        "http://127.0.0.1:25500/sub?target=clash&url=vless://x"
+      ),
       target: "clash",
       pageHttps: false,
-      serviceOrigin: "http://127.0.0.1:25500",
       fetchImpl: async () => ({
         status: 200,
         text: async () => "mode: rule\n",
@@ -188,10 +193,11 @@ describe("runPreview", () => {
 
   it("falls back to the Mihomo download name for the clash wire token", async () => {
     const outcome = await runPreview({
-      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
+      assembled: assembledUrl(
+        "http://127.0.0.1:25500/sub?target=clash&url=vless://x"
+      ),
       target: "clash",
       pageHttps: false,
-      serviceOrigin: "http://127.0.0.1:25500",
       fetchImpl: async () => ({
         status: 200,
         text: async () => "proxies:\n",
@@ -206,10 +212,11 @@ describe("runPreview", () => {
 
   it("classifies a thrown fetch as unreachable", async () => {
     const outcome = await runPreview({
-      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
+      assembled: assembledUrl(
+        "http://127.0.0.1:25500/sub?target=clash&url=vless://x"
+      ),
       target: "clash",
       pageHttps: true,
-      serviceOrigin: "http://127.0.0.1:25500",
       fetchImpl: async () => {
         throw new TypeError("Failed to fetch")
       },

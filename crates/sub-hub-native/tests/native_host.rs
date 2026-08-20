@@ -217,6 +217,13 @@ async fn request_without_exactly_one_host_header_is_rejected() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert_eq!(
         response
+            .headers()
+            .get("referrer-policy")
+            .map(|value| value.as_bytes()),
+        Some(&b"no-referrer"[..])
+    );
+    assert_eq!(
+        response
             .into_body()
             .collect()
             .await

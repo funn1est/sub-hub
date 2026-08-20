@@ -233,12 +233,9 @@ fn canonical_url_identity_assigns_first_seen_flights() {
         "https://cdn.example/shared.list".to_owned(),
     ];
     let bound = prepared.bind_canonical_urls_v1(&urls).unwrap();
-    assert_eq!(bound.covered_occurrence_count(0), 0);
-    assert_eq!(bound.covered_occurrence_count(1), 2);
-    assert_eq!(bound.occurrence_urls().as_slice(), urls.as_slice());
     assert_eq!(
-        bound.unique_canonical_urls(),
-        &["https://cdn.example/shared.list".to_owned()]
+        bound.unique_values(&urls).expect("aligned"),
+        vec!["https://cdn.example/shared.list".to_owned()]
     );
     assert_eq!(
         prepare_direct()

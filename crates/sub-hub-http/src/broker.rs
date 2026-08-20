@@ -8,8 +8,6 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use http::StatusCode;
 use url::Url;
 
-use sub_hub_conversion::UniqueFlightsV1;
-
 use crate::{
     MAX_ACTIVE_RESOURCES, MAX_GET_TARGET_BYTES, MAX_TOTAL_DECODED_BYTES,
     MAX_UNIQUE_REMOTE_RESOURCES, SelfHosts, accept_outbound_url, is_followed_redirect,
@@ -307,42 +305,14 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
         Ok(())
     }
 
-    pub(crate) fn first_decoded_crossing(
-        &self,
-        resources: &[RemoteResource],
-        body_lengths: &[usize],
-        flights: &UniqueFlightsV1,
-        occurrence_count: usize,
-    ) -> Result<Option<usize>, ApplicationError> {
-        if resources.len() != body_lengths.len() {
-            return Err(ApplicationError::Internal);
-        }
-        let mut decoded_bytes = self.decoded_bytes;
-        let mut counted = vec![false; resources.len()];
-        for occurrence_index in 0..occurrence_count {
-            let unique_index = flights
-                .flight_of(occurrence_index)
-                .ok_or(ApplicationError::Internal)?;
-            if unique_index >= resources.len() {
-                return Err(ApplicationError::Internal);
-            }
-            if counted[unique_index]
-                || self
-                    .accounted
-                    .iter()
-                    .any(|candidate| candidate.same_identity(&resources[unique_index]))
-            {
-                continue;
-            }
-            counted[unique_index] = true;
-            decoded_bytes = decoded_bytes
-                .checked_add(body_lengths[unique_index])
-                .ok_or(ApplicationError::ConversionLimit)?;
-            if decoded_bytes > MAX_TOTAL_DECODED_BYTES {
-                return Ok(Some(occurrence_index));
-            }
-        }
-        Ok(None)
+    pub(crate) fn decoded_byte_count(&self) -> usize {
+        self.decoded_bytes
+    }
+
+    pub(crate) fn already_accounted(&self, resource: &RemoteResource) -> bool {
+        self.accounted
+            .iter()
+            .any(|candidate| candidate.same_identity(resource))
     }
 
     pub(crate) async fn load_batch(
