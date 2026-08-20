@@ -17,7 +17,7 @@ use std::{
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HttpRequest, HttpsHopHeaders, RemoteAdapter,
     RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, canonicalize_inbound_host,
-    interpret_https_headers, is_globally_reachable,
+    interpret_https_headers, is_globally_reachable, request_origin,
 };
 use url::{Host, Url};
 
@@ -350,11 +350,10 @@ async fn fetch_under_deadline(
     )
     .map_err(|_| RemoteFetchError::Failure)?;
     match headers {
-        HttpsHopHeaders::Redirect { location } => Ok(RemoteResponse::redirect(status, location)),
-        HttpsHopHeaders::Unsuccessful => Ok(RemoteResponse::body(status, Vec::new())),
-        HttpsHopHeaders::Success {
-            subscription_user_info,
-        } => {
+        HttpsHopHeaders::Redirect { .. } | HttpsHopHeaders::Unsuccessful => {
+            Ok(RemoteResponse::from_hop(status, headers, Vec::new()))
+        }
+        HttpsHopHeaders::Success { .. } => {
             let mut body = Vec::new();
             while let Some(chunk) = response
                 .chunk()
@@ -370,12 +369,7 @@ async fn fetch_under_deadline(
                 }
                 body.extend_from_slice(&chunk);
             }
-
-            let mut remote = RemoteResponse::body(status, body);
-            if let Some(value) = subscription_user_info {
-                remote = remote.with_subscription_user_info(value);
-            }
-            Ok(remote)
+            Ok(RemoteResponse::from_hop(status, headers, body))
         }
     }
 }
@@ -468,7 +462,7 @@ async fn handle_request(
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let raw_query = request.uri().query().map(str::to_owned);
-    let origin = one_origin_header(request.headers());
+    let origin = request_origin(request.headers());
     let shared_response = state
         .application
         .handle(
@@ -495,15 +489,6 @@ async fn handle_request(
     *response.status_mut() = status;
     *response.headers_mut() = headers;
     response
-}
-
-fn one_origin_header(headers: &http::HeaderMap) -> Option<String> {
-    let mut values = headers.get_all(header::ORIGIN).iter();
-    let raw = values.next()?.to_str().ok()?;
-    if values.next().is_some() || raw.contains('@') {
-        return None;
-    }
-    Some(raw.to_owned())
 }
 
 fn one_host_header(headers: &http::HeaderMap) -> Option<String> {

@@ -1,11 +1,11 @@
 use std::{fmt, future::Future, pin::Pin, sync::OnceLock, time::Duration};
 
 use futures::{StreamExt, future::Either, pin_mut};
-use http::{HeaderName, StatusCode, header};
+use http::{HeaderName, StatusCode};
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, HttpsHopHeaders,
     RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
-    canonicalize_inbound_host, interpret_https_headers,
+    canonicalize_inbound_host, interpret_https_headers, request_origin,
 };
 use worker::wasm_bindgen::JsCast;
 use worker::{
@@ -103,7 +103,7 @@ async fn handle_request(
         return Err(HostFailure::InvalidRequest);
     };
     let application = APPLICATION.get_or_load(|| application_from_environment(environment))?;
-    let origin = one_origin_header(request.headers());
+    let origin = request_origin(request.headers());
 
     Ok(application
         .handle(
@@ -199,11 +199,10 @@ async fn fetch_and_read(
     )
     .map_err(|_| RemoteFetchError::Failure)?;
     match hop {
-        HttpsHopHeaders::Redirect { location } => Ok(RemoteResponse::redirect(status, location)),
-        HttpsHopHeaders::Unsuccessful => Ok(RemoteResponse::body(status, Vec::new())),
-        HttpsHopHeaders::Success {
-            subscription_user_info: metadata,
-        } => {
+        HttpsHopHeaders::Redirect { .. } | HttpsHopHeaders::Unsuccessful => {
+            Ok(RemoteResponse::from_hop(status, hop, Vec::new()))
+        }
+        HttpsHopHeaders::Success { .. } => {
             let mut body = Vec::new();
             let mut stream = response.stream().map_err(|_| RemoteFetchError::Failure)?;
             while let Some(chunk) = stream.next().await {
@@ -213,12 +212,7 @@ async fn fetch_and_read(
                 }
                 body.extend_from_slice(&chunk);
             }
-
-            let response = RemoteResponse::body(status, body);
-            Ok(match metadata {
-                Some(value) => response.with_subscription_user_info(value),
-                None => response,
-            })
+            Ok(RemoteResponse::from_hop(status, hop, body))
         }
     }
 }
@@ -256,15 +250,6 @@ fn optional_var(environment: &Env, name: &str) -> Result<Option<String>, ()> {
         .var(name)
         .map(|value| Some(value.to_string()))
         .map_err(|_| ())
-}
-
-fn one_origin_header(headers: &http::HeaderMap) -> Option<String> {
-    let mut values = headers.get_all(header::ORIGIN).iter();
-    let raw = values.next()?.to_str().ok()?;
-    if values.next().is_some() || raw.contains('@') {
-        return None;
-    }
-    Some(raw.to_owned())
 }
 
 fn optional_binding(environment: &Env, name: &str) -> Result<Option<String>, ()> {

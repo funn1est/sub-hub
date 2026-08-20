@@ -2,6 +2,19 @@ use url::{Host, Url};
 
 use crate::{MAX_GET_TARGET_BYTES, SelfHosts, self_hosts::is_canonical_dns_name};
 
+pub(crate) fn accept_outbound_url(
+    input: &str,
+    self_hosts: &SelfHosts,
+    inbound_host: &str,
+    supports_https_port: impl FnOnce(u16) -> bool,
+) -> Result<Url, ()> {
+    let url = canonical_remote_url(input, self_hosts, inbound_host)?;
+    if !supports_https_port(url.port_or_known_default().unwrap_or(443)) {
+        return Err(());
+    }
+    Ok(url)
+}
+
 pub(crate) fn canonical_remote_url(
     input: &str,
     self_hosts: &SelfHosts,

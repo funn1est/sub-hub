@@ -8,7 +8,6 @@ use crate::{
     node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
-    node_name::is_reserved_symbol,
     policy::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
@@ -19,6 +18,16 @@ use crate::{
         shadowsocks_password,
     },
 };
+
+const MIHOMO_RESERVED_NODE_TAGS: [&str; 7] = [
+    "DIRECT",
+    "REJECT",
+    "REJECT-DROP",
+    "COMPATIBLE",
+    "PASS",
+    "PASS-RULE",
+    "GLOBAL",
+];
 
 const LOSSY_COMMENT: &str =
     "# subconverter: lossy conversion; unsupported URL-REGEX rules omitted\n";
@@ -72,7 +81,7 @@ fn encode_node(node: &ProxyNode) -> Result<MihomoProxy<'_>, NodeKeep> {
     let name = node.name().as_str();
     if name.is_empty()
         || name.chars().any(|character| character.is_ascii_control())
-        || is_reserved_symbol(name)
+        || MIHOMO_RESERVED_NODE_TAGS.contains(&name)
     {
         return Err(NodeKeep::Name);
     }

@@ -37,6 +37,8 @@ pub const MAX_SUBSCRIPTION_SOURCES: usize = 5;
 pub const MAX_SUBSCRIPTION_INPUT_BYTES: usize = 2_796_206;
 /// One Rule Set body size accepted during materialization and fetch.
 pub const MAX_RULE_SET_BYTES: usize = 4 * 1024 * 1024;
+/// ACL4SSR INI body size accepted during prepare and the matching Config fetch.
+pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 
 pub use acl4ssr::{
     Acl4SsrConversionReportV1, Acl4SsrOutputV1, Acl4SsrPreparationError, Acl4SsrRenderError,
@@ -44,7 +46,8 @@ pub use acl4ssr::{
 };
 pub use direct_subscription::{
     ConversionRenderError, PreparedSubscriptionV1, RemoteSourceFailureV1, RenderedConfig,
-    SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
+    SubscriptionPreparationError, SubscriptionSourceV1, prefix_preparation_error_v1,
+    prepare_subscription_v1,
 };
 pub use flight::UniqueFlightsV1;
 pub use skip::SkipCountsV1;

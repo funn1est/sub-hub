@@ -263,3 +263,20 @@ pub fn prepare_subscription_v1(
 
     Ok(PreparedSubscriptionV1 { parsed })
 }
+
+/// Error already visible on a declaration prefix before a later Unique-flight failure.
+///
+/// An empty prefix, a successful prefix, and [`SubscriptionPreparationError::NoValidNodes`]
+/// do not beat the later failure: later sources may still supply nodes.
+#[must_use]
+pub fn prefix_preparation_error_v1(
+    prefix: &[SubscriptionSourceV1<'_>],
+) -> Option<SubscriptionPreparationError> {
+    if prefix.is_empty() {
+        return None;
+    }
+    match prepare_subscription_v1(prefix) {
+        Ok(_) | Err(SubscriptionPreparationError::NoValidNodes { .. }) => None,
+        Err(error) => Some(error),
+    }
+}

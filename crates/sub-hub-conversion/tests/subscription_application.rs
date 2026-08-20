@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sub_hub_conversion::{
     OutputTarget, RemoteSourceFailureV1, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, prepare_subscription_v1,
+    SubscriptionSourceV1, prefix_preparation_error_v1, prepare_subscription_v1,
 };
 
 const ALPHA: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
@@ -90,6 +90,23 @@ fn source_count_and_direct_occurrence_framing_are_strict() {
             SubscriptionPreparationError::InvalidInput
         );
     }
+}
+
+#[test]
+fn prefix_error_beats_a_later_unique_flight_failure() {
+    assert_eq!(prefix_preparation_error_v1(&[]), None);
+    assert_eq!(
+        prefix_preparation_error_v1(&[SubscriptionSourceV1::Direct(ALPHA)]),
+        None
+    );
+    assert_eq!(
+        prefix_preparation_error_v1(&[SubscriptionSourceV1::Direct("")]),
+        Some(SubscriptionPreparationError::InvalidInput)
+    );
+    assert_eq!(
+        prefix_preparation_error_v1(&[SubscriptionSourceV1::Direct("not-a-share-uri")]),
+        None
+    );
 }
 
 #[test]

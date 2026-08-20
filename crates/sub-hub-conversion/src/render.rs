@@ -131,22 +131,22 @@ pub(crate) enum NodeKeep {
 }
 
 /// Keep accounting for one target adapter's encode pass.
+#[derive(Debug)]
 pub(crate) struct KeptNodes {
     pub(crate) capability_skips: u32,
     pub(crate) name_skips: u32,
 }
 
 impl KeptNodes {
-    /// Encode once: keep classification is the encoder's failure mode.
-    pub(crate) fn encode<'a, T>(
-        named_nodes: &[&'a ProxyNode],
-        mut encode: impl FnMut(&'a ProxyNode) -> Result<T, NodeKeep>,
+    /// Keep-pass accounting: Name/Capability skips, Keep-as-error is Internal.
+    pub(crate) fn from_encoded<T>(
+        results: impl IntoIterator<Item = Result<T, NodeKeep>>,
     ) -> Result<(Self, Vec<T>), AdapterRenderError> {
         let mut items = Vec::new();
         let mut capability_skips = 0_u32;
         let mut name_skips = 0_u32;
-        for node in named_nodes {
-            match encode(node) {
+        for result in results {
+            match result {
                 Ok(item) => items.push(item),
                 Err(NodeKeep::Name) => name_skips = name_skips.saturating_add(1),
                 Err(NodeKeep::Capability) => capability_skips = capability_skips.saturating_add(1),
@@ -168,6 +168,27 @@ impl KeptNodes {
             ))
         }
     }
+
+    /// Encode once: keep classification is the encoder's failure mode.
+    pub(crate) fn encode<'a, T>(
+        named_nodes: &[&'a ProxyNode],
+        mut encode: impl FnMut(&'a ProxyNode) -> Result<T, NodeKeep>,
+    ) -> Result<(Self, Vec<T>), AdapterRenderError> {
+        Self::from_encoded(named_nodes.iter().copied().map(&mut encode))
+    }
+}
+
+/// Tag then capability: the `encode_node` shape shared by text/JSON adapters.
+pub(crate) fn keep_named<T>(
+    tag: Option<&str>,
+    encode: impl FnOnce(&str) -> Option<T>,
+) -> Result<(String, T), NodeKeep> {
+    let Some(tag) = tag else {
+        return Err(NodeKeep::Name);
+    };
+    encode(tag)
+        .map(|item| (tag.to_owned(), item))
+        .ok_or(NodeKeep::Capability)
 }
 
 pub(crate) fn render_fn(target: OutputTarget) -> RenderFromPolicyFn {
@@ -489,12 +510,7 @@ pub(crate) fn render_builtin_with_limit(
     let named =
         resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinRenderError::NodeNaming)?;
     let mut diagnostics = BuiltinRenderDiagnostics::from_named(&named);
-    let nodes = accepted_nodes(&named);
-    if nodes.is_empty() {
-        return Err(BuiltinRenderError::NoValidNodes { diagnostics });
-    }
-
-    let policy = compile_builtin_policy_v1(&nodes);
+    let policy = compile_builtin_policy_v1(&accepted_nodes(&named));
     match render_named_policy_with(&named, &policy, render, limit_bytes) {
         Ok(document) => {
             diagnostics.with_keep_counts(document.skips.capability, document.skips.name);
@@ -779,5 +795,71 @@ mod tests {
             serialize_bounded(&FailsToSerialize, 1_024),
             Err(AdapterRenderError::Internal)
         );
+    }
+
+    #[test]
+    fn keep_pass_counts_name_and_capability_and_rejects_all_dropped() {
+        use super::{KeptNodes, NodeKeep, keep_named};
+
+        let (kept, items) = KeptNodes::from_encoded([
+            Ok("a"),
+            Err(NodeKeep::Name),
+            Err(NodeKeep::Capability),
+            Ok("b"),
+        ])
+        .expect("two nodes survive");
+        assert_eq!(items, ["a", "b"]);
+        assert_eq!(kept.name_skips, 1);
+        assert_eq!(kept.capability_skips, 1);
+
+        assert_eq!(
+            KeptNodes::from_encoded([Err::<&str, _>(NodeKeep::Name), Err(NodeKeep::Capability)])
+                .unwrap_err(),
+            AdapterRenderError::NoValidNodes {
+                capability_skips: 1,
+                name_skips: 1,
+            }
+        );
+        assert_eq!(keep_named(None, |_| Some(1)), Err(NodeKeep::Name));
+        assert_eq!(
+            keep_named(Some("tag"), |_| None::<u8>),
+            Err(NodeKeep::Capability)
+        );
+        assert_eq!(
+            keep_named(Some("tag"), |tag| Some(tag.len())),
+            Ok(("tag".to_owned(), 3))
+        );
+    }
+
+    #[test]
+    fn map_compiled_rules_counts_omitted_url_regex() {
+        use crate::policy::{CompiledRuleV1, PolicyMemberV1, RuleMatcherV1};
+
+        use super::map_compiled_rules;
+
+        let rules = [
+            CompiledRuleV1::new(RuleMatcherV1::Match, PolicyMemberV1::Direct),
+            CompiledRuleV1::new(
+                RuleMatcherV1::UrlRegex("a".to_owned()),
+                PolicyMemberV1::Direct,
+            ),
+            CompiledRuleV1::new(
+                RuleMatcherV1::UrlRegex("b".to_owned()),
+                PolicyMemberV1::Reject,
+            ),
+            CompiledRuleV1::new(
+                RuleMatcherV1::Domain("x.example".to_owned()),
+                PolicyMemberV1::Reject,
+            ),
+        ];
+        let (items, omitted) = map_compiled_rules(&rules, |rule| {
+            Ok(match rule.matcher() {
+                RuleMatcherV1::UrlRegex(_) => None,
+                _ => Some(()),
+            })
+        })
+        .expect("spell");
+        assert_eq!(items.len(), 2);
+        assert_eq!(omitted, 2);
     }
 }

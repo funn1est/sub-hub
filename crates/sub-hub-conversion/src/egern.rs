@@ -9,10 +9,11 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, map_compiled_rules,
-        plain_group_tag, plain_node_tag, policy_member_token, probe_url_or_default,
-        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_host_plain,
-        serialize_bounded, shadowsocks_method, shadowsocks_password, shared_probe_url,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, keep_named,
+        map_compiled_rules, plain_group_tag, plain_node_tag, policy_member_token,
+        probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
+        render_host_plain, serialize_bounded, shadowsocks_method, shadowsocks_password,
+        shared_probe_url,
     },
 };
 
@@ -49,13 +50,9 @@ pub(crate) fn render_egern_from_policy_v1(
 }
 
 fn encode_node(node: &ProxyNode) -> Result<(String, ProxyEntry), NodeKeep> {
-    let Some(tag) = plain_node_tag(node.name().as_str()) else {
-        return Err(NodeKeep::Name);
-    };
-    let Some(entry) = proxy_entry(node, tag) else {
-        return Err(NodeKeep::Capability);
-    };
-    Ok((tag.to_owned(), entry))
+    keep_named(plain_node_tag(node.name().as_str()), |tag| {
+        proxy_entry(node, tag)
+    })
 }
 
 fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {

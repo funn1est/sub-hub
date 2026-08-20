@@ -54,8 +54,22 @@ impl UniqueFlightsV1 {
     }
 
     #[must_use]
+    pub fn flight_count(&self) -> usize {
+        self.unique_urls.len()
+    }
+
+    #[must_use]
     pub fn occurrence_count(&self) -> usize {
         self.flight_by_occurrence.len()
+    }
+
+    /// Declaration-order canonical URLs. Direct occurrences are omitted.
+    #[must_use]
+    pub fn occurrence_urls(&self) -> Vec<String> {
+        self.flight_by_occurrence
+            .iter()
+            .filter_map(|flight| flight.map(|index| self.unique_urls[index].clone()))
+            .collect()
     }
 
     #[must_use]
@@ -96,7 +110,7 @@ impl fmt::Debug for UniqueFlightsV1 {
         formatter
             .debug_struct("UniqueFlightsV1")
             .field("occurrence_count", &self.flight_by_occurrence.len())
-            .field("flight_count", &self.unique_urls.len())
+            .field("flight_count", &self.flight_count())
             .finish_non_exhaustive()
     }
 }
@@ -120,9 +134,18 @@ mod tests {
             ]
         );
         assert_eq!(flights.dense_flights().as_deref(), Some(&[0, 0, 1][..]));
+        assert_eq!(flights.flight_count(), 2);
         assert_eq!(flights.first_occurrence_of_flight(1), Some(2));
         assert_eq!(flights.covered_occurrence_count(1), 2);
         assert_eq!(flights.covered_occurrence_count(2), 3);
+        assert_eq!(
+            flights.occurrence_urls(),
+            vec![
+                "https://rules.example/a".to_owned(),
+                "https://rules.example/a".to_owned(),
+                "https://rules.example/b".to_owned(),
+            ]
+        );
     }
 
     #[test]

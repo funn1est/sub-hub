@@ -3,16 +3,16 @@ use std::fmt;
 use http::Method;
 use sub_hub_conversion::{
     ConversionRenderError, OutputTarget, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, UniqueFlightsV1, prepare_subscription_v1,
+    SubscriptionSourceV1, UniqueFlightsV1, prefix_preparation_error_v1, prepare_subscription_v1,
 };
 use url::Url;
 
 use crate::{
     AccessTokens, CorsOrigins, HttpRequest, HttpResponse, MAX_SUBSCRIPTION_INPUT_BYTES,
     RemoteAdapter, ResourceKind, SelfHosts,
-    broker::{BrokerSession, LoadedRemote, RemoteLoadBatch, RemoteResource},
+    broker::{BrokerSession, RemoteLoadBatch, RemoteResource},
     query,
-    remote_url::{canonical_remote_url, is_valid_inbound_host},
+    remote_url::{accept_outbound_url, is_valid_inbound_host},
     request::{RequestPath, classify_path, handle_version, request_target_too_long},
     response::{
         ApplicationError, attach_conversion_headers, error_response, subscription_response_for,
@@ -120,44 +120,37 @@ impl<A: RemoteAdapter> Application<A> {
             String::new()
         };
         let config_url = match parsed.config.as_deref() {
-            Some(config) => {
-                let url = canonical_remote_url(config, &self.self_hosts, &inbound_host)
-                    .map_err(|()| ApplicationError::InvalidRequest)?;
-                if !self
-                    .adapter
-                    .supports_https_port(url.port_or_known_default().unwrap_or(443))
-                {
-                    return Err(ApplicationError::InvalidRequest);
-                }
-                Some(url)
-            }
+            Some(config) => Some(
+                accept_outbound_url(config, &self.self_hosts, &inbound_host, |port| {
+                    self.adapter.supports_https_port(port)
+                })
+                .map_err(|()| ApplicationError::InvalidRequest)?,
+            ),
             None => None,
         };
-        let mut canonical_sources = Vec::with_capacity(parsed.sources.len());
+        let mut occurrence_urls = Vec::with_capacity(parsed.sources.len());
         for source in &parsed.sources {
             if query::is_https_source(source) {
-                let url = canonical_remote_url(source, &self.self_hosts, &inbound_host)
-                    .map_err(|()| ApplicationError::InvalidRequest)?;
-                if !self
-                    .adapter
-                    .supports_https_port(url.port_or_known_default().unwrap_or(443))
-                {
-                    return Err(ApplicationError::InvalidRequest);
-                }
-                canonical_sources.push(Some(url.as_str().to_owned()));
+                let url = accept_outbound_url(source, &self.self_hosts, &inbound_host, |port| {
+                    self.adapter.supports_https_port(port)
+                })
+                .map_err(|()| ApplicationError::InvalidRequest)?;
+                occurrence_urls.push(Some(url));
             } else {
-                canonical_sources.push(None);
+                occurrence_urls.push(None);
             }
         }
-        let flights =
-            UniqueFlightsV1::bind_optional(canonical_sources.iter().map(Option::as_deref));
-        let unique_urls = unique_urls_from_flights(&flights)?;
+        let flights = UniqueFlightsV1::bind_optional(
+            occurrence_urls
+                .iter()
+                .map(|url| url.as_ref().map(Url::as_str)),
+        );
+        let unique_urls = unique_urls_from_occurrences(&occurrence_urls, &flights)?;
 
         Ok(SubRequestPlan {
             parsed,
             inbound_host,
             config_url,
-            canonical_sources,
             flights,
             unique_urls,
         })
@@ -214,7 +207,6 @@ impl<A: RemoteAdapter> Application<A> {
         let SubRequestPlan {
             parsed,
             inbound_host,
-            canonical_sources,
             unique_urls,
             flights,
             ..
@@ -240,8 +232,6 @@ impl<A: RemoteAdapter> Application<A> {
             }) => {
                 let earlier_error = match preparation_error_before_remote_failure(
                     &parsed.sources,
-                    canonical_sources,
-                    unique_urls,
                     flights,
                     &loaded,
                     failed_unique_index,
@@ -254,8 +244,7 @@ impl<A: RemoteAdapter> Application<A> {
         };
         let mut loaded = Vec::with_capacity(unique_urls.len());
         let mut loaded_metadata = Vec::with_capacity(unique_urls.len());
-        for loaded_response in loaded_responses {
-            let response = loaded_response.into_response();
+        for response in loaded_responses {
             loaded_metadata.push(if parsed.append_info {
                 parse_subscription_user_info(response.subscription_user_info)
             } else {
@@ -276,13 +265,7 @@ impl<A: RemoteAdapter> Application<A> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let prepared = prepare_subscription_v1(&source_plan).map_err(map_subscription_error)?;
-        account_decoded_sources(
-            &mut broker,
-            &prepared,
-            canonical_sources,
-            unique_urls,
-            &subscription_resources,
-        )?;
+        account_decoded_sources(&mut broker, &prepared, flights, &subscription_resources)?;
         let eligible_metadata =
             if parsed.append_info && parsed.sources.len() == 1 && unique_urls.len() == 1 {
                 loaded_metadata.into_iter().next().flatten()
@@ -309,16 +292,25 @@ struct SubRequestPlan {
     parsed: query::SubQuery,
     inbound_host: String,
     config_url: Option<Url>,
-    canonical_sources: Vec<Option<String>>,
     flights: UniqueFlightsV1,
     unique_urls: Vec<Url>,
 }
 
-fn unique_urls_from_flights(flights: &UniqueFlightsV1) -> Result<Vec<Url>, ApplicationError> {
-    flights
-        .unique_urls()
-        .iter()
-        .map(|canonical| Url::parse(canonical).map_err(|_| ApplicationError::Internal))
+fn unique_urls_from_occurrences(
+    occurrence_urls: &[Option<Url>],
+    flights: &UniqueFlightsV1,
+) -> Result<Vec<Url>, ApplicationError> {
+    (0..flights.flight_count())
+        .map(|flight| {
+            let occurrence = flights
+                .first_occurrence_of_flight(flight)
+                .ok_or(ApplicationError::Internal)?;
+            occurrence_urls
+                .get(occurrence)
+                .and_then(Option::as_ref)
+                .cloned()
+                .ok_or(ApplicationError::Internal)
+        })
         .collect()
 }
 
@@ -357,39 +349,29 @@ const fn map_subscription_error(error: SubscriptionPreparationError) -> Applicat
 fn account_decoded_sources(
     broker: &mut BrokerSession<'_, impl RemoteAdapter>,
     prepared: &sub_hub_conversion::PreparedSubscriptionV1,
-    canonical_sources: &[Option<String>],
-    unique_urls: &[Url],
+    flights: &UniqueFlightsV1,
     subscription_resources: &[RemoteResource],
 ) -> Result<(), ApplicationError> {
     for (source_index, decoded) in prepared.remote_decoded_bytes_by_source().iter().enumerate() {
         let Some(decoded) = decoded else { continue };
-        let Some(canonical) = canonical_sources
-            .get(source_index)
-            .and_then(Option::as_deref)
-        else {
+        let Some(unique_index) = flights.flight_of(source_index) else {
             return Err(ApplicationError::Internal);
         };
-        if canonical_sources
-            .iter()
-            .position(|candidate| candidate.as_deref() == Some(canonical))
-            == Some(source_index)
-        {
-            let Some(unique_index) = unique_urls.iter().position(|url| url.as_str() == canonical)
-            else {
-                return Err(ApplicationError::Internal);
-            };
-            broker.account_decoded(&subscription_resources[unique_index], *decoded)?;
+        if flights.first_occurrence_of_flight(unique_index) != Some(source_index) {
+            continue;
         }
+        let Some(resource) = subscription_resources.get(unique_index) else {
+            return Err(ApplicationError::Internal);
+        };
+        broker.account_decoded(resource, *decoded)?;
     }
     Ok(())
 }
 
 fn preparation_error_before_remote_failure(
     sources: &[String],
-    canonical_sources: &[Option<String>],
-    unique_urls: &[Url],
     flights: &UniqueFlightsV1,
-    loaded: &[Option<LoadedRemote>],
+    loaded: &[Option<crate::RemoteResponse>],
     failed_unique_index: usize,
 ) -> Result<Option<ApplicationError>, ApplicationError> {
     let failed_source_index = flights
@@ -400,37 +382,19 @@ fn preparation_error_before_remote_failure(
     }
 
     let mut source_plan = Vec::with_capacity(failed_source_index);
-    for (source, canonical) in sources
-        .iter()
-        .zip(canonical_sources)
-        .take(failed_source_index)
-    {
-        if let Some(canonical) = canonical {
-            let unique_index = unique_urls
-                .iter()
-                .position(|url| url.as_str() == canonical)
-                .ok_or(ApplicationError::Internal)?;
-            let body = loaded
-                .get(unique_index)
-                .and_then(Option::as_ref)
-                .map(|loaded| loaded.response.body.as_slice())
-                .ok_or(ApplicationError::Internal)?;
-            source_plan.push(SubscriptionSourceV1::Remote(body));
-        } else {
-            source_plan.push(SubscriptionSourceV1::Direct(source));
+    for occurrence in 0..failed_source_index {
+        match flights.flight_of(occurrence) {
+            None => source_plan.push(SubscriptionSourceV1::Direct(&sources[occurrence])),
+            Some(unique_index) => {
+                let body = loaded
+                    .get(unique_index)
+                    .and_then(Option::as_ref)
+                    .map(|response| response.body.as_slice())
+                    .ok_or(ApplicationError::Internal)?;
+                source_plan.push(SubscriptionSourceV1::Remote(body));
+            }
         }
     }
 
-    match prepare_subscription_v1(&source_plan) {
-        Ok(_) | Err(SubscriptionPreparationError::NoValidNodes { .. }) => Ok(None),
-        Err(SubscriptionPreparationError::RemoteFailure { .. }) => {
-            Ok(Some(ApplicationError::RemoteFailure))
-        }
-        Err(SubscriptionPreparationError::ConversionLimit) => {
-            Ok(Some(ApplicationError::ConversionLimit))
-        }
-        Err(SubscriptionPreparationError::InvalidInput) => {
-            Ok(Some(ApplicationError::InvalidRequest))
-        }
-    }
+    Ok(prefix_preparation_error_v1(&source_plan).map(map_subscription_error))
 }

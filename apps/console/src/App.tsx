@@ -12,7 +12,7 @@ import {
   savePersisted,
   type PersistedWorkshop,
 } from "@/lib/persist.ts"
-import { parseServiceOrigin } from "@/lib/service-contract.ts"
+import { parseServiceOrigin } from "@/lib/workshop.ts"
 
 function initialState(): PersistedWorkshop {
   const envOrigin = parseServiceOrigin(

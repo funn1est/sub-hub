@@ -6,10 +6,15 @@ import {
   KNOWN_SERVICE_ERRORS,
   MAX_SOURCES,
   QUERY_KEYS,
+  SKIPPED_HEADER,
   TARGETS,
+  VERSION_PATH,
   fallbackDownloadName,
   isQueryKey,
   isTarget,
+  decodeSubGetTarget,
+  encodeSubGetTarget,
+  parseSkippedFromHeaders,
   parseSkippedHeader,
 } from "./service-contract.ts"
 
@@ -70,13 +75,19 @@ describe("Conversion Service GET contract", () => {
       "subscription-userinfo",
       "x-subconverter-result",
       "x-subconverter-omitted-rules",
-      "x-subconverter-skipped",
+      SKIPPED_HEADER,
     ])
+    expect(VERSION_PATH).toBe("/version")
     expect(parseSkippedHeader("parse=1;capability=4;name=0")).toEqual({
       parse: 1,
       capability: 4,
       name: 0,
     })
+    expect(
+      parseSkippedFromHeaders([
+        { name: SKIPPED_HEADER, value: "parse=1;capability=4;name=0" },
+      ])
+    ).toEqual({ parse: 1, capability: 4, name: 0 })
   })
 
   it("treats insert as a known query key that is never reassembled", () => {
@@ -87,5 +98,31 @@ describe("Conversion Service GET contract", () => {
   it("names download fallbacks per wire target", () => {
     expect(fallbackDownloadName("mihomo")).toBe("sub-hub-mihomo.yaml")
     expect(fallbackDownloadName("clash")).toBe("sub-hub-mihomo.yaml")
+  })
+
+  it("encodes request-target without insert and decodes plus as literal", () => {
+    const getTarget = encodeSubGetTarget({
+      accessToken: "",
+      target: "clash",
+      sources: ["ss://aes-128-gcm:p+ss@example.com:8388#Plus"],
+      configUrl: "",
+      appendInfo: true,
+    })
+    expect(getTarget).toBe(
+      "/sub?target=clash&url=ss%3A%2F%2Faes-128-gcm%3Ap%2Bss%40example.com%3A8388%23Plus"
+    )
+    expect(getTarget).not.toContain("insert")
+    const decoded = decodeSubGetTarget(`http://127.0.0.1:25500${getTarget}`)
+    expect(decoded.ok).toBe(true)
+    if (decoded.ok) {
+      expect(decoded.sources).toEqual([
+        "ss://aes-128-gcm:p+ss@example.com:8388#Plus",
+      ])
+    }
+    expect(
+      decodeSubGetTarget(
+        "http://127.0.0.1:25500/sub/?target=clash&url=vless://x"
+      ).ok
+    ).toBe(false)
   })
 })

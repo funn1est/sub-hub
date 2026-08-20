@@ -79,7 +79,6 @@ import {
 } from "@/lib/i18n.ts"
 import type { Locale, PersistedWorkshop, Theme } from "@/lib/persist.ts"
 import {
-  parseSkippedHeader,
   runPreview,
   runVersionProbe,
   type PreviewState,
@@ -87,12 +86,8 @@ import {
 import {
   MAX_SOURCES,
   TARGETS,
-  assembleSubscription,
+  isTarget,
   parseAccessToken,
-  parseHttpsResourceUrl,
-  parseServiceOrigin,
-  parseSubscriptionUrl,
-  type Target,
 } from "@/lib/service-contract.ts"
 import {
   ACL4SSR_FULL_FILES,
@@ -100,8 +95,16 @@ import {
   ACL4SSR_ONLINE_FILES,
   acl4ssrConfigLabel,
   acl4ssrConfigUrl,
+  applyPaste,
+  assembleSubscription,
+  canPreview,
   clashInstallUrl,
   configPresetOf,
+  configSelectionId,
+  parseHttpsResourceUrl,
+  parseServiceOrigin,
+  parseSubscriptionUrl,
+  showsClashInstall,
   type Acl4ssrConfigFile,
 } from "@/lib/workshop.ts"
 
@@ -145,8 +148,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
   const configGroups = React.useMemo(() => configChoiceGroups(copy), [copy])
   const selectedConfig = selectedConfigChoice(
     configGroups,
-    preset,
-    pickingCustom
+    configSelectionId(preset, pickingCustom)
   )
   const [pasteRaw, setPasteRaw] = React.useState("")
   const [pasteError, setPasteError] = React.useState<string | null>(null)
@@ -175,11 +177,13 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
 
     const origin = canonicalOrigin
     const controller = new AbortController()
-    void runVersionProbe({ origin, signal: controller.signal }).then((state) => {
-      if (!controller.signal.aborted) {
-        setProbe({ origin, state })
+    void runVersionProbe({ origin, signal: controller.signal }).then(
+      (state) => {
+        if (!controller.signal.aborted) {
+          setProbe({ origin, state })
+        }
       }
-    })
+    )
 
     return () => {
       controller.abort()
@@ -206,15 +210,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
     setPasteWarnings(
       parsed.warnings.map((warning) => copy.pasteWarnings[warning])
     )
-    onChange({
-      ...state,
-      serviceOrigin: parsed.workshop.serviceOrigin ?? state.serviceOrigin,
-      accessToken: parsed.workshop.accessToken ?? state.accessToken,
-      sources: parsed.workshop.sources ?? state.sources,
-      target: parsed.workshop.target ?? state.target,
-      configUrl: parsed.workshop.configUrl ?? state.configUrl,
-      appendInfo: parsed.workshop.appendInfo ?? state.appendInfo,
-    })
+    onChange(applyPaste(state, parsed))
   }
 
   const onCopy = async () => {
@@ -230,7 +226,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
   }
 
   const onPreview = async () => {
-    if (assembled.url === null || assembled.overLimit) {
+    if (!canPreview(assembled)) {
       return
     }
     setPreview({ status: "loading" })
@@ -257,10 +253,8 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
     URL.revokeObjectURL(objectUrl)
   }
 
-  const previewEnabled = assembled.url !== null && !assembled.overLimit
-  const showClash =
-    assembled.url !== null &&
-    (state.target === "clash" || state.target === "mihomo")
+  const previewEnabled = canPreview(assembled)
+  const showClash = showsClashInstall(assembled, state.target)
 
   return (
     <div className="console-shell relative isolate">
@@ -448,8 +442,8 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
                     value={[state.target]}
                     onValueChange={(value) => {
                       const next = value[0]
-                      if (next !== undefined) {
-                        patch({ target: next as Target })
+                      if (next !== undefined && isTarget(next)) {
+                        patch({ target: next })
                       }
                     }}
                     spacing={2}
@@ -816,10 +810,7 @@ function PreviewCard({
     preview.kind.kind === "known-error"
       ? knownErrorTitle(locale, preview.kind.body)
       : `${copy.status} ${preview.httpStatus}`
-  const skipped = parseSkippedHeader(
-    preview.headers.find((header) => header.name === "x-subconverter-skipped")
-      ?.value ?? null
-  )
+  const skipped = preview.skipped
 
   return (
     <Card>
@@ -931,15 +922,8 @@ function configChoiceGroups(copy: Messages): ConfigChoiceGroup[] {
 
 function selectedConfigChoice(
   groups: readonly ConfigChoiceGroup[],
-  preset: ReturnType<typeof configPresetOf>,
-  pickingCustom: boolean
+  id: ReturnType<typeof configSelectionId>
 ): ConfigChoice {
-  const id =
-    pickingCustom || preset.kind === "custom"
-      ? "custom"
-      : preset.kind === "none"
-        ? "none"
-        : preset.file
   for (const group of groups) {
     const found = group.items.find((item) => item.id === id)
     if (found !== undefined) {

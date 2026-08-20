@@ -1,13 +1,12 @@
-use sub_hub_conversion::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget, UniqueFlightsV1,
-};
+use sub_hub_conversion::{Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget};
 use url::Url;
 
 use crate::{
-    MAX_ACTIVE_RESOURCES, MAX_CONFIG_BYTES, MAX_RULE_SET_BYTES, RemoteAdapter, ResourceKind,
+    MAX_ACTIVE_RESOURCES, MAX_CONFIG_BYTES, MAX_RULE_SET_BYTES, RemoteAdapter, RemoteResponse,
+    ResourceKind,
     application::Application,
-    broker::{BrokerSession, LoadedRemote, RemoteLoadBatch, RemoteResource},
-    remote_url::canonical_remote_url,
+    broker::{BrokerSession, RemoteLoadBatch, RemoteResource},
+    remote_url::accept_outbound_url,
     response::{ApplicationError, HttpResponse},
     userinfo::SubscriptionUserInfoV1,
 };
@@ -27,39 +26,40 @@ impl<A: RemoteAdapter> Application<A> {
             .await?;
 
         let mut occurrence_urls = Vec::with_capacity(prepared.rule_set_requests().len());
-        let mut occurrence_canonical = Vec::with_capacity(prepared.rule_set_requests().len());
         for request in prepared.rule_set_requests() {
-            let Ok(url) = canonical_remote_url(request.url(), &self.self_hosts, inbound_host)
+            let Ok(url) =
+                accept_outbound_url(request.url(), &self.self_hosts, inbound_host, |port| {
+                    self.adapter.supports_https_port(port)
+                })
             else {
                 return Err(ApplicationError::RemoteFailure);
             };
-            if !self
-                .adapter
-                .supports_https_port(url.port_or_known_default().unwrap_or(443))
-            {
-                return Err(ApplicationError::RemoteFailure);
-            }
-            occurrence_canonical.push(url.as_str().to_owned());
-            broker.check_reservation_capacity(
-                UniqueFlightsV1::bind(&occurrence_canonical)
-                    .unique_urls()
-                    .len(),
-            )?;
             occurrence_urls.push(url);
+            let occurrence_canonical = occurrence_urls
+                .iter()
+                .map(|url| url.as_str().to_owned())
+                .collect::<Vec<_>>();
+            let unique_count =
+                sub_hub_conversion::UniqueFlightsV1::bind(&occurrence_canonical).flight_count();
+            broker.check_reservation_capacity(unique_count)?;
         }
+        let occurrence_canonical = occurrence_urls
+            .iter()
+            .map(|url| url.as_str().to_owned())
+            .collect::<Vec<_>>();
         let mut prepared = match prepared.bind_canonical_urls_v1(&occurrence_canonical) {
             Ok(prepared) => prepared,
             Err(error) => return Err(map_acl4ssr_render_error(error)),
         };
         let mut rule_set_resources = Vec::with_capacity(prepared.unique_canonical_urls().len());
-        for unique in prepared.unique_canonical_urls() {
-            let Some(url) = occurrence_urls
-                .iter()
-                .find(|candidate| candidate.as_str() == unique)
+        for flight in 0..prepared.unique_canonical_urls().len() {
+            let occurrence = prepared
+                .first_occurrence_of_flight(flight)
+                .ok_or(ApplicationError::Internal)?;
+            let url = occurrence_urls
+                .get(occurrence)
                 .cloned()
-            else {
-                return Err(ApplicationError::Internal);
-            };
+                .ok_or(ApplicationError::Internal)?;
             rule_set_resources.push(RemoteResource {
                 kind: ResourceKind::RuleSet,
                 url,
@@ -112,7 +112,7 @@ impl<A: RemoteAdapter> Application<A> {
         let Some(config_response) = config_responses.pop() else {
             return Err(ApplicationError::Internal);
         };
-        let config_body = config_response.into_response().body;
+        let config_body = config_response.body;
         broker.account_decoded(&config_resource, config_body.len())?;
         let prepared = match prepared.prepare_acl4ssr_config_v1(&config_body) {
             Ok(prepared) => prepared,
@@ -163,7 +163,7 @@ impl<A: RemoteAdapter> Application<A> {
                     );
                 }
             };
-            rule_set_bodies.extend(loaded.into_iter().map(|loaded| loaded.into_response().body));
+            rule_set_bodies.extend(loaded.into_iter().map(|response| response.body));
             adjudicate_loaded_rule_set_prefix(
                 broker,
                 prepared,
@@ -184,9 +184,7 @@ impl<A: RemoteAdapter> Application<A> {
 
 const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError {
     match error {
-        Acl4SsrRenderError::InvalidRuleSet | Acl4SsrRenderError::UnsupportedRule => {
-            ApplicationError::RemoteFailure
-        }
+        Acl4SsrRenderError::InvalidRuleSet => ApplicationError::RemoteFailure,
         Acl4SsrRenderError::ConversionLimit => ApplicationError::ConversionLimit,
         Acl4SsrRenderError::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
         Acl4SsrRenderError::RuleSetAlignment | Acl4SsrRenderError::Internal => {
@@ -210,7 +208,8 @@ fn adjudicate_loaded_rule_set_prefix(
     let crossing = broker.first_decoded_crossing(
         &rule_set_resources[..rule_set_bodies.len()],
         &body_lengths,
-        &prepared.occurrence_urls()[..available_occurrence_count],
+        prepared.flights(),
+        available_occurrence_count,
     )?;
     prepared
         .check_loaded_prefix(&unique_bodies, crossing)
@@ -240,7 +239,7 @@ fn adjudicate_failed_rule_set_chunk(
     rule_set_resources: &[RemoteResource],
     rule_set_bodies: &mut Vec<Vec<u8>>,
     chunk_start: usize,
-    loaded: Vec<Option<LoadedRemote>>,
+    loaded: Vec<Option<RemoteResponse>>,
     failed_unique_index: usize,
     error: ApplicationError,
 ) -> Result<Vec<Vec<u8>>, ApplicationError> {
@@ -248,7 +247,7 @@ fn adjudicate_failed_rule_set_chunk(
         let Some(loaded) = loaded else {
             return Err(ApplicationError::Internal);
         };
-        rule_set_bodies.push(loaded.into_response().body);
+        rule_set_bodies.push(loaded.body);
     }
     let Some(failed_unique_index) = chunk_start.checked_add(failed_unique_index) else {
         return Err(ApplicationError::Internal);

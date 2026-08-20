@@ -11,11 +11,8 @@ mod policy_compile;
 
 use std::fmt;
 
-use ini::{Config, Directive, GroupMember, RuleSource};
-use policy_compile::{
-    ParsedRuleSetFlights, RuleEntry, compile_acl4ssr_policy, increment_rule_count,
-    materialize_rules,
-};
+use ini::{Config, Directive, RuleSource};
+use policy_compile::{RuleEntry, compile_acl4ssr_policy};
 
 use crate::{
     OutputTarget, UniqueFlightsV1,
@@ -24,8 +21,6 @@ use crate::{
     skip::SkipCountsV1,
     subscription_source::ParsedSubscriptionSources,
 };
-
-const MAX_REGEX_EVALUATIONS: usize = 2_000_000;
 
 pub struct PreparedAcl4SsrV1 {
     parsed_subscription: ParsedSubscriptionSources,
@@ -39,45 +34,6 @@ impl PreparedAcl4SsrV1 {
         &self.requests
     }
 
-    /// Binds the ordered request occurrences to the broker's first-seen unique flights.
-    ///
-    /// `flight_by_occurrence` must contain one index for every request returned by
-    /// [`Self::rule_set_requests`]. Indices are dense and assigned in first-occurrence order, so
-    /// `[0, 0, 1]` is valid while `[1]` and `[0, 2]` are not. The resulting stage keeps transport
-    /// identity opaque while ensuring each single-flighted body is parsed at most once.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed alignment or resource-limit error. No URLs or mapping values are retained
-    /// by errors or debug output.
-    pub(crate) fn bind_rule_set_flights_v1(
-        self,
-        flight_by_occurrence: &[usize],
-    ) -> Result<PreparedAcl4SsrRuleSetsV1, Acl4SsrRenderError> {
-        if flight_by_occurrence.len() != self.requests.len() {
-            return Err(Acl4SsrRenderError::RuleSetAlignment);
-        }
-        let mut flight_count = 0_usize;
-        for &flight in flight_by_occurrence {
-            if flight > flight_count {
-                return Err(Acl4SsrRenderError::RuleSetAlignment);
-            }
-            if flight == flight_count {
-                flight_count = flight_count
-                    .checked_add(1)
-                    .ok_or(Acl4SsrRenderError::ConversionLimit)?;
-            }
-        }
-        Ok(PreparedAcl4SsrRuleSetsV1 {
-            prepared: self,
-            flight_by_occurrence: flight_by_occurrence.to_vec(),
-            flight_count,
-            parsed_rule_sets: (0..flight_count).map(|_| None).collect(),
-            occurrence_urls: Vec::new(),
-            unique_urls: Vec::new(),
-        })
-    }
-
     /// Binds Rule Set occurrences by first-seen canonical URL identity.
     ///
     /// `canonical_urls` is declaration-aligned with [`Self::rule_set_requests`]. Conversion owns
@@ -86,7 +42,7 @@ impl PreparedAcl4SsrV1 {
     ///
     /// # Errors
     ///
-    /// Returns a closed alignment or resource-limit error.
+    /// Returns a closed alignment error when the URL list is not declaration-aligned.
     pub fn bind_canonical_urls_v1(
         self,
         canonical_urls: &[String],
@@ -95,23 +51,19 @@ impl PreparedAcl4SsrV1 {
             return Err(Acl4SsrRenderError::RuleSetAlignment);
         }
         let flights = UniqueFlightsV1::bind(canonical_urls);
-        let flight_by_occurrence = flights
-            .dense_flights()
-            .ok_or(Acl4SsrRenderError::Internal)?;
-        let mut bound = self.bind_rule_set_flights_v1(&flight_by_occurrence)?;
-        bound.occurrence_urls = canonical_urls.to_vec();
-        bound.unique_urls = flights.unique_urls().to_vec();
-        Ok(bound)
+        let flight_count = flights.flight_count();
+        Ok(PreparedAcl4SsrRuleSetsV1 {
+            prepared: self,
+            flights,
+            parsed_rule_sets: (0..flight_count).map(|_| None).collect(),
+        })
     }
 }
 
 pub struct PreparedAcl4SsrRuleSetsV1 {
     prepared: PreparedAcl4SsrV1,
-    flight_by_occurrence: Vec<usize>,
-    flight_count: usize,
+    flights: UniqueFlightsV1,
     parsed_rule_sets: Vec<Option<Vec<RuleEntry>>>,
-    occurrence_urls: Vec<String>,
-    unique_urls: Vec<String>,
 }
 
 impl PreparedAcl4SsrRuleSetsV1 {
@@ -129,7 +81,7 @@ impl PreparedAcl4SsrRuleSetsV1 {
         target: OutputTarget,
         unique_rule_set_bodies: &[&[u8]],
     ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
-        if unique_rule_set_bodies.len() != self.flight_count {
+        if unique_rule_set_bodies.len() != self.flights.flight_count() {
             return Err(Acl4SsrRenderError::RuleSetAlignment);
         }
         render(self, unique_rule_set_bodies, target)
@@ -140,58 +92,45 @@ impl PreparedAcl4SsrRuleSetsV1 {
         unique_rule_set_bodies: &[&[u8]],
         occurrence_exclusive: usize,
     ) -> Result<(), Acl4SsrRenderError> {
-        if occurrence_exclusive > self.flight_by_occurrence.len()
-            || unique_rule_set_bodies.len() > self.flight_count
-        {
-            return Err(Acl4SsrRenderError::RuleSetAlignment);
-        }
-        let mut parsed =
-            ParsedRuleSetFlights::new(unique_rule_set_bodies, &mut self.parsed_rule_sets);
-        let mut total_rule_count = 0;
-        let mut remote_index = 0;
-        for directive in &self.prepared.config.directives {
-            let Directive::Ruleset { source, .. } = directive else {
-                continue;
-            };
-            match source {
-                RuleSource::Remote(_) => {
-                    if remote_index == occurrence_exclusive {
-                        return Ok(());
-                    }
-                    let flight = *self
-                        .flight_by_occurrence
-                        .get(remote_index)
-                        .ok_or(Acl4SsrRenderError::RuleSetAlignment)?;
-                    parsed.entries(flight, &mut total_rule_count)?;
-                    remote_index += 1;
-                }
-                RuleSource::GeoIpCn | RuleSource::Final => {
-                    increment_rule_count(&mut total_rule_count)?;
-                }
-            }
-        }
+        policy_compile::consume_rule_sets(
+            &self.prepared.config,
+            unique_rule_set_bodies,
+            &self.flights,
+            &mut self.parsed_rule_sets,
+            occurrence_exclusive,
+            false,
+        )?;
         Ok(())
     }
 
     /// How many declaration occurrences are covered by the first `unique_loaded` flights.
     #[must_use]
     pub fn covered_occurrence_count(&self, unique_loaded: usize) -> usize {
-        self.flight_by_occurrence
-            .iter()
-            .take_while(|flight| **flight < unique_loaded)
-            .count()
+        self.flights.covered_occurrence_count(unique_loaded)
     }
 
-    /// Canonical URLs in declaration order. Empty when bound by raw flight indices.
+    /// Canonical URLs in declaration order.
     #[must_use]
-    pub fn occurrence_urls(&self) -> &[String] {
-        &self.occurrence_urls
+    pub fn occurrence_urls(&self) -> Vec<String> {
+        self.flights.occurrence_urls()
+    }
+
+    /// First declaration occurrence of a unique Rule Set flight.
+    #[must_use]
+    pub fn first_occurrence_of_flight(&self, flight: usize) -> Option<usize> {
+        self.flights.first_occurrence_of_flight(flight)
+    }
+
+    /// Unique-flight table bound for these Rule Set occurrences.
+    #[must_use]
+    pub fn flights(&self) -> &UniqueFlightsV1 {
+        &self.flights
     }
 
     /// First-seen unique canonical URLs, aligned with unique Rule Set bodies.
     #[must_use]
     pub fn unique_canonical_urls(&self) -> &[String] {
-        &self.unique_urls
+        self.flights.unique_urls()
     }
 
     /// Grammar and budget check for a loaded unique prefix.
@@ -233,9 +172,9 @@ impl fmt::Debug for PreparedAcl4SsrRuleSetsV1 {
             .field("prepared", &"[REDACTED]")
             .field(
                 "rule_set_occurrence_count",
-                &self.flight_by_occurrence.len(),
+                &self.flights.occurrence_count(),
             )
-            .field("rule_set_flight_count", &self.flight_count)
+            .field("rule_set_flight_count", &self.flights.flight_count())
             .finish_non_exhaustive()
     }
 }
@@ -358,7 +297,6 @@ impl std::error::Error for Acl4SsrPreparationError {}
 pub enum Acl4SsrRenderError {
     RuleSetAlignment,
     InvalidRuleSet,
-    UnsupportedRule,
     ConversionLimit,
     NoValidNodes { skips: SkipCountsV1 },
     Internal,
@@ -369,7 +307,6 @@ impl fmt::Display for Acl4SsrRenderError {
         formatter.write_str(match self {
             Self::RuleSetAlignment => "Rule Set responses are not aligned",
             Self::InvalidRuleSet => "ACL4SSR Rule Set is invalid",
-            Self::UnsupportedRule => "ACL4SSR config uses an unsupported rule",
             Self::ConversionLimit => "conversion resource limit exceeded",
             Self::NoValidNodes { .. } => "no valid nodes",
             Self::Internal => "internal conversion error",
@@ -409,11 +346,14 @@ fn render(
     unique_bodies: &[&[u8]],
     target: OutputTarget,
 ) -> Result<Acl4SsrOutputV1, Acl4SsrRenderError> {
-    let materialized = materialize_rules(
+    let occurrence_count = bound.flights.occurrence_count();
+    let rules = policy_compile::consume_rule_sets(
         &bound.prepared.config,
         unique_bodies,
-        &bound.flight_by_occurrence,
+        &bound.flights,
         &mut bound.parsed_rule_sets,
+        occurrence_count,
+        true,
     )?;
     let prepared = bound.prepared;
 
@@ -426,31 +366,12 @@ fn render(
     let named = resolve_node_names(prepared.parsed_subscription, &group_names)
         .map_err(|_| Acl4SsrRenderError::Internal)?;
     let nodes = crate::render::accepted_nodes(&named);
-    if nodes.is_empty() {
-        return Err(Acl4SsrRenderError::NoValidNodes {
-            skips: SkipCountsV1::parse_only(named.parse_skip_count()),
-        });
-    }
-
     let node_names = nodes
         .iter()
         .map(|node| node.name().as_str())
         .collect::<Vec<_>>();
-    let regex_count = prepared
-        .config
-        .groups
-        .iter()
-        .flat_map(|group| &group.members)
-        .filter(|member| matches!(member, GroupMember::NodeRegex(_)))
-        .count();
-    let evaluation_count = regex_count
-        .checked_mul(node_names.len())
-        .ok_or(Acl4SsrRenderError::ConversionLimit)?;
-    if evaluation_count > MAX_REGEX_EVALUATIONS {
-        return Err(Acl4SsrRenderError::ConversionLimit);
-    }
 
-    let policy = compile_acl4ssr_policy(&prepared.config.groups, &node_names, materialized.rules)?;
+    let policy = compile_acl4ssr_policy(&prepared.config.groups, &node_names, rules)?;
     match render_named_policy(&named, &policy, target, MAX_OUTPUT_BYTES) {
         Ok(document) => Ok(Acl4SsrOutputV1 {
             bytes: document.bytes,
@@ -461,15 +382,17 @@ fn render(
             },
             skips: document.skips,
         }),
-        Err(error) => Err(map_named_policy_error(error)),
+        Err(error) => Err(Acl4SsrRenderError::from(error)),
     }
 }
 
-fn map_named_policy_error(error: NamedPolicyError) -> Acl4SsrRenderError {
-    match error {
-        NamedPolicyError::NoValidNodes { skips } => Acl4SsrRenderError::NoValidNodes { skips },
-        NamedPolicyError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
-        NamedPolicyError::Internal => Acl4SsrRenderError::Internal,
+impl From<NamedPolicyError> for Acl4SsrRenderError {
+    fn from(error: NamedPolicyError) -> Self {
+        match error {
+            NamedPolicyError::NoValidNodes { skips } => Self::NoValidNodes { skips },
+            NamedPolicyError::OutputTooLarge { .. } => Self::ConversionLimit,
+            NamedPolicyError::Internal => Self::Internal,
+        }
     }
 }
 
@@ -497,15 +420,32 @@ mod tests {
     }
 
     #[test]
-    fn rule_set_flight_mapping_is_dense_and_aligned() {
-        let prepare = two_remote_rule_sets;
-        for invalid in [&[][..], &[0][..], &[1, 0][..], &[0, 2][..]] {
-            assert_eq!(
-                prepare().bind_rule_set_flights_v1(invalid).unwrap_err(),
-                Acl4SsrRenderError::RuleSetAlignment
-            );
-        }
-        assert!(prepare().bind_rule_set_flights_v1(&[0, 0]).is_ok());
-        assert!(prepare().bind_rule_set_flights_v1(&[0, 1]).is_ok());
+    fn canonical_url_bind_holds_one_unique_flight_table() {
+        let urls = [
+            "https://rules.example/first.list".to_owned(),
+            "https://rules.example/first.list".to_owned(),
+        ];
+        let bound = two_remote_rule_sets()
+            .bind_canonical_urls_v1(&urls)
+            .unwrap();
+        assert_eq!(bound.unique_canonical_urls().len(), 1);
+        assert_eq!(bound.covered_occurrence_count(1), 2);
+        assert_eq!(bound.occurrence_urls().as_slice(), urls.as_slice());
+
+        let distinct = [
+            "https://rules.example/first.list".to_owned(),
+            "https://rules.example/second.list".to_owned(),
+        ];
+        let bound = two_remote_rule_sets()
+            .bind_canonical_urls_v1(&distinct)
+            .unwrap();
+        assert_eq!(bound.unique_canonical_urls().len(), 2);
+        assert_eq!(bound.covered_occurrence_count(1), 1);
+        assert_eq!(
+            two_remote_rule_sets()
+                .bind_canonical_urls_v1(&[])
+                .unwrap_err(),
+            Acl4SsrRenderError::RuleSetAlignment
+        );
     }
 }

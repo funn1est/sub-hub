@@ -7,7 +7,7 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text, keep_named,
         map_compiled_rules, policy_member_token, probe_url_or_default, reality_public_key_base64,
         reality_short_id_hex, reject_when_empty, render_host_plain, shadowsocks_method,
         shadowsocks_password, shared_probe_url,
@@ -73,13 +73,9 @@ pub(crate) fn render_loon_from_policy_v1(
 }
 
 fn encode_node(node: &ProxyNode) -> Result<(String, String), NodeKeep> {
-    let Some(tag) = loon_node_tag(node.name().as_str()) else {
-        return Err(NodeKeep::Name);
-    };
-    let Some(line) = render_proxy_line(node, tag) else {
-        return Err(NodeKeep::Capability);
-    };
-    Ok((tag.to_owned(), line))
+    keep_named(loon_node_tag(node.name().as_str()), |tag| {
+        render_proxy_line(node, tag)
+    })
 }
 
 fn loon_node_tag(name: &str) -> Option<&str> {

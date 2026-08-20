@@ -8,9 +8,11 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use http::StatusCode;
 use url::Url;
 
+use sub_hub_conversion::UniqueFlightsV1;
+
 use crate::{
     MAX_ACTIVE_RESOURCES, MAX_GET_TARGET_BYTES, MAX_TOTAL_DECODED_BYTES,
-    MAX_UNIQUE_REMOTE_RESOURCES, SelfHosts, canonical_remote_url, is_followed_redirect,
+    MAX_UNIQUE_REMOTE_RESOURCES, SelfHosts, accept_outbound_url, is_followed_redirect,
     response::ApplicationError,
 };
 
@@ -116,6 +118,24 @@ impl RemoteResponse {
             body: Vec::new(),
         }
     }
+
+    /// Completes one hop after the host has optionally read the success body.
+    #[must_use]
+    pub fn from_hop(status: StatusCode, hop: crate::HttpsHopHeaders, body: Vec<u8>) -> Self {
+        match hop {
+            crate::HttpsHopHeaders::Redirect { location } => Self::redirect(status, location),
+            crate::HttpsHopHeaders::Unsuccessful => Self::body(status, Vec::new()),
+            crate::HttpsHopHeaders::Success {
+                subscription_user_info,
+            } => {
+                let response = Self::body(status, body);
+                match subscription_user_info {
+                    Some(value) => response.with_subscription_user_info(value),
+                    None => response,
+                }
+            }
+        }
+    }
 }
 
 impl fmt::Debug for RemoteResponse {
@@ -166,40 +186,12 @@ pub trait RemoteAdapter {
 }
 
 pub(crate) enum RemoteLoadBatch {
-    Complete(Vec<LoadedRemote>),
+    Complete(Vec<RemoteResponse>),
     Failed {
-        loaded: Vec<Option<LoadedRemote>>,
+        loaded: Vec<Option<RemoteResponse>>,
         failed_unique_index: usize,
         error: ApplicationError,
     },
-}
-
-pub(crate) struct LoadedRemote {
-    pub(crate) response: RemoteResponse,
-    final_url: Url,
-    attempts: u8,
-}
-
-impl LoadedRemote {
-    pub(crate) fn into_response(self) -> RemoteResponse {
-        let Self {
-            response,
-            final_url: _final_url,
-            attempts: _attempts,
-        } = self;
-        response
-    }
-}
-
-impl fmt::Debug for LoadedRemote {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("LoadedRemote")
-            .field("response", &self.response)
-            .field("final_url", &"[REDACTED]")
-            .field("attempts", &self.attempts)
-            .finish()
-    }
 }
 
 #[derive(Clone)]
@@ -319,18 +311,21 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
         &self,
         resources: &[RemoteResource],
         body_lengths: &[usize],
-        canonical_occurrences: &[String],
+        flights: &UniqueFlightsV1,
+        occurrence_count: usize,
     ) -> Result<Option<usize>, ApplicationError> {
         if resources.len() != body_lengths.len() {
             return Err(ApplicationError::Internal);
         }
         let mut decoded_bytes = self.decoded_bytes;
         let mut counted = vec![false; resources.len()];
-        for (occurrence_index, canonical) in canonical_occurrences.iter().enumerate() {
-            let unique_index = resources
-                .iter()
-                .position(|resource| resource.url.as_str() == canonical)
+        for occurrence_index in 0..occurrence_count {
+            let unique_index = flights
+                .flight_of(occurrence_index)
                 .ok_or(ApplicationError::Internal)?;
+            if unique_index >= resources.len() {
+                return Err(ApplicationError::Internal);
+            }
             if counted[unique_index]
                 || self
                     .accounted
@@ -361,7 +356,7 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
     pub(crate) async fn load(
         &mut self,
         resources: &[RemoteResource],
-    ) -> Result<Vec<LoadedRemote>, ApplicationError> {
+    ) -> Result<Vec<RemoteResponse>, ApplicationError> {
         match self.load_batch(resources).await? {
             RemoteLoadBatch::Complete(loaded) => Ok(loaded),
             RemoteLoadBatch::Failed { error, .. } => Err(error),
@@ -491,7 +486,7 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
         index: usize,
         resource: RemoteResource,
         deadline_millis: u64,
-    ) -> (usize, Result<LoadedRemote, ApplicationError>) {
+    ) -> (usize, Result<RemoteResponse, ApplicationError>) {
         let result = self.load_remote(resource, deadline_millis).await;
         (index, result)
     }
@@ -500,7 +495,7 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
         &self,
         resource: RemoteResource,
         deadline_millis: u64,
-    ) -> Result<LoadedRemote, ApplicationError> {
+    ) -> Result<RemoteResponse, ApplicationError> {
         let RemoteResource {
             kind,
             mut url,
@@ -508,7 +503,6 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
             capture_subscription_user_info,
         } = resource;
         let mut redirects = 0;
-        let mut resource_attempts = 0_u8;
         loop {
             if self.adapter.monotonic_millis() >= deadline_millis {
                 return Err(ApplicationError::RemoteTimeout);
@@ -522,9 +516,6 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
             {
                 return Err(ApplicationError::RemoteFailure);
             }
-            resource_attempts = resource_attempts
-                .checked_add(1)
-                .ok_or(ApplicationError::Internal)?;
             let attempt = RemoteAttempt {
                 kind,
                 url: url.as_str().to_owned(),
@@ -548,21 +539,9 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
                 if response.body.is_empty() || response.body.len() > max_body_bytes {
                     return Err(ApplicationError::RemoteFailure);
                 }
-                return Ok(LoadedRemote {
-                    response,
-                    final_url: url,
-                    attempts: resource_attempts,
-                });
+                return Ok(response);
             }
-            if !matches!(
-                response.status,
-                StatusCode::MOVED_PERMANENTLY
-                    | StatusCode::FOUND
-                    | StatusCode::SEE_OTHER
-                    | StatusCode::TEMPORARY_REDIRECT
-                    | StatusCode::PERMANENT_REDIRECT
-            ) || redirects == 3
-            {
+            if !is_followed_redirect(response.status) || redirects == 3 {
                 return Err(ApplicationError::RemoteFailure);
             }
             let Some(location) = response.location else {
@@ -574,14 +553,13 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
             let joined = url
                 .join(&location)
                 .map_err(|_error| ApplicationError::RemoteFailure)?;
-            url = canonical_remote_url(joined.as_str(), self.self_hosts, &self.inbound_host)
-                .map_err(|()| ApplicationError::RemoteFailure)?;
-            if !self
-                .adapter
-                .supports_https_port(url.port_or_known_default().unwrap_or(443))
-            {
-                return Err(ApplicationError::RemoteFailure);
-            }
+            url = accept_outbound_url(
+                joined.as_str(),
+                self.self_hosts,
+                &self.inbound_host,
+                |port| self.adapter.supports_https_port(port),
+            )
+            .map_err(|()| ApplicationError::RemoteFailure)?;
             redirects += 1;
         }
     }

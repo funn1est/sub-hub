@@ -393,14 +393,14 @@ fn validates_the_complete_group_namespace_before_allocating_nodes() {
 
 #[test]
 fn frozen_symbol_set_is_limited_to_ten_thousand_unique_names() {
-    let groups = (0..9_993)
+    let groups = (0..9_998)
         .map(|index| format!("Group {index}"))
         .collect::<Vec<_>>();
     let group_refs = groups.iter().map(String::as_str).collect::<Vec<_>>();
     let parsed = parse_subscription_sources(&[b"".as_slice()]).expect("empty source");
     assert!(resolve_node_names(parsed, &group_refs).is_ok());
 
-    let groups = (0..9_994)
+    let groups = (0..9_999)
         .map(|index| format!("Group {index}"))
         .collect::<Vec<_>>();
     let group_refs = groups.iter().map(String::as_str).collect::<Vec<_>>();

@@ -24,6 +24,13 @@ struct AuthorityUri<'a> {
     name_input: NodeNameInput,
 }
 
+struct OptionalAuthUri<'a> {
+    userinfo: Option<&'a str>,
+    authority: &'a str,
+    query: Option<&'a str>,
+    name_input: NodeNameInput,
+}
+
 struct QueryPair<'a> {
     key: &'a str,
     value: Cow<'a, str>,
@@ -103,6 +110,19 @@ fn parse_endpoint(input: &str) -> Result<Endpoint, NodeRejection> {
 }
 
 fn parse_authority_uri(input: &str) -> Result<AuthorityUri<'_>, NodeRejection> {
+    let uri = parse_authority_uri_optional(input)?;
+    let userinfo = uri
+        .userinfo
+        .ok_or(NodeRejection::Invalid(InvalidNodeReason::Uri))?;
+    Ok(AuthorityUri {
+        userinfo,
+        authority: uri.authority,
+        query: uri.query,
+        name_input: uri.name_input,
+    })
+}
+
+fn parse_authority_uri_optional(input: &str) -> Result<OptionalAuthUri<'_>, NodeRejection> {
     let invalid = || NodeRejection::Invalid(InvalidNodeReason::Uri);
     let (before_fragment, name_input) = if let Some((before, fragment)) = input.split_once('#') {
         if fragment.contains('#') {
@@ -121,12 +141,16 @@ fn parse_authority_uri(input: &str) -> Result<AuthorityUri<'_>, NodeRejection> {
             (value, Some(query))
         });
 
-    let (userinfo, remainder) = userinfo_authority_path
-        .split_once('@')
-        .ok_or_else(invalid)?;
-    if userinfo.contains('/') || remainder.contains('@') {
-        return Err(invalid());
-    }
+    let (userinfo, remainder) =
+        if let Some((userinfo, remainder)) = userinfo_authority_path.split_once('@') {
+            if userinfo.contains('/') || remainder.contains('@') {
+                return Err(invalid());
+            }
+            (Some(userinfo), remainder)
+        } else {
+            (None, userinfo_authority_path)
+        };
+
     let authority = if let Some(authority) = remainder.strip_suffix('/') {
         if authority.contains('/') {
             return Err(invalid());
@@ -137,8 +161,11 @@ fn parse_authority_uri(input: &str) -> Result<AuthorityUri<'_>, NodeRejection> {
     } else {
         remainder
     };
+    if authority.is_empty() {
+        return Err(invalid());
+    }
 
-    Ok(AuthorityUri {
+    Ok(OptionalAuthUri {
         userinfo,
         authority,
         query,

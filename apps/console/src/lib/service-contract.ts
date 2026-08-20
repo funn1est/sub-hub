@@ -2,8 +2,9 @@
  * GET Conversion Service contract used by the Workshop.
  *
  * HTTP (`sub-hub-http`) is the authority. This module is a handwritten adapter
- * so Workshop URL assembly does not own error bodies, skip grammar, or wire
- * tokens. Do not generate TypeScript from Rust DTOs (ADR-0020 is retired).
+ * for wire tokens, request-target encode/decode, error bodies, skip grammar,
+ * and Access token shape. Workshop assembly lives in `workshop.ts`. Do not
+ * generate TypeScript from Rust DTOs (ADR-0020 is retired).
  *
  * `append_info` captures `subscription-userinfo` on a single remote source.
  * It does not control `profile-update-interval` (Mihomo always sends `24`).
@@ -52,15 +53,18 @@ export type KnownServiceError = (typeof KNOWN_SERVICE_ERRORS)[number]
 const KNOWN_ERROR_SET = new Set<string>(KNOWN_SERVICE_ERRORS)
 const QUERY_KEY_SET = new Set<string>(QUERY_KEYS)
 
+export const SKIPPED_HEADER = "x-subconverter-skipped"
+
 export const EXPOSED_HEADERS = [
   "content-disposition",
   "profile-update-interval",
   "subscription-userinfo",
   "x-subconverter-result",
   "x-subconverter-omitted-rules",
-  "x-subconverter-skipped",
+  SKIPPED_HEADER,
 ] as const
 
+export const VERSION_PATH = "/version"
 export const VERSION_BODY = /^sub-hub v\d+\.\d+\.\d+ backend$/
 
 export function isTarget(value: string): value is Target {
@@ -112,66 +116,15 @@ export function parseSkippedHeader(value: string | null): SkipCounts | null {
   }
 }
 
-export type SubscriptionAssemblyInput = {
-  serviceOrigin: string
-  accessToken: string
-  sources: string[]
-  target: Target
-  configUrl: string
-  appendInfo: boolean
-}
-
-export type Assembled = {
-  url: string | null
-  getTarget: string | null
-  overLimit: boolean
+export function parseSkippedFromHeaders(
+  headers: readonly { name: string; value: string }[]
+): SkipCounts | null {
+  const value =
+    headers.find((header) => header.name === SKIPPED_HEADER)?.value ?? null
+  return parseSkippedHeader(value)
 }
 
 export type AccessTokenParse = { ok: true; token: string } | { ok: false }
-
-export type PasteWarning =
-  | "unknown-keys"
-  | "duplicate-keys"
-  | "invalid-target"
-  | "invalid-token"
-  | "invalid-append-info"
-
-export type PasteResult =
-  | {
-      ok: true
-      workshop: Partial<SubscriptionAssemblyInput>
-      warnings: PasteWarning[]
-    }
-  | { ok: false; reason: "invalid-url" }
-
-export function parseServiceOrigin(raw: string): string | null {
-  const trimmed = raw.trim()
-  if (trimmed.length === 0) {
-    return null
-  }
-
-  let url: URL
-  try {
-    url = new URL(trimmed)
-  } catch {
-    return null
-  }
-
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return null
-  }
-  if (url.username !== "" || url.password !== "") {
-    return null
-  }
-  if (url.search !== "" || url.hash !== "") {
-    return null
-  }
-  if (url.pathname !== "" && url.pathname !== "/") {
-    return null
-  }
-
-  return url.origin
-}
 
 export function parseAccessToken(raw: string): AccessTokenParse {
   if (raw.length === 0) {
@@ -188,79 +141,100 @@ export function parseAccessToken(raw: string): AccessTokenParse {
   return { ok: true, token: raw }
 }
 
-export function parseHttpsResourceUrl(raw: string): string | null {
-  const trimmed = raw.trim()
-  if (trimmed.length === 0) {
+export type SubGetEncodeInput = {
+  accessToken: string
+  target: Target
+  sources: string[]
+  configUrl: string
+  appendInfo: boolean
+}
+
+export type PasteWarning =
+  | "unknown-keys"
+  | "duplicate-keys"
+  | "invalid-target"
+  | "invalid-token"
+  | "invalid-append-info"
+
+export type SubGetDecode =
+  | {
+      ok: true
+      origin: string
+      accessToken: string
+      target?: Target
+      sources?: string[]
+      configUrl?: string
+      appendInfo: boolean
+      warnings: PasteWarning[]
+    }
+  | { ok: false; reason: "invalid-url" }
+
+/** Percent-decode matching HTTP query.rs: `+` is literal, not space. */
+function percentDecodeValue(raw: string): string | null {
+  const input = new TextEncoder().encode(raw)
+  const decoded = new Uint8Array(input.length)
+  let out = 0
+  let index = 0
+  while (index < input.length) {
+    if (input[index] === 0x25) {
+      const high = hexValue(input[index + 1])
+      const low = hexValue(input[index + 2])
+      if (high === undefined || low === undefined) {
+        return null
+      }
+      decoded[out] = (high << 4) | low
+      out += 1
+      index += 3
+    } else {
+      decoded[out] = input[index]
+      out += 1
+      index += 1
+    }
+  }
+  const slice = decoded.subarray(0, out)
+  if (slice.some((byte) => byte === 0 || byte === 0x0d || byte === 0x0a)) {
     return null
   }
-
-  let url: URL
   try {
-    url = new URL(trimmed)
+    return new TextDecoder("utf-8", { fatal: true }).decode(slice)
   } catch {
     return null
   }
-
-  if (url.protocol !== "https:") {
-    return null
-  }
-  if (url.username !== "" || url.password !== "") {
-    return null
-  }
-  if (url.hash !== "") {
-    return null
-  }
-  return url.href
 }
 
-export function nonemptySources(sources: readonly string[]): string[] {
-  return sources
-    .map((source) => source.trim())
-    .filter((source) => source.length > 0)
+function hexValue(byte: number | undefined): number | undefined {
+  if (byte === undefined) {
+    return undefined
+  }
+  if (byte >= 0x30 && byte <= 0x39) {
+    return byte - 0x30
+  }
+  if (byte >= 0x61 && byte <= 0x66) {
+    return byte - 0x61 + 10
+  }
+  if (byte >= 0x41 && byte <= 0x46) {
+    return byte - 0x41 + 10
+  }
+  return undefined
 }
 
-export function assembleSubscription(
-  input: SubscriptionAssemblyInput
-): Assembled {
-  const origin = parseServiceOrigin(input.serviceOrigin)
-  const token = parseAccessToken(input.accessToken)
-  const sources = nonemptySources(input.sources)
-  const config = input.configUrl.trim()
-
-  if (
-    origin === null ||
-    !token.ok ||
-    sources.length === 0 ||
-    sources.length > MAX_SOURCES ||
-    sources.some((source) => source.includes("|")) ||
-    !isTarget(input.target) ||
-    (config.length > 0 && parseHttpsResourceUrl(config) === null)
-  ) {
-    return { url: null, getTarget: null, overLimit: false }
-  }
-
-  const path = token.token.length > 0 ? `/sub/${token.token}` : "/sub"
+export function encodeSubGetTarget(input: SubGetEncodeInput): string {
+  const path =
+    input.accessToken.length > 0 ? `/sub/${input.accessToken}` : "/sub"
   const queryParts = [
     `target=${input.target}`,
-    `url=${encodeURIComponent(sources.join("|"))}`,
+    `url=${encodeURIComponent(input.sources.join("|"))}`,
   ]
-  if (config.length > 0) {
-    queryParts.push(`config=${encodeURIComponent(config)}`)
+  if (input.configUrl.length > 0) {
+    queryParts.push(`config=${encodeURIComponent(input.configUrl)}`)
   }
   if (!input.appendInfo) {
     queryParts.push("append_info=false")
   }
-
-  const getTarget = `${path}?${queryParts.join("&")}`
-  return {
-    url: `${origin}${getTarget}`,
-    getTarget,
-    overLimit:
-      new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES,
-  }
+  return `${path}?${queryParts.join("&")}`
 }
 
-export function parseSubscriptionUrl(raw: string): PasteResult {
+export function decodeSubGetTarget(raw: string): SubGetDecode {
   const trimmed = raw.trim()
   let url: URL
   try {
@@ -268,20 +242,16 @@ export function parseSubscriptionUrl(raw: string): PasteResult {
   } catch {
     return { ok: false, reason: "invalid-url" }
   }
-
   if (url.username !== "" || url.password !== "") {
     return { ok: false, reason: "invalid-url" }
   }
-
-  const origin = parseServiceOrigin(url.origin)
-  if (origin === null) {
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
     return { ok: false, reason: "invalid-url" }
   }
 
-  const pathname = url.pathname.replace(/\/+$/, "") || "/"
+  const pathname = url.pathname
   const warnings: PasteWarning[] = []
   let accessToken = ""
-
   if (pathname === "/sub") {
     accessToken = ""
   } else if (pathname.startsWith("/sub/")) {
@@ -299,11 +269,35 @@ export function parseSubscriptionUrl(raw: string): PasteResult {
     return { ok: false, reason: "invalid-url" }
   }
 
-  const keys = [...url.searchParams.keys()]
+  const origin = `${url.protocol}//${url.host}`
+  const decoded: Extract<SubGetDecode, { ok: true }> = {
+    ok: true,
+    origin,
+    accessToken,
+    configUrl: "",
+    appendInfo: true,
+    warnings,
+  }
+
+  const rawQuery = url.search.startsWith("?") ? url.search.slice(1) : ""
+  if (rawQuery.length === 0) {
+    return decoded
+  }
+
   const seen = new Set<string>()
   let unknown = false
   let duplicate = false
-  for (const key of keys) {
+  const values = new Map<string, string>()
+  for (const pair of rawQuery.split("&")) {
+    const eq = pair.indexOf("=")
+    if (eq <= 0) {
+      return { ok: false, reason: "invalid-url" }
+    }
+    const key = pair.slice(0, eq)
+    const value = percentDecodeValue(pair.slice(eq + 1))
+    if (value === null) {
+      return { ok: false, reason: "invalid-url" }
+    }
     if (!isQueryKey(key)) {
       unknown = true
     }
@@ -311,49 +305,93 @@ export function parseSubscriptionUrl(raw: string): PasteResult {
       duplicate = true
     }
     seen.add(key)
+    if (!values.has(key)) {
+      values.set(key, value)
+    }
   }
   if (unknown) {
-    warnings.push("unknown-keys")
+    decoded.warnings.push("unknown-keys")
   }
   if (duplicate) {
-    warnings.push("duplicate-keys")
+    decoded.warnings.push("duplicate-keys")
   }
 
-  const workshop: Partial<SubscriptionAssemblyInput> = {
-    serviceOrigin: origin,
-    accessToken,
-    configUrl: "",
-    appendInfo: true,
-  }
-
-  const target = url.searchParams.get("target")
-  if (target !== null) {
+  const target = values.get("target")
+  if (target !== undefined) {
     if (isTarget(target)) {
-      workshop.target = target
+      decoded.target = target
     } else {
-      warnings.push("invalid-target")
+      decoded.warnings.push("invalid-target")
     }
   }
 
-  const urlParam = url.searchParams.get("url")
-  if (urlParam !== null && urlParam.length > 0) {
-    workshop.sources = urlParam.split("|")
+  const urlParam = values.get("url")
+  if (urlParam !== undefined && urlParam.length > 0) {
+    decoded.sources = urlParam.split("|")
   }
 
-  const config = url.searchParams.get("config")
-  if (config !== null) {
-    workshop.configUrl = config
+  const config = values.get("config")
+  if (config !== undefined) {
+    decoded.configUrl = config
   }
 
-  const append = url.searchParams.get("append_info")
+  const append = values.get("append_info")
   if (append === "false") {
-    workshop.appendInfo = false
-  } else if (append === "true" || append === null) {
-    workshop.appendInfo = true
+    decoded.appendInfo = false
+  } else if (append === "true" || append === undefined) {
+    decoded.appendInfo = true
   } else {
-    warnings.push("invalid-append-info")
-    workshop.appendInfo = true
+    decoded.warnings.push("invalid-append-info")
+    decoded.appendInfo = true
   }
 
-  return { ok: true, workshop, warnings }
+  return decoded
+}
+
+export type SubGetHeaders = {
+  skipped: SkipCounts | null
+  filename: string | null
+  exposed: { name: string; value: string }[]
+}
+
+export function filenameFromDisposition(header: string | null): string | null {
+  if (header === null || header.length === 0) {
+    return null
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header)
+  if (quoted) {
+    return quoted[1]
+  }
+  const unquoted = /filename=([^;]+)/i.exec(header)
+  if (unquoted) {
+    return unquoted[1].trim()
+  }
+  return null
+}
+
+export function pickExposedHeaders(headers: {
+  get: (name: string) => string | null
+}): { name: string; value: string }[] {
+  const picked: { name: string; value: string }[] = []
+  for (const name of EXPOSED_HEADERS) {
+    const value = headers.get(name)
+    if (value !== null && value.length > 0) {
+      picked.push({ name, value })
+    }
+  }
+  return picked
+}
+
+export function readSubGetHeaders(
+  headers: { get: (name: string) => string | null },
+  target: Target
+): SubGetHeaders {
+  const exposed = pickExposedHeaders(headers)
+  return {
+    skipped: parseSkippedFromHeaders(exposed),
+    filename:
+      filenameFromDisposition(headers.get("content-disposition")) ??
+      fallbackDownloadName(target),
+    exposed,
+  }
 }

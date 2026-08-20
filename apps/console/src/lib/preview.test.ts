@@ -5,7 +5,6 @@ import {
   classifyPreviewBody,
   classifyVersionBody,
   fallbackDownloadName,
-  filenameFromDisposition,
   isLoopbackHost,
   parseSkippedHeader,
   PREVIEW_VIEW_LIMIT_BYTES,
@@ -13,6 +12,7 @@ import {
   runVersionProbe,
   truncatePreviewBody,
 } from "./preview.ts"
+import { filenameFromDisposition } from "./service-contract.ts"
 
 describe("classifyVersionBody", () => {
   it("accepts the Sub Hub version line and rejects other bodies", () => {
@@ -83,19 +83,19 @@ describe("classifyFetchFailure", () => {
       classifyFetchFailure({
         pageHttps: true,
         serviceOrigin: "http://example.com",
-      }),
+      })
     ).toBe("mixed-content")
     expect(
       classifyFetchFailure({
         pageHttps: true,
         serviceOrigin: "http://127.0.0.1:25500",
-      }),
+      })
     ).toBe("local-network")
     expect(
       classifyFetchFailure({
         pageHttps: true,
         serviceOrigin: "https://sub-hub.example",
-      }),
+      })
     ).toBe("cors-or-network")
   })
 })
@@ -112,7 +112,7 @@ describe("truncatePreviewBody", () => {
     const truncated = truncatePreviewBody(over)
     expect(truncated.truncated).toBe(true)
     expect(new TextEncoder().encode(truncated.text).length).toBe(
-      PREVIEW_VIEW_LIMIT_BYTES,
+      PREVIEW_VIEW_LIMIT_BYTES
     )
     expect(truncated.text.endsWith("!")).toBe(false)
   })
@@ -139,9 +139,7 @@ describe("parseSkippedHeader", () => {
 describe("download filename", () => {
   it("prefers content-disposition and falls back to sub-hub-<target>.<ext>", () => {
     expect(
-      filenameFromDisposition(
-        'attachment; filename="sub-hub-mihomo.yaml"',
-      ),
+      filenameFromDisposition('attachment; filename="sub-hub-mihomo.yaml"')
     ).toBe("sub-hub-mihomo.yaml")
     expect(fallbackDownloadName("clash")).toBe("sub-hub-mihomo.yaml")
     expect(fallbackDownloadName("mihomo")).toBe("sub-hub-mihomo.yaml")
@@ -180,6 +178,7 @@ describe("runPreview", () => {
           value: 'attachment; filename="sub-hub-mihomo.yaml"',
         },
       ],
+      skipped: null,
       body: "mode: rule\n",
       viewText: "mode: rule\n",
       truncated: false,

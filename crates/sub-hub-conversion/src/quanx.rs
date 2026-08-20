@@ -8,8 +8,8 @@ use crate::{
     },
     render::{
         AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text, encode_hex,
-        map_compiled_rules, policy_member_token, reality_public_key_base64, reality_short_id_hex,
-        render_host_bracketed, shadowsocks_method, shadowsocks_password,
+        keep_named, map_compiled_rules, policy_member_token, reality_public_key_base64,
+        reality_short_id_hex, render_host_bracketed, shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -62,16 +62,10 @@ pub(crate) fn render_quanx_from_policy_v1(
 }
 
 fn encode_node(node: &ProxyNode) -> Result<ServerRecord, NodeKeep> {
-    let Some(tag) = quanx_node_tag(node.name().as_str()) else {
-        return Err(NodeKeep::Name);
-    };
-    let Some(line) = render_server_line(node, tag) else {
-        return Err(NodeKeep::Capability);
-    };
-    Ok(ServerRecord {
-        original_tag: tag.to_owned(),
-        line,
+    keep_named(quanx_node_tag(node.name().as_str()), |tag| {
+        render_server_line(node, tag)
     })
+    .map(|(original_tag, line)| ServerRecord { original_tag, line })
 }
 
 struct ServerRecord {

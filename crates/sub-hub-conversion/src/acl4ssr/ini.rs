@@ -9,9 +9,10 @@ use regex::{Regex, RegexBuilder};
 use url::{Host as UrlHost, Url};
 
 use super::Acl4SsrPreparationError;
-use crate::node_name::{is_reserved_symbol, validate_group_name};
-
-const MAX_CONFIG_BYTES: usize = 256 * 1024;
+use crate::{
+    MAX_CONFIG_BYTES,
+    node_name::{is_policy_token, validate_group_name},
+};
 const MAX_GROUPS: usize = 128;
 const MAX_MEMBERS_PER_GROUP: usize = 256;
 const MAX_MEMBERS: usize = 4_096;
@@ -424,7 +425,7 @@ fn resolve_config(unresolved: Vec<UnresolvedDirective>) -> Result<Config, Acl4Ss
     let mut group_indices = BTreeMap::new();
     for (index, name) in group_names.iter().copied().enumerate() {
         if validate_group_name(name).is_some()
-            || is_reserved_symbol(name)
+            || is_policy_token(name)
             || group_indices.insert(name.to_owned(), index).is_some()
         {
             return Err(Acl4SsrPreparationError::InvalidConfig);

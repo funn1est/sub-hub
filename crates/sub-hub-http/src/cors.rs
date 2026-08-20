@@ -77,7 +77,20 @@ impl CorsOrigins {
     pub fn is_empty(&self) -> bool {
         self.origins.is_empty()
     }
+}
 
+/// Origin header used for CORS: exactly one value, no `@`.
+#[must_use]
+pub fn request_origin(headers: &http::HeaderMap) -> Option<String> {
+    let mut values = headers.get_all(header::ORIGIN).iter();
+    let raw = values.next()?.to_str().ok()?;
+    if values.next().is_some() || raw.contains('@') {
+        return None;
+    }
+    Some(raw.to_owned())
+}
+
+impl CorsOrigins {
     pub(crate) fn apply(&self, response: &mut HttpResponse, request_origin: Option<&str>) {
         if self.origins.is_empty() {
             return;

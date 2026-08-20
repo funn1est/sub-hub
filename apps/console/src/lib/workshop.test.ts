@@ -1,21 +1,24 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  assembleSubscription,
-  parseAccessToken,
-  parseServiceOrigin,
-  parseSubscriptionUrl,
-  type SubscriptionAssemblyInput,
-} from "./service-contract.ts"
+import { parseAccessToken } from "./service-contract.ts"
 import {
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
   ACL4SSR_ONLINE_URL,
   acl4ssrConfigUrl,
+  applyPaste,
+  assembleSubscription,
+  canPreview,
   clashInstallUrl,
   configPresetOf,
+  configSelectionId,
+  parseServiceOrigin,
+  parseSubscriptionUrl,
+  showsClashInstall,
+  type SubscriptionAssemblyInput,
 } from "./workshop.ts"
+import { defaultPersisted } from "./persist.ts"
 
 const VLESS =
   "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
@@ -222,6 +225,27 @@ describe("parseSubscriptionUrl", () => {
     expect(again.url).not.toContain("insert")
   })
 
+  it("keeps a literal plus in query values instead of treating it as space", () => {
+    const parsed = parseSubscriptionUrl(
+      "http://127.0.0.1:25500/sub?target=clash&url=ss%3A%2F%2Faes-128-gcm%3Ap%2Bss%40example.com%3A8388%23Plus"
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) {
+      return
+    }
+    expect(parsed.workshop.sources).toEqual([
+      "ss://aes-128-gcm:p+ss@example.com:8388#Plus",
+    ])
+  })
+
+  it("rejects a trailing slash on /sub/", () => {
+    expect(
+      parseSubscriptionUrl(
+        `http://127.0.0.1:25500/sub/?target=clash&url=${VLESS_ENCODED}`
+      ).ok
+    ).toBe(false)
+  })
+
   it("warns on an unknown target and does not write window.location", () => {
     const parsed = parseSubscriptionUrl(
       `http://127.0.0.1:25500/sub?target=surge&url=${VLESS_ENCODED}`
@@ -282,5 +306,122 @@ describe("clashInstallUrl", () => {
     expect(clashInstallUrl(subscription)).toBe(
       `clash://install-config?url=${encodeURIComponent(subscription)}`
     )
+  })
+})
+
+describe("applyPaste, canPreview, showsClashInstall", () => {
+  it("merges a successful paste onto the Workshop record", () => {
+    const next = applyPaste(defaultPersisted(), {
+      ok: true,
+      workshop: {
+        serviceOrigin: "http://127.0.0.1:25500",
+        accessToken: "deployer-token_1",
+        sources: [VLESS],
+        target: "loon",
+        configUrl: ACL4SSR_ONLINE_URL,
+        appendInfo: false,
+      },
+      warnings: [],
+    })
+    expect(next.accessToken).toBe("deployer-token_1")
+    expect(next.target).toBe("loon")
+    expect(next.appendInfo).toBe(false)
+    expect(next.locale).toBe("en")
+  })
+
+  it("gates Preview on a complete under-limit Subscription URL", () => {
+    expect(canPreview(assembleSubscription(input()))).toBe(true)
+    expect(canPreview(assembleSubscription(input({ serviceOrigin: "" })))).toBe(
+      false
+    )
+    expect(showsClashInstall(assembleSubscription(input()), "clash")).toBe(true)
+    expect(
+      showsClashInstall(assembleSubscription(input({ target: "loon" })), "loon")
+    ).toBe(false)
+    expect(configSelectionId({ kind: "none" }, false)).toBe("none")
+    expect(configSelectionId({ kind: "custom" }, false)).toBe("custom")
+    expect(configSelectionId({ kind: "none" }, true)).toBe("custom")
+  })
+})
+
+describe("subscription URL golden", () => {
+  it("round-trips shared cases through the Workshop adapter", async () => {
+    const { readFile } = await import("node:fs/promises")
+    const { resolve } = await import("node:path")
+    const raw = await readFile(
+      resolve(
+        import.meta.dirname,
+        "../../../../testdata/subscription-url/cases.json"
+      ),
+      "utf8"
+    )
+    const file = JSON.parse(raw) as {
+      cases: Array<{
+        id: string
+        query: string
+        path?: string
+        workshop?: SubscriptionAssemblyInput
+        workshopParse?: { ok: true; warnings: string[] }
+        assembleOmits?: string[]
+      }>
+    }
+
+    for (const testCase of file.cases) {
+      if (testCase.workshop !== undefined) {
+        const assembled = assembleSubscription(testCase.workshop)
+        const path = testCase.path ?? "/sub"
+        expect(assembled.getTarget, testCase.id).toBe(
+          `${path}?${testCase.query}`
+        )
+        expect(assembled.url, testCase.id).toBe(
+          `${testCase.workshop.serviceOrigin}${path}?${testCase.query}`
+        )
+        const parsed = parseSubscriptionUrl(assembled.url ?? "")
+        expect(parsed.ok, testCase.id).toBe(true)
+        if (parsed.ok) {
+          expect(parsed.workshop, testCase.id).toEqual({
+            serviceOrigin: testCase.workshop.serviceOrigin,
+            accessToken: testCase.workshop.accessToken,
+            sources: testCase.workshop.sources,
+            target: testCase.workshop.target,
+            configUrl: testCase.workshop.configUrl,
+            appendInfo: testCase.workshop.appendInfo,
+          })
+        }
+      }
+
+      if (testCase.workshopParse !== undefined) {
+        const parsed = parseSubscriptionUrl(
+          `http://127.0.0.1:25500/sub?${testCase.query}`
+        )
+        expect(parsed.ok, testCase.id).toBe(testCase.workshopParse.ok)
+        if (parsed.ok) {
+          expect(parsed.warnings, testCase.id).toEqual(
+            testCase.workshopParse.warnings
+          )
+        }
+      }
+
+      if (testCase.assembleOmits !== undefined) {
+        const parsed = parseSubscriptionUrl(
+          `http://127.0.0.1:25500/sub?${testCase.query}`
+        )
+        expect(parsed.ok, testCase.id).toBe(true)
+        if (!parsed.ok) {
+          continue
+        }
+        const again = assembleSubscription({
+          serviceOrigin: parsed.workshop.serviceOrigin ?? "",
+          accessToken: parsed.workshop.accessToken ?? "",
+          sources: parsed.workshop.sources ?? [""],
+          target: parsed.workshop.target ?? "clash",
+          configUrl: parsed.workshop.configUrl ?? "",
+          appendInfo: parsed.workshop.appendInfo ?? true,
+        })
+        for (const omitted of testCase.assembleOmits) {
+          expect(again.url, testCase.id).not.toContain(omitted)
+        }
+      }
+    }
   })
 })

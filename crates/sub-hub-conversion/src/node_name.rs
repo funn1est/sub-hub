@@ -228,18 +228,12 @@ pub(crate) fn resolve_node_names(
     })
 }
 
-const RESERVED_SYMBOLS: [&str; 7] = [
-    "DIRECT",
-    "REJECT",
-    "REJECT-DROP",
-    "COMPATIBLE",
-    "PASS",
-    "PASS-RULE",
-    "GLOBAL",
-];
+/// Portable policy tokens occupied during naming so allocated node names do not
+/// collide with Direct/Reject. Client-reserved tags live in Keep-pass.
+const POLICY_TOKENS: [&str; 2] = ["DIRECT", "REJECT"];
 
-pub(crate) fn is_reserved_symbol(value: &str) -> bool {
-    RESERVED_SYMBOLS.contains(&value)
+pub(crate) fn is_policy_token(value: &str) -> bool {
+    POLICY_TOKENS.contains(&value)
 }
 const MAX_FROZEN_SYMBOLS: usize = 10_000;
 
@@ -250,7 +244,7 @@ struct NameAllocator {
 
 impl NameAllocator {
     fn new(final_group_names: &[&str]) -> Result<Self, NodeNameError> {
-        let mut occupied = RESERVED_SYMBOLS
+        let mut occupied = POLICY_TOKENS
             .into_iter()
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
@@ -258,7 +252,7 @@ impl NameAllocator {
 
         for (group_index, group_name) in final_group_names.iter().copied().enumerate() {
             let reason = validate_group_name(group_name).or_else(|| {
-                if RESERVED_SYMBOLS.contains(&group_name) {
+                if is_policy_token(group_name) {
                     Some(GroupNameError::Reserved)
                 } else {
                     group_indices

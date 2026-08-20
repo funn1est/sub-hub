@@ -1,9 +1,10 @@
 import {
-  EXPOSED_HEADERS,
   VERSION_BODY,
-  fallbackDownloadName,
+  VERSION_PATH,
   isKnownServiceError,
+  readSubGetHeaders,
   type KnownServiceError,
+  type SkipCounts,
   type Target,
 } from "./service-contract.ts"
 
@@ -82,9 +83,10 @@ export async function runVersionProbe(input: {
   ) => Promise<{ text: () => Promise<string> }>
 }): Promise<VersionProbe> {
   try {
-    const response = await (input.fetchImpl ?? fetch)(`${input.origin}/version`, {
-      signal: input.signal,
-    })
+    const response = await (input.fetchImpl ?? fetch)(
+      `${input.origin}${VERSION_PATH}`,
+      { signal: input.signal }
+    )
     const body = await response.text()
     if (input.signal?.aborted) {
       return { status: "unreachable" }
@@ -114,39 +116,12 @@ export function truncatePreviewBody(body: string): {
   }
 }
 
-export function filenameFromDisposition(header: string | null): string | null {
-  if (header === null || header.length === 0) {
-    return null
-  }
-  const quoted = /filename="([^"]+)"/i.exec(header)
-  if (quoted) {
-    return quoted[1]
-  }
-  const unquoted = /filename=([^;]+)/i.exec(header)
-  if (unquoted) {
-    return unquoted[1].trim()
-  }
-  return null
-}
-
-export function pickExposedHeaders(headers: {
-  get: (name: string) => string | null
-}): { name: string; value: string }[] {
-  const picked: { name: string; value: string }[] = []
-  for (const name of EXPOSED_HEADERS) {
-    const value = headers.get(name)
-    if (value !== null && value.length > 0) {
-      picked.push({ name, value })
-    }
-  }
-  return picked
-}
-
 export type PreviewDone = {
   status: "done"
   httpStatus: number
   kind: PreviewBodyKind
   headers: { name: string; value: string }[]
+  skipped: SkipCounts | null
   body: string
   viewText: string
   truncated: boolean
@@ -154,13 +129,10 @@ export type PreviewDone = {
 }
 
 export type PreviewOutcome =
-  | PreviewDone
-  | { status: "unreachable"; cause: FetchFailure }
+  PreviewDone | { status: "unreachable"; cause: FetchFailure }
 
 export type PreviewState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | PreviewOutcome
+  { status: "idle" } | { status: "loading" } | PreviewOutcome
 
 export type PreviewFetch = (url: string) => Promise<{
   status: number
@@ -180,17 +152,17 @@ export async function runPreview(input: {
     const response = await fetchImpl(input.url)
     const body = await response.text()
     const truncated = truncatePreviewBody(body)
+    const headers = readSubGetHeaders(response.headers, input.target)
     return {
       status: "done",
       httpStatus: response.status,
       kind: classifyPreviewBody(response.status, body),
-      headers: pickExposedHeaders(response.headers),
+      headers: headers.exposed,
+      skipped: headers.skipped,
       body,
       viewText: truncated.text,
       truncated: truncated.truncated,
-      filename:
-        filenameFromDisposition(response.headers.get("content-disposition")) ??
-        fallbackDownloadName(input.target),
+      filename: headers.filename ?? "",
     }
   } catch {
     return {

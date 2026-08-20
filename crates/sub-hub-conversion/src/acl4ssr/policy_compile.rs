@@ -14,7 +14,7 @@ use super::{
     },
 };
 use crate::{
-    MAX_RULE_SET_BYTES,
+    MAX_RULE_SET_BYTES, UniqueFlightsV1,
     policy::{
         CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
         PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
@@ -23,6 +23,7 @@ use crate::{
 };
 const MAX_EXPANDED_MEMBERS: usize = 200_000;
 const MAX_RULES: usize = 200_000;
+const MAX_REGEX_EVALUATIONS: usize = 2_000_000;
 
 pub(super) enum RuleEntry {
     Domain {
@@ -51,15 +52,22 @@ pub(super) enum CidrRuleType {
     V6,
 }
 
-pub(super) struct MaterializedRules {
-    pub(super) rules: Vec<CompiledRuleV1>,
-}
-
 pub(super) fn compile_acl4ssr_policy(
     groups: &[Group],
     node_names: &[&str],
     rules: Vec<CompiledRuleV1>,
 ) -> Result<CompiledPolicyV1, Acl4SsrRenderError> {
+    let regex_count = groups
+        .iter()
+        .flat_map(|group| &group.members)
+        .filter(|member| matches!(member, GroupMember::NodeRegex(_)))
+        .count();
+    let evaluation_count = regex_count
+        .checked_mul(node_names.len())
+        .ok_or(Acl4SsrRenderError::ConversionLimit)?;
+    if evaluation_count > MAX_REGEX_EVALUATIONS {
+        return Err(Acl4SsrRenderError::ConversionLimit);
+    }
     let (compiled_groups, empty_group_count) = expand_groups(groups, node_names)?;
     let ignored_legacy_probe_hint_count = groups
         .iter()
@@ -84,16 +92,23 @@ pub(super) fn compile_acl4ssr_policy(
     ))
 }
 
-pub(super) fn materialize_rules(
+pub(super) fn consume_rule_sets(
     config: &Config,
     unique_bodies: &[&[u8]],
-    flight_by_occurrence: &[usize],
+    flights: &UniqueFlightsV1,
     parsed_rule_sets: &mut [Option<Vec<RuleEntry>>],
-) -> Result<MaterializedRules, Acl4SsrRenderError> {
+    occurrence_exclusive: usize,
+    collect: bool,
+) -> Result<Vec<CompiledRuleV1>, Acl4SsrRenderError> {
+    if occurrence_exclusive > flights.occurrence_count()
+        || unique_bodies.len() > flights.flight_count()
+    {
+        return Err(Acl4SsrRenderError::RuleSetAlignment);
+    }
     let mut rules = Vec::new();
     let mut rendered_bytes = 0_usize;
     let mut parsed = ParsedRuleSetFlights::new(unique_bodies, parsed_rule_sets);
-    let mut remote_body_index = 0;
+    let mut remote_index = 0_usize;
     let mut rule_count = 0_usize;
     for directive in &config.directives {
         let Directive::Ruleset { target, source } = directive else {
@@ -101,41 +116,50 @@ pub(super) fn materialize_rules(
         };
         match source {
             RuleSource::Remote(_) => {
-                let flight = *flight_by_occurrence
-                    .get(remote_body_index)
+                if remote_index == occurrence_exclusive {
+                    return Ok(rules);
+                }
+                let flight = flights
+                    .flight_of(remote_index)
                     .ok_or(Acl4SsrRenderError::RuleSetAlignment)?;
                 let entries = parsed.entries(flight, &mut rule_count)?;
-                for entry in entries {
-                    push_compiled_rule(
-                        &mut rules,
-                        compiled_rule(entry, target),
-                        &mut rendered_bytes,
-                    )?;
+                if collect {
+                    for entry in entries {
+                        push_compiled_rule(
+                            &mut rules,
+                            compiled_rule(entry, target),
+                            &mut rendered_bytes,
+                        )?;
+                    }
                 }
-                remote_body_index += 1;
+                remote_index += 1;
             }
             RuleSource::GeoIpCn => {
                 increment_rule_count(&mut rule_count)?;
-                push_compiled_rule(
-                    &mut rules,
-                    CompiledRuleV1::new(RuleMatcherV1::GeoIpCn, policy_member(target)),
-                    &mut rendered_bytes,
-                )?;
+                if collect {
+                    push_compiled_rule(
+                        &mut rules,
+                        CompiledRuleV1::new(RuleMatcherV1::GeoIpCn, policy_member(target)),
+                        &mut rendered_bytes,
+                    )?;
+                }
             }
             RuleSource::Final => {
                 increment_rule_count(&mut rule_count)?;
-                push_compiled_rule(
-                    &mut rules,
-                    CompiledRuleV1::new(RuleMatcherV1::Match, policy_member(target)),
-                    &mut rendered_bytes,
-                )?;
+                if collect {
+                    push_compiled_rule(
+                        &mut rules,
+                        CompiledRuleV1::new(RuleMatcherV1::Match, policy_member(target)),
+                        &mut rendered_bytes,
+                    )?;
+                }
             }
         }
     }
-    if remote_body_index != flight_by_occurrence.len() {
+    if collect && remote_index != flights.occurrence_count() {
         return Err(Acl4SsrRenderError::RuleSetAlignment);
     }
-    Ok(MaterializedRules { rules })
+    Ok(rules)
 }
 
 pub(super) struct ParsedRuleSetFlights<'a> {

@@ -8,10 +8,13 @@ use crate::node::{
     hysteria2::{Hysteria2Auth, Hysteria2Node, Hysteria2Obfs, Hysteria2PortAtom, Hysteria2Ports},
 };
 
-use super::{InvalidNodeReason, NodeRejection, UnsupportedCapability, percent, scan_query, vless};
+use super::{
+    InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_authority_uri_optional, percent,
+    scan_query, vless,
+};
 
 pub(super) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
-    let uri = parse_optional_auth_uri(input)?;
+    let uri = parse_authority_uri_optional(input)?;
     let auth = parse_auth(uri.userinfo)?;
     let (endpoint, ports) = parse_hysteria2_authority(uri.authority)?;
     let parameters = parse_parameters(uri.query)?;
@@ -30,67 +33,6 @@ pub(super) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
         endpoint,
         name_input: uri.name_input,
         protocol: NodeProtocol::Hysteria2(node),
-    })
-}
-
-struct OptionalAuthUri<'a> {
-    userinfo: Option<&'a str>,
-    authority: &'a str,
-    query: Option<&'a str>,
-    name_input: crate::node::NodeNameInput,
-}
-
-fn parse_optional_auth_uri(input: &str) -> Result<OptionalAuthUri<'_>, NodeRejection> {
-    let invalid = || NodeRejection::Invalid(InvalidNodeReason::Uri);
-    let (before_fragment, name_input) = if let Some((before, fragment)) = input.split_once('#') {
-        if fragment.contains('#') {
-            return Err(invalid());
-        }
-        let decoded = percent::decode(fragment)
-            .map_err(|()| NodeRejection::Invalid(InvalidNodeReason::PercentEncoding))?;
-        (
-            before,
-            crate::node::NodeNameInput::Decoded(decoded.into_owned()),
-        )
-    } else {
-        (input, crate::node::NodeNameInput::Missing)
-    };
-
-    let (userinfo_authority_path, query) = before_fragment
-        .split_once('?')
-        .map_or((before_fragment, None), |(value, query)| {
-            (value, Some(query))
-        });
-
-    let (userinfo, remainder) =
-        if let Some((userinfo, remainder)) = userinfo_authority_path.split_once('@') {
-            if userinfo.contains('/') || remainder.contains('@') {
-                return Err(invalid());
-            }
-            (Some(userinfo), remainder)
-        } else {
-            (None, userinfo_authority_path)
-        };
-
-    let authority = if let Some(authority) = remainder.strip_suffix('/') {
-        if authority.contains('/') {
-            return Err(invalid());
-        }
-        authority
-    } else if remainder.contains('/') {
-        return Err(invalid());
-    } else {
-        remainder
-    };
-    if authority.is_empty() {
-        return Err(invalid());
-    }
-
-    Ok(OptionalAuthUri {
-        userinfo,
-        authority,
-        query,
-        name_input,
     })
 }
 

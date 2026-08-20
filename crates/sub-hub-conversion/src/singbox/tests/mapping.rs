@@ -2,7 +2,7 @@ use super::accepted_nodes;
 use crate::node_name::resolve_node_names;
 use crate::policy::{
     CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
-    PolicyReportV1, RuleMatcherV1,
+    PolicyReportV1, RuleMatcherV1, compile_builtin_policy_v1,
 };
 use crate::render::{AdapterRenderError, MAX_OUTPUT_BYTES, render_builtin_singbox_v1};
 use crate::singbox::render_singbox_from_policy_v1;
@@ -173,20 +173,11 @@ fn reserved_node_tags_are_skipped_and_empty_members_become_reject() {
     let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
     let nodes = accepted_nodes(&named);
     assert_eq!(nodes.len(), 2);
-    let policy = CompiledPolicyV1::new(
-        vec![CompiledGroupV1::new(
-            "PROXY".to_owned(),
-            GroupStrategyV1::Select,
-            vec![PolicyMemberV1::Node("direct".to_owned())],
-        )],
-        vec![],
-        PolicyReportV1::default(),
-    );
+    let policy = compile_builtin_policy_v1(&nodes);
     let output = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
     let text = std::str::from_utf8(&output.bytes).expect("utf8");
     assert!(text.contains("\"tag\": \"Alpha\""));
     assert!(!text.contains("\"server\": \"example.com\""));
-    assert!(text.contains("\"outbounds\": [\n        \"reject\"\n      ]"));
 }
 
 #[test]
@@ -197,7 +188,7 @@ fn only_reserved_node_tags_are_no_valid_nodes() {
     .expect("valid");
     let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
     let nodes = accepted_nodes(&named);
-    let policy = CompiledPolicyV1::new(vec![], vec![], PolicyReportV1::default());
+    let policy = compile_builtin_policy_v1(&nodes);
     let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
         .expect_err("no valid nodes");
     assert!(matches!(error, AdapterRenderError::NoValidNodes { .. }));

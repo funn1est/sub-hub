@@ -59,34 +59,34 @@ impl std::fmt::Debug for HttpResponse {
     }
 }
 
-pub(crate) fn subscription_response(
-    body: Vec<u8>,
-    filename: &'static str,
-    profile_update_interval: bool,
-) -> HttpResponse {
+pub(crate) fn subscription_response_for(target: OutputTarget, body: Vec<u8>) -> HttpResponse {
     let mut response = success_response(StatusCode::OK, body);
-    let (disposition, content_type) = match filename {
-        "sub-hub-mihomo.yaml" => (
+    let (disposition, content_type, profile_update_interval) = match target {
+        OutputTarget::Mihomo => (
             HeaderValue::from_static("attachment; filename=\"sub-hub-mihomo.yaml\""),
             TEXT_CONTENT_TYPE,
+            true,
         ),
-        "sub-hub-quanx.conf" => (
+        OutputTarget::Quanx => (
             HeaderValue::from_static("attachment; filename=\"sub-hub-quanx.conf\""),
             TEXT_CONTENT_TYPE,
+            false,
         ),
-        "sub-hub-singbox.json" => (
+        OutputTarget::Singbox => (
             HeaderValue::from_static("attachment; filename=\"sub-hub-singbox.json\""),
             JSON_CONTENT_TYPE,
+            false,
         ),
-        "sub-hub-loon.conf" => (
+        OutputTarget::Loon => (
             HeaderValue::from_static("attachment; filename=\"sub-hub-loon.conf\""),
             TEXT_CONTENT_TYPE,
+            false,
         ),
-        "sub-hub-egern.yaml" => (
+        OutputTarget::Egern => (
             HeaderValue::from_static("attachment; filename=\"sub-hub-egern.yaml\""),
             TEXT_CONTENT_TYPE,
+            false,
         ),
-        _ => (HeaderValue::from_static("attachment"), TEXT_CONTENT_TYPE),
     };
     response.headers.insert(header::CONTENT_TYPE, content_type);
     response
@@ -98,16 +98,6 @@ pub(crate) fn subscription_response(
             .insert("profile-update-interval", HeaderValue::from_static("24"));
     }
     response
-}
-
-pub(crate) fn subscription_response_for(target: OutputTarget, body: Vec<u8>) -> HttpResponse {
-    match target {
-        OutputTarget::Mihomo => subscription_response(body, "sub-hub-mihomo.yaml", true),
-        OutputTarget::Quanx => subscription_response(body, "sub-hub-quanx.conf", false),
-        OutputTarget::Singbox => subscription_response(body, "sub-hub-singbox.json", false),
-        OutputTarget::Loon => subscription_response(body, "sub-hub-loon.conf", false),
-        OutputTarget::Egern => subscription_response(body, "sub-hub-egern.yaml", false),
-    }
 }
 
 pub(crate) fn attach_conversion_headers(
