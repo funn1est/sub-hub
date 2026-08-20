@@ -217,6 +217,40 @@ fn rule_set_flight_mapping_is_dense_and_aligned() {
 }
 
 #[test]
+fn canonical_url_identity_assigns_first_seen_flights() {
+    let config = concat!(
+        "[custom]\n",
+        "ruleset=PROXY,https://rules.example/shared.list\n",
+        "ruleset=DIRECT,https://rules.example/shared.list\n",
+        "enable_rule_generator=true\n",
+        "custom_proxy_group=PROXY`select`.*\n",
+        "ruleset=PROXY,[]FINAL\n",
+        "overwrite_original_rules=true\n",
+    );
+    let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT])
+        .unwrap()
+        .prepare_acl4ssr_config_v1(config.as_bytes())
+        .unwrap();
+    let urls = [
+        "https://cdn.example/shared.list".to_owned(),
+        "https://cdn.example/shared.list".to_owned(),
+    ];
+    let bound = prepared.bind_canonical_urls_v1(&urls).unwrap();
+    assert_eq!(bound.covered_occurrence_count(0), 0);
+    assert_eq!(bound.covered_occurrence_count(1), 2);
+    assert_eq!(bound.occurrence_urls(), urls.as_slice());
+    assert_eq!(
+        prepare_direct_subscription_v1(&[VALID_DIRECT])
+            .unwrap()
+            .prepare_acl4ssr_config_v1(config.as_bytes())
+            .unwrap()
+            .bind_canonical_urls_v1(&["https://cdn.example/a".to_owned()])
+            .unwrap_err(),
+        Acl4SsrRenderError::RuleSetAlignment
+    );
+}
+
+#[test]
 fn config_grammar_rejects_unknown_duplicate_and_unresolved_semantics() {
     let invalid_configs = [
         "",

@@ -92,7 +92,44 @@ impl PreparedAcl4SsrV1 {
             flight_by_occurrence: flight_by_occurrence.to_vec(),
             flight_count,
             parsed_rule_sets: (0..flight_count).map(|_| None).collect(),
+            occurrence_urls: Vec::new(),
         })
+    }
+
+    /// Binds Rule Set occurrences by first-seen canonical URL identity.
+    ///
+    /// `canonical_urls` is declaration-aligned with [`Self::rule_set_requests`]. Conversion owns
+    /// the unique-flight table; the host fetches unique URLs and returns bodies in first-seen
+    /// order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed alignment or resource-limit error.
+    pub fn bind_canonical_urls_v1(
+        self,
+        canonical_urls: &[String],
+    ) -> Result<PreparedAcl4SsrRuleSetsV1, Acl4SsrRenderError> {
+        if canonical_urls.len() != self.requests.len() {
+            return Err(Acl4SsrRenderError::RuleSetAlignment);
+        }
+        let mut unique_urls = Vec::new();
+        let mut flight_by_occurrence = Vec::with_capacity(canonical_urls.len());
+        for url in canonical_urls {
+            let flight = unique_urls
+                .iter()
+                .position(|existing: &String| existing == url);
+            let flight = match flight {
+                Some(flight) => flight,
+                None => {
+                    unique_urls.push(url.clone());
+                    unique_urls.len() - 1
+                }
+            };
+            flight_by_occurrence.push(flight);
+        }
+        let mut bound = self.bind_rule_set_flights_v1(&flight_by_occurrence)?;
+        bound.occurrence_urls = canonical_urls.to_vec();
+        Ok(bound)
     }
 }
 
@@ -101,6 +138,7 @@ pub struct PreparedAcl4SsrRuleSetsV1 {
     flight_by_occurrence: Vec<usize>,
     flight_count: usize,
     parsed_rule_sets: Vec<Option<Vec<RuleEntry>>>,
+    occurrence_urls: Vec<String>,
 }
 
 impl PreparedAcl4SsrRuleSetsV1 {
@@ -171,6 +209,34 @@ impl PreparedAcl4SsrRuleSetsV1 {
             }
         }
         Ok(())
+    }
+
+    /// How many declaration occurrences are covered by the first `unique_loaded` flights.
+    #[must_use]
+    pub fn covered_occurrence_count(&self, unique_loaded: usize) -> usize {
+        self.flight_by_occurrence
+            .iter()
+            .take_while(|flight| **flight < unique_loaded)
+            .count()
+    }
+
+    /// Canonical URLs in declaration order. Empty when bound by raw flight indices.
+    #[must_use]
+    pub fn occurrence_urls(&self) -> &[String] {
+        &self.occurrence_urls
+    }
+
+    /// Validates every occurrence covered by the loaded unique-body prefix.
+    ///
+    /// # Errors
+    ///
+    /// Same closed Rule Set errors as [`Self::validate_occurrence_prefix_v1`].
+    pub fn validate_loaded_unique_prefix_v1(
+        &mut self,
+        unique_rule_set_bodies: &[&[u8]],
+    ) -> Result<(), Acl4SsrRenderError> {
+        let occurrence_exclusive = self.covered_occurrence_count(unique_rule_set_bodies.len());
+        self.validate_occurrence_prefix_v1(unique_rule_set_bodies, occurrence_exclusive)
     }
 }
 

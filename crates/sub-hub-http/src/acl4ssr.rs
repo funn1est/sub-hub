@@ -51,8 +51,7 @@ impl<A: RemoteAdapter> Application<A> {
             .load_prepared_acl4ssr(prepared, broker, config_url, inbound_host)
             .await?;
 
-        let mut canonical_rule_sets = Vec::with_capacity(prepared.rule_set_requests().len());
-        let mut flight_by_occurrence = Vec::with_capacity(prepared.rule_set_requests().len());
+        let mut canonical_urls = Vec::with_capacity(prepared.rule_set_requests().len());
         let mut rule_set_resources = Vec::new();
         for request in prepared.rule_set_requests() {
             let Ok(url) = canonical_remote_url(request.url(), &self.self_hosts, inbound_host)
@@ -65,15 +64,9 @@ impl<A: RemoteAdapter> Application<A> {
             {
                 return Err(ApplicationError::RemoteFailure);
             }
-            let flight = rule_set_resources
-                .iter()
-                .position(|candidate: &RemoteResource| {
-                    candidate.kind == ResourceKind::RuleSet
-                        && candidate.url.as_str() == url.as_str()
-                });
-            let flight = if let Some(flight) = flight {
-                flight
-            } else {
+            if !rule_set_resources.iter().any(|candidate: &RemoteResource| {
+                candidate.kind == ResourceKind::RuleSet && candidate.url.as_str() == url.as_str()
+            }) {
                 let Some(additional_unique) = rule_set_resources.len().checked_add(1) else {
                     return Err(ApplicationError::ConversionLimit);
                 };
@@ -84,24 +77,16 @@ impl<A: RemoteAdapter> Application<A> {
                     max_body_bytes: MAX_RULE_SET_BYTES,
                     capture_subscription_user_info: false,
                 });
-                rule_set_resources.len() - 1
-            };
-            canonical_rule_sets.push(url.as_str().to_owned());
-            flight_by_occurrence.push(flight);
+            }
+            canonical_urls.push(url.as_str().to_owned());
         }
-        let mut prepared = match prepared.bind_rule_set_flights_v1(&flight_by_occurrence) {
+        let mut prepared = match prepared.bind_canonical_urls_v1(&canonical_urls) {
             Ok(prepared) => prepared,
             Err(error) => return Err(map_acl4ssr_render_error(error)),
         };
         broker.preflight_rule_set_plan(&rule_set_resources)?;
-        let rule_set_bodies = Self::fill_rule_set_bodies(
-            &mut broker,
-            &mut prepared,
-            &rule_set_resources,
-            &flight_by_occurrence,
-            &canonical_rule_sets,
-        )
-        .await?;
+        let rule_set_bodies =
+            Self::fill_rule_set_bodies(&mut broker, &mut prepared, &rule_set_resources).await?;
         let unique_rule_set_bodies = rule_set_bodies
             .iter()
             .map(Vec::as_slice)
@@ -163,8 +148,6 @@ impl<A: RemoteAdapter> Application<A> {
         broker: &mut BrokerSession<'_, A>,
         prepared: &mut sub_hub_conversion::PreparedAcl4SsrRuleSetsV1,
         rule_set_resources: &[RemoteResource],
-        flight_by_occurrence: &[usize],
-        canonical_rule_sets: &[String],
     ) -> Result<Vec<Vec<u8>>, ApplicationError> {
         let mut rule_set_bodies = Vec::with_capacity(rule_set_resources.len());
         while rule_set_bodies.len() < rule_set_resources.len() {
@@ -187,8 +170,6 @@ impl<A: RemoteAdapter> Application<A> {
                         broker,
                         prepared,
                         rule_set_resources,
-                        flight_by_occurrence,
-                        canonical_rule_sets,
                         &mut rule_set_bodies,
                         chunk_start,
                         loaded,
@@ -198,10 +179,8 @@ impl<A: RemoteAdapter> Application<A> {
                 }
             };
             rule_set_bodies.extend(loaded.into_iter().map(|loaded| loaded.into_response().body));
-            let available_occurrence_count = flight_by_occurrence
-                .iter()
-                .take_while(|flight| **flight < rule_set_bodies.len())
-                .count();
+            let available_occurrence_count =
+                prepared.covered_occurrence_count(rule_set_bodies.len());
             let unique_bodies = rule_set_bodies
                 .iter()
                 .map(Vec::as_slice)
@@ -210,7 +189,7 @@ impl<A: RemoteAdapter> Application<A> {
             let crossing = match broker.first_decoded_crossing(
                 &rule_set_resources[..rule_set_bodies.len()],
                 &body_lengths,
-                &canonical_rule_sets[..available_occurrence_count],
+                &prepared.occurrence_urls()[..available_occurrence_count],
             ) {
                 Ok(crossing) => crossing,
                 Err(error) => return Err(error),
@@ -229,9 +208,7 @@ impl<A: RemoteAdapter> Application<A> {
             {
                 broker.account_decoded(resource, body.len())?;
             }
-            if let Err(prefix_error) =
-                prepared.validate_occurrence_prefix_v1(&unique_bodies, available_occurrence_count)
-            {
+            if let Err(prefix_error) = prepared.validate_loaded_unique_prefix_v1(&unique_bodies) {
                 return Err(map_acl4ssr_render_error(prefix_error));
             }
         }
@@ -252,16 +229,10 @@ const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "failed Rule Set chunks keep declaration-order evidence together"
-)]
 fn adjudicate_failed_rule_set_chunk(
     broker: &mut BrokerSession<'_, impl RemoteAdapter>,
     prepared: &mut sub_hub_conversion::PreparedAcl4SsrRuleSetsV1,
     rule_set_resources: &[RemoteResource],
-    flight_by_occurrence: &[usize],
-    canonical_rule_sets: &[String],
     rule_set_bodies: &mut Vec<Vec<u8>>,
     chunk_start: usize,
     loaded: Vec<Option<LoadedRemote>>,
@@ -277,10 +248,7 @@ fn adjudicate_failed_rule_set_chunk(
     let Some(failed_unique_index) = chunk_start.checked_add(failed_unique_index) else {
         return Err(ApplicationError::Internal);
     };
-    let earlier_occurrence_count = flight_by_occurrence
-        .iter()
-        .take_while(|flight| **flight < failed_unique_index)
-        .count();
+    let earlier_occurrence_count = prepared.covered_occurrence_count(failed_unique_index);
     let unique_bodies = rule_set_bodies
         .iter()
         .map(Vec::as_slice)
@@ -289,7 +257,7 @@ fn adjudicate_failed_rule_set_chunk(
     let crossing = broker.first_decoded_crossing(
         &rule_set_resources[..failed_unique_index],
         &body_lengths,
-        &canonical_rule_sets[..earlier_occurrence_count],
+        &prepared.occurrence_urls()[..earlier_occurrence_count],
     )?;
     if let Some(crossing) = crossing {
         if let Err(prefix_error) = prepared.validate_occurrence_prefix_v1(&unique_bodies, crossing)
@@ -304,9 +272,7 @@ fn adjudicate_failed_rule_set_chunk(
     {
         broker.account_decoded(resource, body.len())?;
     }
-    if let Err(prefix_error) =
-        prepared.validate_occurrence_prefix_v1(&unique_bodies, earlier_occurrence_count)
-    {
+    if let Err(prefix_error) = prepared.validate_loaded_unique_prefix_v1(&unique_bodies) {
         return Err(map_acl4ssr_render_error(prefix_error));
     }
     Err(error)
