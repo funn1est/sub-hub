@@ -1,10 +1,11 @@
 import {
   EXPOSED_HEADERS,
   VERSION_BODY,
+  fallbackDownloadName,
   isKnownServiceError,
   type KnownServiceError,
+  type Target,
 } from "./service-contract.ts"
-import { isLoopbackHost } from "./workshop.ts"
 
 export {
   VERSION_BODY,
@@ -39,6 +40,17 @@ export function classifyPreviewBody(
   return { kind: "http" }
 }
 
+export function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase()
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    return true
+  }
+  if (host === "::1" || host === "0:0:0:0:0:0:0:1") {
+    return true
+  }
+  return /^127(?:\.\d{1,3}){3}$/.test(host)
+}
+
 export function classifyFetchFailure(input: {
   pageHttps: boolean
   serviceOrigin: string
@@ -54,6 +66,36 @@ export function classifyFetchFailure(input: {
     return isLoopbackHost(url.hostname) ? "local-network" : "mixed-content"
   }
   return "cors-or-network"
+}
+
+export type VersionProbe =
+  | { status: "ok"; body: string }
+  | { status: "other" }
+  | { status: "unreachable" }
+
+export async function runVersionProbe(input: {
+  origin: string
+  signal?: AbortSignal
+  fetchImpl?: (
+    url: string,
+    init?: { signal?: AbortSignal }
+  ) => Promise<{ text: () => Promise<string> }>
+}): Promise<VersionProbe> {
+  try {
+    const response = await (input.fetchImpl ?? fetch)(`${input.origin}/version`, {
+      signal: input.signal,
+    })
+    const body = await response.text()
+    if (input.signal?.aborted) {
+      return { status: "unreachable" }
+    }
+    if (classifyVersionBody(body) === "sub-hub") {
+      return { status: "ok", body: body.trim() }
+    }
+    return { status: "other" }
+  } catch {
+    return { status: "unreachable" }
+  }
 }
 
 export function truncatePreviewBody(body: string): {
@@ -87,9 +129,9 @@ export function filenameFromDisposition(header: string | null): string | null {
   return null
 }
 
-export function pickExposedHeaders(
-  headers: Headers
-): { name: string; value: string }[] {
+export function pickExposedHeaders(headers: {
+  get: (name: string) => string | null
+}): { name: string; value: string }[] {
   const picked: { name: string; value: string }[] = []
   for (const name of EXPOSED_HEADERS) {
     const value = headers.get(name)
@@ -98,4 +140,65 @@ export function pickExposedHeaders(
     }
   }
   return picked
+}
+
+export type PreviewDone = {
+  status: "done"
+  httpStatus: number
+  kind: PreviewBodyKind
+  headers: { name: string; value: string }[]
+  body: string
+  viewText: string
+  truncated: boolean
+  filename: string
+}
+
+export type PreviewOutcome =
+  | PreviewDone
+  | { status: "unreachable"; cause: FetchFailure }
+
+export type PreviewState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | PreviewOutcome
+
+export type PreviewFetch = (url: string) => Promise<{
+  status: number
+  text: () => Promise<string>
+  headers: { get: (name: string) => string | null }
+}>
+
+export async function runPreview(input: {
+  url: string
+  target: Target
+  pageHttps: boolean
+  serviceOrigin: string
+  fetchImpl?: PreviewFetch
+}): Promise<PreviewOutcome> {
+  const fetchImpl = input.fetchImpl ?? fetch
+  try {
+    const response = await fetchImpl(input.url)
+    const body = await response.text()
+    const truncated = truncatePreviewBody(body)
+    return {
+      status: "done",
+      httpStatus: response.status,
+      kind: classifyPreviewBody(response.status, body),
+      headers: pickExposedHeaders(response.headers),
+      body,
+      viewText: truncated.text,
+      truncated: truncated.truncated,
+      filename:
+        filenameFromDisposition(response.headers.get("content-disposition")) ??
+        fallbackDownloadName(input.target),
+    }
+  } catch {
+    return {
+      status: "unreachable",
+      cause: classifyFetchFailure({
+        pageHttps: input.pageHttps,
+        serviceOrigin: input.serviceOrigin,
+      }),
+    }
+  }
 }

@@ -14,14 +14,13 @@ use super::{
     },
 };
 use crate::{
+    MAX_RULE_SET_BYTES,
     policy::{
         CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
         PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
     },
     render::MAX_OUTPUT_BYTES,
 };
-
-const MAX_RULE_SET_BYTES: usize = 4 * 1024 * 1024;
 const MAX_EXPANDED_MEMBERS: usize = 200_000;
 const MAX_RULES: usize = 200_000;
 
@@ -54,14 +53,12 @@ pub(super) enum CidrRuleType {
 
 pub(super) struct MaterializedRules {
     pub(super) rules: Vec<CompiledRuleV1>,
-    pub(super) omitted_url_regex_count: usize,
 }
 
 pub(super) fn compile_acl4ssr_policy(
     groups: &[Group],
     node_names: &[&str],
     rules: Vec<CompiledRuleV1>,
-    omitted_url_regex_count: u8,
 ) -> Result<CompiledPolicyV1, Acl4SsrRenderError> {
     let (compiled_groups, empty_group_count) = expand_groups(groups, node_names)?;
     let ignored_legacy_probe_hint_count = groups
@@ -79,7 +76,6 @@ pub(super) fn compile_acl4ssr_policy(
         compiled_groups,
         rules,
         PolicyReportV1 {
-            omitted_url_regex: omitted_url_regex_count,
             empty_groups: u8::try_from(empty_group_count)
                 .map_err(|_| Acl4SsrRenderError::Internal)?,
             ignored_legacy_probe_hints: u8::try_from(ignored_legacy_probe_hint_count)
@@ -96,7 +92,6 @@ pub(super) fn materialize_rules(
 ) -> Result<MaterializedRules, Acl4SsrRenderError> {
     let mut rules = Vec::new();
     let mut rendered_bytes = 0_usize;
-    let mut omitted_url_regex_count = 0_usize;
     let mut parsed = ParsedRuleSetFlights::new(unique_bodies, parsed_rule_sets);
     let mut remote_body_index = 0;
     let mut rule_count = 0_usize;
@@ -111,11 +106,6 @@ pub(super) fn materialize_rules(
                     .ok_or(Acl4SsrRenderError::RuleSetAlignment)?;
                 let entries = parsed.entries(flight, &mut rule_count)?;
                 for entry in entries {
-                    if matches!(entry, RuleEntry::UrlRegex(_)) {
-                        omitted_url_regex_count = omitted_url_regex_count
-                            .checked_add(1)
-                            .ok_or(Acl4SsrRenderError::ConversionLimit)?;
-                    }
                     push_compiled_rule(
                         &mut rules,
                         compiled_rule(entry, target),
@@ -145,10 +135,7 @@ pub(super) fn materialize_rules(
     if remote_body_index != flight_by_occurrence.len() {
         return Err(Acl4SsrRenderError::RuleSetAlignment);
     }
-    Ok(MaterializedRules {
-        rules,
-        omitted_url_regex_count,
-    })
+    Ok(MaterializedRules { rules })
 }
 
 pub(super) struct ParsedRuleSetFlights<'a> {
@@ -394,7 +381,7 @@ fn expand_groups(
             match member {
                 GroupMember::LiteralRef(target) => {
                     let member = policy_member(target);
-                    if seen.insert(member.as_symbol().to_owned()) {
+                    if seen.insert(member.clone()) {
                         push_expanded_member(
                             &mut members,
                             member,
@@ -405,12 +392,11 @@ fn expand_groups(
                 }
                 GroupMember::NodeRegex(regex) => {
                     for node_name in node_names {
-                        if regex.compiled.is_match(node_name)
-                            && seen.insert((*node_name).to_owned())
-                        {
+                        let member = PolicyMemberV1::Node((*node_name).to_owned());
+                        if regex.compiled.is_match(node_name) && seen.insert(member.clone()) {
                             push_expanded_member(
                                 &mut members,
-                                PolicyMemberV1::Node((*node_name).to_owned()),
+                                member,
                                 &mut total_expanded_members,
                                 &mut total_expanded_member_bytes,
                             )?;
@@ -474,7 +460,7 @@ fn push_expanded_member(
     }
     *total += 1;
     *total_bytes = total_bytes
-        .checked_add(member.as_symbol().len())
+        .checked_add(member.budget_bytes())
         .ok_or(Acl4SsrRenderError::ConversionLimit)?;
     if *total_bytes > MAX_OUTPUT_BYTES {
         return Err(Acl4SsrRenderError::ConversionLimit);

@@ -2,16 +2,18 @@ mod error;
 
 use std::borrow::Cow;
 
-use crate::{node::ProxyNodeDraft, share_uri::parse_share_uri};
+use crate::{
+    MAX_SUBSCRIPTION_INPUT_BYTES, MAX_SUBSCRIPTION_SOURCES, node::ProxyNodeDraft,
+    share_uri::parse_share_uri,
+};
 use base64::{
     Engine as _,
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
 };
 
 const MAX_DECODED_SOURCE_BYTES: usize = 2 * 1024 * 1024;
-const MAX_INPUT_BYTES: usize = 2_796_206;
+const MAX_INPUT_BYTES: usize = MAX_SUBSCRIPTION_INPUT_BYTES;
 const MAX_NODE_OCCURRENCES: usize = 10_000;
-const MAX_SUBSCRIPTION_SOURCES: usize = 5;
 
 pub(crate) use error::SubscriptionParseError;
 

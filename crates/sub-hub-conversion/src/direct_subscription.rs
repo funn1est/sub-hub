@@ -1,16 +1,14 @@
 use std::fmt;
 
 use crate::{
-    OutputTarget,
-    render::{BuiltinRenderError, inspect_builtin_v1, render_builtin_v1},
+    MAX_SUBSCRIPTION_SOURCES, OutputTarget,
+    render::{BuiltinRenderError, render_builtin_v1},
     skip::SkipCountsV1,
     subscription_source::{
         NodeOccurrence, ParsedSubscriptionSources, SubscriptionParseError, SubscriptionSourceInput,
         parse_subscription_source_inputs,
     },
 };
-
-const MAX_DIRECT_SOURCES: usize = 5;
 
 pub struct PreparedSubscriptionV1 {
     parsed: ParsedSubscriptionSources,
@@ -47,62 +45,31 @@ impl PreparedSubscriptionV1 {
     ///
     /// # Errors
     ///
-    /// Returns [`DirectRenderError::ConversionLimit`] when the bounded output exceeds its fixed
-    /// limit, [`DirectRenderError::NoValidNodes`] when every node is dropped, or
-    /// [`DirectRenderError::Internal`] when naming or serialization cannot complete.
+    /// Returns [`ConversionRenderError::ConversionLimit`] when the bounded output exceeds its fixed
+    /// limit, [`ConversionRenderError::NoValidNodes`] when every node is dropped, or
+    /// [`ConversionRenderError::Internal`] when naming or serialization cannot complete.
     pub fn render_builtin_v1(
         self,
         target: OutputTarget,
-    ) -> Result<RenderedConfig, DirectRenderError> {
-        map_builtin_render(render_builtin_v1(self.parsed, target))
-    }
-
-    /// Classifies nodes for `target` without serializing a document.
-    ///
-    /// # Errors
-    ///
-    /// Same closed set as [`Self::render_builtin_v1`].
-    pub fn inspect_builtin_v1(
-        self,
-        target: OutputTarget,
-    ) -> Result<SkipCountsV1, DirectRenderError> {
-        map_builtin_inspect(inspect_builtin_v1(self.parsed, target))
-    }
-}
-
-fn map_builtin_render(
-    result: Result<crate::render::BuiltinRenderOutput, BuiltinRenderError>,
-) -> Result<RenderedConfig, DirectRenderError> {
-    match result {
-        Ok(output) => {
-            let (bytes, skips) = output.into_rendered();
-            Ok(RenderedConfig { bytes, skips })
-        }
-        Err(BuiltinRenderError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
-        Err(BuiltinRenderError::NoValidNodes { diagnostics }) => {
-            Err(DirectRenderError::NoValidNodes {
-                skips: diagnostics.skip_counts(),
-            })
-        }
-        Err(BuiltinRenderError::NodeNaming(_) | BuiltinRenderError::Serialization) => {
-            Err(DirectRenderError::Internal)
+    ) -> Result<RenderedConfig, ConversionRenderError> {
+        match render_builtin_v1(self.parsed, target) {
+            Ok(output) => {
+                let (bytes, skips) = output.into_rendered();
+                Ok(RenderedConfig { bytes, skips })
+            }
+            Err(error) => Err(map_builtin_error(error)),
         }
     }
 }
 
-fn map_builtin_inspect(
-    result: Result<SkipCountsV1, BuiltinRenderError>,
-) -> Result<SkipCountsV1, DirectRenderError> {
-    match result {
-        Ok(skips) => Ok(skips),
-        Err(BuiltinRenderError::OutputTooLarge { .. }) => Err(DirectRenderError::ConversionLimit),
-        Err(BuiltinRenderError::NoValidNodes { diagnostics }) => {
-            Err(DirectRenderError::NoValidNodes {
-                skips: diagnostics.skip_counts(),
-            })
-        }
-        Err(BuiltinRenderError::NodeNaming(_) | BuiltinRenderError::Serialization) => {
-            Err(DirectRenderError::Internal)
+fn map_builtin_error(error: BuiltinRenderError) -> ConversionRenderError {
+    match error {
+        BuiltinRenderError::OutputTooLarge { .. } => ConversionRenderError::ConversionLimit,
+        BuiltinRenderError::NoValidNodes { diagnostics } => ConversionRenderError::NoValidNodes {
+            skips: diagnostics.skip_counts(),
+        },
+        BuiltinRenderError::NodeNaming(_) | BuiltinRenderError::Serialization => {
+            ConversionRenderError::Internal
         }
     }
 }
@@ -115,9 +82,6 @@ impl fmt::Debug for PreparedSubscriptionV1 {
             .finish()
     }
 }
-
-/// Backward-compatible S6 name for the prepared subscription value.
-pub type PreparedDirectSubscriptionV1 = PreparedSubscriptionV1;
 
 /// Bounded rendered document for the selected client target.
 pub struct RenderedConfig {
@@ -152,23 +116,6 @@ impl fmt::Debug for RenderedConfig {
             .finish()
     }
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DirectPreparationError {
-    InvalidInput,
-    NoValidNodes { skips: SkipCountsV1 },
-}
-
-impl fmt::Display for DirectPreparationError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidInput => formatter.write_str("invalid direct subscription input"),
-            Self::NoValidNodes { .. } => formatter.write_str("no valid nodes"),
-        }
-    }
-}
-
-impl std::error::Error for DirectPreparationError {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RemoteSourceFailureV1 {
@@ -220,13 +167,13 @@ impl fmt::Debug for SubscriptionSourceV1<'_> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DirectRenderError {
+pub enum ConversionRenderError {
     ConversionLimit,
     NoValidNodes { skips: SkipCountsV1 },
     Internal,
 }
 
-impl fmt::Display for DirectRenderError {
+impl fmt::Display for ConversionRenderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ConversionLimit => formatter.write_str("conversion resource limit exceeded"),
@@ -236,38 +183,7 @@ impl fmt::Display for DirectRenderError {
     }
 }
 
-impl std::error::Error for DirectRenderError {}
-
-/// Parses one to five already-framed direct share URI occurrences in declaration order.
-///
-/// Each input is one occurrence. This interface performs no trimming, line framing, whole-source
-/// Base64 probing, or remote loading. Unsupported individual URI schemes are local rejections as
-/// long as at least one occurrence is valid.
-///
-/// # Errors
-///
-/// Returns [`DirectPreparationError::InvalidInput`] when the occurrence count or framing is
-/// invalid, and [`DirectPreparationError::NoValidNodes`] when every occurrence is rejected.
-pub fn prepare_direct_subscription_v1(
-    sources_in_declaration_order: &[&str],
-) -> Result<PreparedDirectSubscriptionV1, DirectPreparationError> {
-    let sources = sources_in_declaration_order
-        .iter()
-        .copied()
-        .map(SubscriptionSourceV1::Direct)
-        .collect::<Vec<_>>();
-    match prepare_subscription_v1(&sources) {
-        Ok(prepared) => Ok(prepared),
-        Err(SubscriptionPreparationError::NoValidNodes { skips }) => {
-            Err(DirectPreparationError::NoValidNodes { skips })
-        }
-        Err(
-            SubscriptionPreparationError::InvalidInput
-            | SubscriptionPreparationError::ConversionLimit
-            | SubscriptionPreparationError::RemoteFailure { .. },
-        ) => Err(DirectPreparationError::InvalidInput),
-    }
-}
+impl std::error::Error for ConversionRenderError {}
 
 /// Parses one to five direct occurrences or already-loaded remote bodies in declaration order.
 ///
@@ -283,7 +199,7 @@ pub fn prepare_subscription_v1(
     sources_in_declaration_order: &[SubscriptionSourceV1<'_>],
 ) -> Result<PreparedSubscriptionV1, SubscriptionPreparationError> {
     if sources_in_declaration_order.is_empty()
-        || sources_in_declaration_order.len() > MAX_DIRECT_SOURCES
+        || sources_in_declaration_order.len() > MAX_SUBSCRIPTION_SOURCES
         || sources_in_declaration_order.iter().any(|source| {
             matches!(
                 source,

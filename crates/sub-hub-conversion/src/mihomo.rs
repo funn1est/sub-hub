@@ -8,7 +8,9 @@ use crate::{
     node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
-    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
+    policy::{
+        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
+    },
     render::{
         AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex,
         reality_public_key_base64, reality_short_id_hex, render_fingerprint, render_host_plain,
@@ -26,53 +28,59 @@ pub(crate) fn render_mihomo_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let kept = KeptNodes::require(named_nodes, classify_node)?;
+    let (kept, proxies) = KeptNodes::encode(named_nodes, encode_node)?;
+    let mut omitted_url_regex = 0_u8;
+    let rules = policy
+        .rules()
+        .iter()
+        .filter_map(|rule| {
+            if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
+                omitted_url_regex = omitted_url_regex.saturating_add(1);
+                None
+            } else {
+                Some(render_clash_rule(rule))
+            }
+        })
+        .collect();
     let document = MihomoRenderedDocument {
         mode: "rule",
-        proxies: kept
-            .nodes
-            .iter()
-            .map(|node| MihomoProxy::from(*node))
-            .collect(),
+        proxies,
         proxy_groups: policy.groups().iter().map(mihomo_group).collect(),
-        rules: policy
-            .rules()
-            .iter()
-            .filter(|rule| !matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)))
-            .map(render_clash_rule)
-            .collect(),
+        rules,
     };
-    let comments = comment_prefix(
-        policy.report().omitted_url_regex,
-        policy.report().empty_groups,
-    );
+    let comments = comment_prefix(omitted_url_regex, policy.report().empty_groups);
     let body_limit = limit_bytes
         .checked_sub(comments.len())
         .ok_or(AdapterRenderError::OutputTooLarge { limit_bytes })?;
     let body = serialize_bounded(&document, body_limit)?;
     if comments.is_empty() {
-        return Ok(RenderedTargetV1 {
-            bytes: body,
-            capability_skips: kept.capability_skips,
-            name_skips: kept.name_skips,
-        });
+        return Ok(RenderedTargetV1::from_parts(body, &kept, omitted_url_regex));
     }
     let mut bytes = Vec::with_capacity(comments.len() + body.len());
     bytes.extend_from_slice(comments.as_bytes());
     bytes.extend_from_slice(&body);
-    Ok(RenderedTargetV1 {
+    Ok(RenderedTargetV1::from_parts(
         bytes,
-        capability_skips: kept.capability_skips,
-        name_skips: kept.name_skips,
-    })
+        &kept,
+        omitted_url_regex,
+    ))
 }
 
-pub(crate) const fn classify_node(_node: &ProxyNode) -> NodeKeep {
-    NodeKeep::Keep
+#[allow(clippy::unnecessary_wraps)]
+fn encode_node(node: &ProxyNode) -> Result<MihomoProxy<'_>, NodeKeep> {
+    Ok(MihomoProxy::from(node))
+}
+
+fn mihomo_symbol(member: &PolicyMemberV1) -> &str {
+    match member {
+        PolicyMemberV1::Direct => "DIRECT",
+        PolicyMemberV1::Reject => "REJECT",
+        PolicyMemberV1::Group(name) | PolicyMemberV1::Node(name) => name,
+    }
 }
 
 fn render_clash_rule(rule: &CompiledRuleV1) -> String {
-    let target = rule.target().as_symbol();
+    let target = mihomo_symbol(rule.target());
     match rule.matcher() {
         RuleMatcherV1::Domain(value) => format!("DOMAIN,{value},{target}"),
         RuleMatcherV1::DomainSuffix(value) => format!("DOMAIN-SUFFIX,{value},{target}"),
@@ -93,7 +101,7 @@ fn render_clash_rule(rule: &CompiledRuleV1) -> String {
         RuleMatcherV1::GeoIpCn => format!("GEOIP,CN,{target}"),
         RuleMatcherV1::Match => format!("MATCH,{target}"),
         RuleMatcherV1::UrlRegex(_) => {
-            unreachable!("URL-REGEX is omitted before Mihomo render")
+            unreachable!("URL-REGEX is counted and dropped before Mihomo serialize")
         }
     }
 }
@@ -115,7 +123,7 @@ fn mihomo_group(group: &crate::policy::CompiledGroupV1) -> MihomoRenderedGroup {
     let proxies = group
         .members()
         .iter()
-        .map(|member| member.as_symbol().to_owned())
+        .map(|member| mihomo_symbol(member).to_owned())
         .collect();
     let (kind, url, interval, tolerance, strategy) = match group.strategy() {
         GroupStrategyV1::Select => ("select", None, None, None, None),

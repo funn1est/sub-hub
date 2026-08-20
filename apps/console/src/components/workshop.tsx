@@ -79,34 +79,30 @@ import {
 } from "@/lib/i18n.ts"
 import type { Locale, PersistedWorkshop, Theme } from "@/lib/persist.ts"
 import {
-  classifyFetchFailure,
-  classifyPreviewBody,
-  classifyVersionBody,
-  fallbackDownloadName,
-  filenameFromDisposition,
   parseSkippedHeader,
-  pickExposedHeaders,
-  truncatePreviewBody,
-  type FetchFailure,
-  type PreviewBodyKind,
+  runPreview,
+  runVersionProbe,
+  type PreviewState,
 } from "@/lib/preview.ts"
+import {
+  MAX_SOURCES,
+  TARGETS,
+  assembleSubscription,
+  parseAccessToken,
+  parseHttpsResourceUrl,
+  parseServiceOrigin,
+  parseSubscriptionUrl,
+  type Target,
+} from "@/lib/service-contract.ts"
 import {
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
   acl4ssrConfigLabel,
   acl4ssrConfigUrl,
-  assembleSubscription,
   clashInstallUrl,
   configPresetOf,
-  MAX_SOURCES,
-  parseAccessToken,
-  parseHttpsResourceUrl,
-  parseServiceOrigin,
-  parseSubscriptionUrl,
-  TARGETS,
   type Acl4ssrConfigFile,
-  type Target,
 } from "@/lib/workshop.ts"
 
 type ConfigChoice = {
@@ -131,21 +127,6 @@ type VersionState =
   | { status: "ok"; body: string }
   | { status: "other" }
   | { status: "unreachable" }
-
-type PreviewState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | {
-      status: "done"
-      httpStatus: number
-      kind: PreviewBodyKind
-      headers: { name: string; value: string }[]
-      body: string
-      viewText: string
-      truncated: boolean
-      filename: string
-    }
-  | { status: "unreachable"; cause: FetchFailure }
 
 export function Workshop({ state, onChange, banner }: WorkshopProps) {
   const copy = t(state.locale)
@@ -194,23 +175,11 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
 
     const origin = canonicalOrigin
     const controller = new AbortController()
-    void fetch(`${origin}/version`, { signal: controller.signal })
-      .then(async (response) => {
-        const body = await response.text()
-        if (controller.signal.aborted) {
-          return
-        }
-        if (classifyVersionBody(body) === "sub-hub") {
-          setProbe({ origin, state: { status: "ok", body: body.trim() } })
-          return
-        }
-        setProbe({ origin, state: { status: "other" } })
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setProbe({ origin, state: { status: "unreachable" } })
-        }
-      })
+    void runVersionProbe({ origin, signal: controller.signal }).then((state) => {
+      if (!controller.signal.aborted) {
+        setProbe({ origin, state })
+      }
+    })
 
     return () => {
       controller.abort()
@@ -265,33 +234,14 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
       return
     }
     setPreview({ status: "loading" })
-    try {
-      const response = await fetch(assembled.url)
-      const body = await response.text()
-      const truncated = truncatePreviewBody(body)
-      const kind = classifyPreviewBody(response.status, body)
-      setPreview({
-        status: "done",
-        httpStatus: response.status,
-        kind,
-        headers: pickExposedHeaders(response.headers),
-        body,
-        viewText: truncated.text,
-        truncated: truncated.truncated,
-        filename:
-          filenameFromDisposition(
-            response.headers.get("content-disposition")
-          ) ?? fallbackDownloadName(state.target),
+    setPreview(
+      await runPreview({
+        url: assembled.url,
+        target: state.target,
+        pageHttps: window.location.protocol === "https:",
+        serviceOrigin: canonicalOrigin ?? state.serviceOrigin,
       })
-    } catch {
-      setPreview({
-        status: "unreachable",
-        cause: classifyFetchFailure({
-          pageHttps: window.location.protocol === "https:",
-          serviceOrigin: canonicalOrigin ?? state.serviceOrigin,
-        }),
-      })
-    }
+    )
   }
 
   const onDownload = () => {

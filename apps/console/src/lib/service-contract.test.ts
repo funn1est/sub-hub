@@ -28,8 +28,14 @@ describe("Conversion Service GET contract", () => {
   })
 
   it("pins the HTTP query keys, source cap, and GET target byte limit", () => {
-    expect(QUERY_KEYS).toEqual(["target", "url", "config", "append_info"])
-    expect(isQueryKey("insert")).toBe(false)
+    expect(QUERY_KEYS).toEqual([
+      "target",
+      "url",
+      "config",
+      "append_info",
+      "insert",
+    ])
+    expect(isQueryKey("insert")).toBe(true)
     expect(MAX_SOURCES).toBe(5)
     expect(GET_TARGET_LIMIT_BYTES).toBe(8192)
   })
@@ -66,8 +72,13 @@ describe("Conversion Service GET contract", () => {
     })
   })
 
+  it("treats insert as a known query key that is never reassembled", () => {
+    expect(isQueryKey("insert")).toBe(true)
+    expect(isQueryKey("filename")).toBe(false)
+  })
+
   it("names download fallbacks per wire target", () => {
     expect(fallbackDownloadName("mihomo")).toBe("sub-hub-mihomo.yaml")
-    expect(fallbackDownloadName("clash")).toBe("sub-hub-clash.yaml")
+    expect(fallbackDownloadName("clash")).toBe("sub-hub-mihomo.yaml")
   })
 })

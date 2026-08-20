@@ -1,8 +1,6 @@
-use sub_hub_conversion::OutputTarget;
+use sub_hub_conversion::{MAX_SUBSCRIPTION_SOURCES, OutputTarget};
 
-const MAX_DIRECT_SOURCES: usize = 5;
-
-pub(crate) struct DirectQuery {
+pub(crate) struct SubQuery {
     pub(crate) target: OutputTarget,
     pub(crate) sources: Vec<String>,
     pub(crate) config: Option<String>,
@@ -15,11 +13,7 @@ pub(crate) enum QueryError {
     InvalidTarget,
 }
 
-pub(crate) fn parse_application_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
-    parse_query(raw_query)
-}
-
-fn parse_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
+pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryError> {
     let raw_query = raw_query.unwrap_or_default();
     if raw_query
         .bytes()
@@ -76,7 +70,7 @@ fn parse_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
     };
     let sources = url.split('|').map(str::to_owned).collect::<Vec<_>>();
     if sources.is_empty()
-        || sources.len() > MAX_DIRECT_SOURCES
+        || sources.len() > MAX_SUBSCRIPTION_SOURCES
         || sources.iter().any(|source| {
             source.is_empty()
                 || source.starts_with([' ', '\t'])
@@ -87,7 +81,7 @@ fn parse_query(raw_query: Option<&str>) -> Result<DirectQuery, QueryError> {
         return Err(QueryError::InvalidRequest);
     }
 
-    Ok(DirectQuery {
+    Ok(SubQuery {
         target,
         sources,
         config: config.filter(|value| !value.is_empty()),

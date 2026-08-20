@@ -1,8 +1,9 @@
 use std::fmt;
 
-use http::{Method, StatusCode};
+use http::Method;
 use sub_hub_conversion::{
-    DirectRenderError, SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
+    ConversionRenderError, OutputTarget, SkipCountsV1, SubscriptionPreparationError,
+    SubscriptionSourceV1, prepare_subscription_v1,
 };
 use url::Url;
 
@@ -14,8 +15,7 @@ use crate::{
     remote_url::{canonical_remote_url, is_valid_inbound_host},
     request::{RequestPath, classify_path, handle_version, request_target_too_long},
     response::{
-        ApplicationError, error_response, insert_skip_headers, subscription_response_for,
-        success_response,
+        ApplicationError, attach_conversion_headers, error_response, subscription_response_for,
     },
     userinfo::{
         SubscriptionUserInfoV1, insert_subscription_user_info, parse_subscription_user_info,
@@ -81,7 +81,7 @@ impl<A: RemoteAdapter> Application<A> {
                 error_response(ApplicationError::Unauthorized)
             }
             RequestPath::Sub { .. } => self
-                .convert_sub(&method, raw_query, inbound_host)
+                .convert_sub(raw_query, inbound_host)
                 .await
                 .unwrap_or_else(error_response),
             RequestPath::Unknown => error_response(ApplicationError::NotFound),
@@ -90,12 +90,11 @@ impl<A: RemoteAdapter> Application<A> {
 
     async fn convert_sub(
         &self,
-        method: &Method,
         raw_query: Option<&str>,
         inbound_host: Option<&str>,
     ) -> Result<HttpResponse, ApplicationError> {
         let plan = self.resolve_sub_request(raw_query, inbound_host)?;
-        self.execute_sub_request(method, plan).await
+        self.execute_sub_request(plan).await
     }
 
     fn resolve_sub_request(
@@ -103,7 +102,7 @@ impl<A: RemoteAdapter> Application<A> {
         raw_query: Option<&str>,
         inbound_host: Option<&str>,
     ) -> Result<SubRequestPlan, ApplicationError> {
-        let parsed = query::parse_application_query(raw_query).map_err(|error| match error {
+        let parsed = query::parse_query(raw_query).map_err(|error| match error {
             query::QueryError::InvalidTarget => ApplicationError::InvalidTarget,
             query::QueryError::InvalidRequest => ApplicationError::InvalidRequest,
         })?;
@@ -170,7 +169,6 @@ impl<A: RemoteAdapter> Application<A> {
 
     async fn execute_sub_request(
         &self,
-        method: &Method,
         plan: SubRequestPlan,
     ) -> Result<HttpResponse, ApplicationError> {
         let (prepared, broker, eligible_metadata) = self.load_prepared_subscription(&plan).await?;
@@ -180,38 +178,17 @@ impl<A: RemoteAdapter> Application<A> {
             ..
         } = plan;
         let target = plan.parsed.target;
-        if *method == Method::HEAD {
-            if let Some(config_url) = config_url {
-                return self
-                    .inspect_acl4ssr(
-                        prepared,
-                        broker,
-                        config_url,
-                        &inbound_host,
-                        eligible_metadata,
-                        target,
-                    )
-                    .await;
-            }
-            return match prepared.inspect_builtin_v1(target) {
-                Ok(skips) => {
-                    let mut response = success_response(StatusCode::OK, Vec::new());
-                    insert_subscription_user_info(&mut response, eligible_metadata);
-                    insert_skip_headers(&mut response, skips);
-                    Ok(response)
-                }
-                Err(error) => Err(map_direct_render_error(error)),
-            };
-        }
         let Some(config_url) = config_url else {
-            let rendered = prepared.render_builtin_v1(target);
-            return match rendered {
+            return match prepared.render_builtin_v1(target) {
                 Ok(config) => {
                     let skips = config.skip_counts();
-                    let mut response = subscription_response_for(target, config.into_bytes());
-                    insert_subscription_user_info(&mut response, eligible_metadata);
-                    insert_skip_headers(&mut response, skips);
-                    Ok(response)
+                    Ok(finish_subscription(
+                        target,
+                        config.into_bytes(),
+                        skips,
+                        eligible_metadata,
+                        0,
+                    ))
                 }
                 Err(error) => Err(map_direct_render_error(error)),
             };
@@ -336,24 +313,37 @@ impl<A> fmt::Debug for Application<A> {
 }
 
 struct SubRequestPlan {
-    parsed: query::DirectQuery,
+    parsed: query::SubQuery,
     inbound_host: String,
     config_url: Option<Url>,
     canonical_sources: Vec<Option<String>>,
     unique_urls: Vec<Url>,
 }
 
-const fn map_direct_render_error(error: DirectRenderError) -> ApplicationError {
+pub(crate) fn finish_subscription(
+    target: OutputTarget,
+    body: Vec<u8>,
+    skips: SkipCountsV1,
+    metadata: Option<SubscriptionUserInfoV1>,
+    omitted_url_regex: u8,
+) -> HttpResponse {
+    let mut response = subscription_response_for(target, body);
+    insert_subscription_user_info(&mut response, metadata);
+    attach_conversion_headers(&mut response, skips, omitted_url_regex);
+    response
+}
+
+const fn map_direct_render_error(error: ConversionRenderError) -> ApplicationError {
     match error {
-        DirectRenderError::ConversionLimit => ApplicationError::ConversionLimit,
-        DirectRenderError::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
-        DirectRenderError::Internal => ApplicationError::Internal,
+        ConversionRenderError::ConversionLimit => ApplicationError::ConversionLimit,
+        ConversionRenderError::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
+        ConversionRenderError::Internal => ApplicationError::Internal,
     }
 }
 
 const fn map_subscription_error(error: SubscriptionPreparationError) -> ApplicationError {
     match error {
-        SubscriptionPreparationError::InvalidInput => ApplicationError::Internal,
+        SubscriptionPreparationError::InvalidInput => ApplicationError::InvalidRequest,
         SubscriptionPreparationError::RemoteFailure { .. } => ApplicationError::RemoteFailure,
         SubscriptionPreparationError::ConversionLimit => ApplicationError::ConversionLimit,
         SubscriptionPreparationError::NoValidNodes { skips } => {
@@ -440,6 +430,8 @@ fn preparation_error_before_remote_failure(
         Err(SubscriptionPreparationError::ConversionLimit) => {
             Ok(Some(ApplicationError::ConversionLimit))
         }
-        Err(SubscriptionPreparationError::InvalidInput) => Err(ApplicationError::Internal),
+        Err(SubscriptionPreparationError::InvalidInput) => {
+            Ok(Some(ApplicationError::InvalidRequest))
+        }
     }
 }

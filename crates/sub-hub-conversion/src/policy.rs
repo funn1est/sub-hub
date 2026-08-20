@@ -132,7 +132,7 @@ impl fmt::Debug for GroupStrategyV1 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum PolicyMemberV1 {
     Direct,
     Reject,
@@ -141,11 +141,14 @@ pub(crate) enum PolicyMemberV1 {
 }
 
 impl PolicyMemberV1 {
-    pub(crate) fn as_symbol(&self) -> &str {
+    /// Target-neutral size used by compile-time output budgets.
+    ///
+    /// Bounds every client spelling of Direct/Reject (`DIRECT` / `direct` /
+    /// `REJECT` / `reject`) without baking one adapter's token into the IR.
+    pub(crate) fn budget_bytes(&self) -> usize {
         match self {
-            Self::Direct => "DIRECT",
-            Self::Reject => "REJECT",
-            Self::Group(name) | Self::Node(name) => name,
+            Self::Direct | Self::Reject => 6,
+            Self::Group(name) | Self::Node(name) => name.len(),
         }
     }
 }
@@ -193,13 +196,13 @@ impl CompiledRuleV1 {
             | RuleMatcherV1::UrlRegex(value) => value.len(),
             RuleMatcherV1::IpCidr {
                 value, no_resolve, ..
-            } => value.len() + if *no_resolve { "no-resolve".len() } else { 0 },
+            } => value.len() + if *no_resolve { 10 } else { 0 },
             RuleMatcherV1::GeoIpCn => 2,
             RuleMatcherV1::Match => 0,
         };
         RECORD_OVERHEAD
             .saturating_add(payload)
-            .saturating_add(self.target.as_symbol().len())
+            .saturating_add(self.target.budget_bytes())
     }
 }
 
@@ -259,7 +262,6 @@ pub(crate) enum IpVersion {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct PolicyReportV1 {
-    pub(crate) omitted_url_regex: u8,
     pub(crate) empty_groups: u8,
     pub(crate) ignored_legacy_probe_hints: u8,
 }

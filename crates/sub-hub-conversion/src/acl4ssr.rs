@@ -19,8 +19,8 @@ use policy_compile::{
 
 use crate::{
     OutputTarget,
-    node_name::{NamedSubscriptionSources, resolve_node_names},
-    render::{MAX_OUTPUT_BYTES, NamedPolicyError, inspect_named_sources, render_named_policy},
+    node_name::resolve_node_names,
+    render::{MAX_OUTPUT_BYTES, NamedPolicyError, render_named_policy},
     skip::SkipCountsV1,
     subscription_source::ParsedSubscriptionSources,
 };
@@ -39,25 +39,6 @@ impl PreparedAcl4SsrV1 {
         &self.requests
     }
 
-    /// Classifies nodes for `target` using this config's reserved group names.
-    ///
-    /// Does not load or parse Rule Sets and does not serialize a document.
-    ///
-    /// # Errors
-    ///
-    /// Same closed node-naming and all-skipped set as rendering.
-    pub fn inspect_v1(self, target: OutputTarget) -> Result<SkipCountsV1, Acl4SsrRenderError> {
-        let group_names = self
-            .config
-            .groups
-            .iter()
-            .map(|group| group.name.as_str())
-            .collect::<Vec<_>>();
-        let named = resolve_node_names(self.parsed_subscription, &group_names)
-            .map_err(|_| Acl4SsrRenderError::Internal)?;
-        inspect_named_nodes(&named, target)
-    }
-
     /// Binds the ordered request occurrences to the broker's first-seen unique flights.
     ///
     /// `flight_by_occurrence` must contain one index for every request returned by
@@ -69,7 +50,7 @@ impl PreparedAcl4SsrV1 {
     ///
     /// Returns a closed alignment or resource-limit error. No URLs or mapping values are retained
     /// by errors or debug output.
-    pub fn bind_rule_set_flights_v1(
+    pub(crate) fn bind_rule_set_flights_v1(
         self,
         flight_by_occurrence: &[usize],
     ) -> Result<PreparedAcl4SsrRuleSetsV1, Acl4SsrRenderError> {
@@ -93,6 +74,7 @@ impl PreparedAcl4SsrV1 {
             flight_count,
             parsed_rule_sets: (0..flight_count).map(|_| None).collect(),
             occurrence_urls: Vec::new(),
+            unique_urls: Vec::new(),
         })
     }
 
@@ -117,18 +99,16 @@ impl PreparedAcl4SsrV1 {
         for url in canonical_urls {
             let flight = unique_urls
                 .iter()
-                .position(|existing: &String| existing == url);
-            let flight = match flight {
-                Some(flight) => flight,
-                None => {
+                .position(|existing: &String| existing == url)
+                .unwrap_or_else(|| {
                     unique_urls.push(url.clone());
                     unique_urls.len() - 1
-                }
-            };
+                });
             flight_by_occurrence.push(flight);
         }
         let mut bound = self.bind_rule_set_flights_v1(&flight_by_occurrence)?;
         bound.occurrence_urls = canonical_urls.to_vec();
+        bound.unique_urls = unique_urls;
         Ok(bound)
     }
 }
@@ -139,6 +119,7 @@ pub struct PreparedAcl4SsrRuleSetsV1 {
     flight_count: usize,
     parsed_rule_sets: Vec<Option<Vec<RuleEntry>>>,
     occurrence_urls: Vec<String>,
+    unique_urls: Vec<String>,
 }
 
 impl PreparedAcl4SsrRuleSetsV1 {
@@ -162,18 +143,7 @@ impl PreparedAcl4SsrRuleSetsV1 {
         render(self, unique_rule_set_bodies, target)
     }
 
-    /// Validates a successfully loaded prefix of the ordered Rule Set occurrence plan.
-    ///
-    /// This is an error-arbitration seam for an orchestrator that must compare an earlier loaded
-    /// body error with a later transport failure. `occurrence_exclusive` is the first remote
-    /// declaration not yet available; inline rules before that declaration remain part of the
-    /// prefix. It performs no I/O, naming, expansion, or rendering.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same closed Rule Set grammar, generic capability, and resource-limit errors that
-    /// final rendering would observe within this prefix.
-    pub fn validate_occurrence_prefix_v1(
+    fn validate_occurrence_prefix_v1(
         &mut self,
         unique_rule_set_bodies: &[&[u8]],
         occurrence_exclusive: usize,
@@ -226,12 +196,36 @@ impl PreparedAcl4SsrRuleSetsV1 {
         &self.occurrence_urls
     }
 
-    /// Validates every occurrence covered by the loaded unique-body prefix.
+    /// First-seen unique canonical URLs, aligned with unique Rule Set bodies.
+    #[must_use]
+    pub fn unique_canonical_urls(&self) -> &[String] {
+        &self.unique_urls
+    }
+
+    /// Grammar and budget check for a loaded unique prefix.
+    ///
+    /// When `decoded_crossing_occurrence` is `Some`, the host has already hit its
+    /// decoded-byte cap at that declaration; this method still reports an earlier
+    /// Rule Set grammar error if one exists in the prefix.
     ///
     /// # Errors
     ///
-    /// Same closed Rule Set errors as [`Self::validate_occurrence_prefix_v1`].
-    pub fn validate_loaded_unique_prefix_v1(
+    /// Same closed Rule Set grammar and budget errors as final rendering would
+    /// observe in this prefix, or [`Acl4SsrRenderError::ConversionLimit`] when
+    /// the host reported a decoded-byte crossing.
+    pub fn check_loaded_prefix(
+        &mut self,
+        unique_rule_set_bodies: &[&[u8]],
+        decoded_crossing_occurrence: Option<usize>,
+    ) -> Result<(), Acl4SsrRenderError> {
+        if let Some(crossing) = decoded_crossing_occurrence {
+            self.validate_occurrence_prefix_v1(unique_rule_set_bodies, crossing)?;
+            return Err(Acl4SsrRenderError::ConversionLimit);
+        }
+        self.validate_loaded_unique_prefix_v1(unique_rule_set_bodies)
+    }
+
+    fn validate_loaded_unique_prefix_v1(
         &mut self,
         unique_rule_set_bodies: &[&[u8]],
     ) -> Result<(), Acl4SsrRenderError> {
@@ -430,8 +424,6 @@ fn render(
         &mut bound.parsed_rule_sets,
     )?;
     let prepared = bound.prepared;
-    let omitted_url_regex_count = u8::try_from(materialized.omitted_url_regex_count)
-        .map_err(|_| Acl4SsrRenderError::UnsupportedRule)?;
 
     let group_names = prepared
         .config
@@ -470,27 +462,15 @@ fn render(
         return Err(Acl4SsrRenderError::ConversionLimit);
     }
 
-    let policy = compile_acl4ssr_policy(
-        &prepared.config.groups,
-        &node_names,
-        materialized.rules,
-        omitted_url_regex_count,
-    )?;
-    let report = Acl4SsrConversionReportV1 {
-        omitted_url_regex: match target {
-            OutputTarget::Loon => 0,
-            OutputTarget::Mihomo
-            | OutputTarget::Quanx
-            | OutputTarget::Singbox
-            | OutputTarget::Egern => policy.report().omitted_url_regex,
-        },
-        empty_groups: policy.report().empty_groups,
-        ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
-    };
+    let policy = compile_acl4ssr_policy(&prepared.config.groups, &node_names, materialized.rules)?;
     match render_named_policy(&named, &policy, target, MAX_OUTPUT_BYTES) {
         Ok(document) => Ok(Acl4SsrOutputV1 {
             bytes: document.bytes,
-            report,
+            report: Acl4SsrConversionReportV1 {
+                omitted_url_regex: document.omitted_url_regex,
+                empty_groups: policy.report().empty_groups,
+                ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
+            },
             skips: document.skips,
         }),
         Err(error) => Err(map_named_policy_error(error)),
@@ -505,9 +485,39 @@ fn map_named_policy_error(error: NamedPolicyError) -> Acl4SsrRenderError {
     }
 }
 
-fn inspect_named_nodes(
-    named: &NamedSubscriptionSources,
-    target: OutputTarget,
-) -> Result<SkipCountsV1, Acl4SsrRenderError> {
-    inspect_named_sources(named, target).map_err(|skips| Acl4SsrRenderError::NoValidNodes { skips })
+#[cfg(test)]
+mod tests {
+    use super::{Acl4SsrRenderError, PreparedAcl4SsrV1};
+    use crate::{SubscriptionSourceV1, prepare_subscription_v1};
+
+    const VALID: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
+
+    fn two_remote_rule_sets() -> PreparedAcl4SsrV1 {
+        let config = concat!(
+            "[custom]\n",
+            "ruleset=PROXY,https://rules.example/first.list\n",
+            "ruleset=PROXY,https://rules.example/second.list\n",
+            "enable_rule_generator=true\n",
+            "custom_proxy_group=PROXY`select`.*\n",
+            "ruleset=PROXY,[]FINAL\n",
+            "overwrite_original_rules=true\n",
+        );
+        prepare_subscription_v1(&[SubscriptionSourceV1::Direct(VALID)])
+            .unwrap()
+            .prepare_acl4ssr_config_v1(config.as_bytes())
+            .unwrap()
+    }
+
+    #[test]
+    fn rule_set_flight_mapping_is_dense_and_aligned() {
+        let prepare = two_remote_rule_sets;
+        for invalid in [&[][..], &[0][..], &[1, 0][..], &[0, 2][..]] {
+            assert_eq!(
+                prepare().bind_rule_set_flights_v1(invalid).unwrap_err(),
+                Acl4SsrRenderError::RuleSetAlignment
+            );
+        }
+        assert!(prepare().bind_rule_set_flights_v1(&[0, 0]).is_ok());
+        assert!(prepare().bind_rule_set_flights_v1(&[0, 1]).is_ok());
+    }
 }

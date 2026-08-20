@@ -110,6 +110,15 @@ pub(crate) fn subscription_response_for(target: OutputTarget, body: Vec<u8>) -> 
     }
 }
 
+pub(crate) fn attach_conversion_headers(
+    response: &mut HttpResponse,
+    skips: SkipCountsV1,
+    omitted_url_regex_count: u8,
+) {
+    insert_lossy_headers(response, omitted_url_regex_count);
+    insert_skip_headers(response, skips);
+}
+
 pub(crate) fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_regex_count: u8) {
     if omitted_url_regex_count == 0 {
         return;

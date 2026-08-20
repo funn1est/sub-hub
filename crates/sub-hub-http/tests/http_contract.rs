@@ -891,33 +891,21 @@ fn percent_encoded_utf8_is_preserved_after_raw_non_ascii_is_rejected() {
 }
 
 #[test]
-fn successful_head_stops_after_preparation_and_has_only_early_headers() {
+fn successful_head_matches_get_headers_without_body() {
     let query = format!("target=clash&url={ENCODED_VLESS}&config=&insert=false");
-    let response = handle(HttpRequest::new(Method::HEAD, "/sub", Some(&query)));
+    let get = handle(HttpRequest::new(Method::GET, "/sub", Some(&query)));
+    let head = handle(HttpRequest::new(Method::HEAD, "/sub", Some(&query)));
 
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(response.body().is_empty());
+    assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(head.status(), get.status());
+    assert!(head.body().is_empty());
+    assert!(!get.body().is_empty());
+    assert_eq!(head.headers(), get.headers());
     assert_eq!(
-        response.headers().get(header::CONTENT_TYPE).unwrap(),
-        "text/plain;charset=utf-8"
+        head.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename=\"sub-hub-mihomo.yaml\""
     );
-    assert_eq!(
-        response.headers().get(header::CACHE_CONTROL).unwrap(),
-        "no-store"
-    );
-    assert!(response.headers().get(header::CONTENT_LENGTH).is_none());
-    assert!(
-        response
-            .headers()
-            .get(header::CONTENT_DISPOSITION)
-            .is_none()
-    );
-    assert!(response.headers().get("profile-update-interval").is_none());
-    assert_eq!(
-        response.headers().get(header::REFERRER_POLICY).unwrap(),
-        "no-referrer"
-    );
-    assert_eq!(response.headers().len(), 3);
+    assert_eq!(head.headers().get("profile-update-interval").unwrap(), "24");
 }
 
 #[test]

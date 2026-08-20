@@ -18,24 +18,17 @@ pub(crate) fn render_quanx_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let kept = KeptNodes::require(named_nodes, classify_node)?;
-    let mut servers = Vec::new();
-    let mut valid_tags = Vec::new();
-    for node in &kept.nodes {
-        let tag = quanx_node_tag(node.name().as_str()).ok_or(AdapterRenderError::Internal)?;
-        let line = render_server_line(node, tag).ok_or(AdapterRenderError::Internal)?;
-        valid_tags.push(tag.to_owned());
-        servers.push(ServerRecord {
-            original_tag: tag.to_owned(),
-            line,
-        });
-    }
+    let (kept, servers) = KeptNodes::encode(named_nodes, encode_node)?;
+    let valid_tags = servers
+        .iter()
+        .map(|server| server.original_tag.clone())
+        .collect::<Vec<_>>();
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let unique_urls = unique_health_urls(policy);
     let groups = render_groups(policy, &valid, &unique_urls)?;
     let servers = expand_servers(servers, policy, &valid, &unique_urls)?;
-    let rules = render_rules(policy.rules());
+    let (rules, omitted_url_regex) = render_rules(policy.rules());
 
     let mut body = String::new();
     if let Some(url) = unique_urls.first() {
@@ -68,22 +61,24 @@ pub(crate) fn render_quanx_from_policy_v1(
     if body.len() > limit_bytes {
         return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
     }
-    Ok(RenderedTargetV1 {
-        bytes: body.into_bytes(),
-        capability_skips: kept.capability_skips,
-        name_skips: kept.name_skips,
-    })
+    Ok(RenderedTargetV1::from_parts(
+        body.into_bytes(),
+        &kept,
+        omitted_url_regex,
+    ))
 }
 
-pub(crate) fn classify_node(node: &ProxyNode) -> NodeKeep {
+fn encode_node(node: &ProxyNode) -> Result<ServerRecord, NodeKeep> {
     let Some(tag) = quanx_node_tag(node.name().as_str()) else {
-        return NodeKeep::Name;
+        return Err(NodeKeep::Name);
     };
-    if render_server_line(node, tag).is_none() {
-        NodeKeep::Capability
-    } else {
-        NodeKeep::Keep
-    }
+    let Some(line) = render_server_line(node, tag) else {
+        return Err(NodeKeep::Capability);
+    };
+    Ok(ServerRecord {
+        original_tag: tag.to_owned(),
+        line,
+    })
 }
 
 struct ServerRecord {
@@ -570,8 +565,9 @@ fn insert_before_tag(line: &str, field: &str) -> String {
     }
 }
 
-fn render_rules(rules: &[CompiledRuleV1]) -> Vec<String> {
+fn render_rules(rules: &[CompiledRuleV1]) -> (Vec<String>, u8) {
     let mut lines = Vec::new();
+    let mut omitted_url_regex = 0_u8;
     for rule in rules {
         let Some(policy) = (match rule.target() {
             PolicyMemberV1::Direct => Some("direct"),
@@ -597,8 +593,11 @@ fn render_rules(rules: &[CompiledRuleV1]) -> Vec<String> {
             },
             RuleMatcherV1::GeoIpCn => format!("geoip, cn, {policy}"),
             RuleMatcherV1::Match => format!("final, {policy}"),
+            RuleMatcherV1::UrlRegex(_) => {
+                omitted_url_regex = omitted_url_regex.saturating_add(1);
+                continue;
+            }
             RuleMatcherV1::ProcessName(_)
-            | RuleMatcherV1::UrlRegex(_)
             | RuleMatcherV1::Domain(_)
             | RuleMatcherV1::DomainSuffix(_)
             | RuleMatcherV1::DomainKeyword(_)
@@ -606,7 +605,7 @@ fn render_rules(rules: &[CompiledRuleV1]) -> Vec<String> {
         };
         lines.push(line);
     }
-    lines
+    (lines, omitted_url_regex)
 }
 
 #[cfg(test)]

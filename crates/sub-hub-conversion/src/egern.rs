@@ -21,19 +21,17 @@ pub(crate) fn render_egern_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let kept = KeptNodes::require(named_nodes, classify_node)?;
-    let mut proxies = Vec::new();
-    let mut valid_tags = Vec::new();
-    for node in &kept.nodes {
-        let tag = plain_node_tag(node.name().as_str()).ok_or(AdapterRenderError::Internal)?;
-        let entry = proxy_entry(node, tag).ok_or(AdapterRenderError::Internal)?;
-        valid_tags.push(tag.to_owned());
+    let (kept, encoded) = KeptNodes::encode(named_nodes, encode_node)?;
+    let mut valid_tags = Vec::with_capacity(encoded.len());
+    let mut proxies = Vec::with_capacity(encoded.len());
+    for (tag, entry) in encoded {
+        valid_tags.push(tag);
         proxies.push(entry);
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let policy_groups = render_groups(policy, &valid)?;
-    let rules = render_rules(policy.rules(), &valid)?;
+    let (rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
     let document = Document {
         proxy_latency_test_url: shared_probe_url(policy).map(str::to_owned),
         proxies,
@@ -47,22 +45,17 @@ pub(crate) fn render_egern_from_policy_v1(
         }
         body.push(b'\n');
     }
-    Ok(RenderedTargetV1 {
-        bytes: body,
-        capability_skips: kept.capability_skips,
-        name_skips: kept.name_skips,
-    })
+    Ok(RenderedTargetV1::from_parts(body, &kept, omitted_url_regex))
 }
 
-pub(crate) fn classify_node(node: &ProxyNode) -> NodeKeep {
+fn encode_node(node: &ProxyNode) -> Result<(String, ProxyEntry), NodeKeep> {
     let Some(tag) = plain_node_tag(node.name().as_str()) else {
-        return NodeKeep::Name;
+        return Err(NodeKeep::Name);
     };
-    if proxy_entry(node, tag).is_none() {
-        NodeKeep::Capability
-    } else {
-        NodeKeep::Keep
-    }
+    let Some(entry) = proxy_entry(node, tag) else {
+        return Err(NodeKeep::Capability);
+    };
+    Ok((tag.to_owned(), entry))
 }
 
 fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
@@ -455,8 +448,9 @@ fn render_groups(
 fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
-) -> Result<Vec<RuleEntry>, AdapterRenderError> {
+) -> Result<(Vec<RuleEntry>, u8), AdapterRenderError> {
     let mut rendered = Vec::new();
+    let mut omitted_url_regex = 0_u8;
     for rule in rules {
         let Some(policy) = member_token(rule.target(), valid_nodes)? else {
             continue;
@@ -498,11 +492,15 @@ fn render_rules(
                 no_resolve: None,
             }),
             RuleMatcherV1::Match => RuleEntry::default_policy(policy),
-            RuleMatcherV1::ProcessName(_) | RuleMatcherV1::UrlRegex(_) => continue,
+            RuleMatcherV1::UrlRegex(_) => {
+                omitted_url_regex = omitted_url_regex.saturating_add(1);
+                continue;
+            }
+            RuleMatcherV1::ProcessName(_) => continue,
         };
         rendered.push(entry);
     }
-    Ok(rendered)
+    Ok((rendered, omitted_url_regex))
 }
 
 #[derive(Serialize)]

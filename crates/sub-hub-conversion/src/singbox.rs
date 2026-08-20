@@ -24,14 +24,12 @@ pub(crate) fn render_singbox_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let kept = KeptNodes::require(named_nodes, classify_node)?;
-    let mut node_outbounds = Vec::new();
-    let mut valid_tags = Vec::new();
-    for node in &kept.nodes {
-        let tag = plain_node_tag(node.name().as_str()).ok_or(AdapterRenderError::Internal)?;
-        let outbound = node_outbound(node, tag).ok_or(AdapterRenderError::Internal)?;
+    let (kept, encoded) = KeptNodes::encode(named_nodes, encode_node)?;
+    let mut valid_tags = Vec::with_capacity(encoded.len());
+    let mut node_outbounds = Vec::with_capacity(encoded.len());
+    for (tag, outbound) in encoded {
+        valid_tags.push(tag);
         node_outbounds.push(outbound);
-        valid_tags.push(tag.to_owned());
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
@@ -53,6 +51,7 @@ pub(crate) fn render_singbox_from_policy_v1(
         tag: "reject",
     }));
 
+    let (route_rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
     let document = Document {
         log: Log {
             disabled: false,
@@ -75,28 +74,27 @@ pub(crate) fn render_singbox_from_policy_v1(
         }],
         outbounds,
         route: Route {
-            rules: render_rules(policy.rules(), &valid)?,
+            rules: route_rules,
             final_outbound: final_tag,
             default_domain_resolver: "local",
         },
     };
     let bytes = serialize_pretty(&document, limit_bytes)?;
-    Ok(RenderedTargetV1 {
+    Ok(RenderedTargetV1::from_parts(
         bytes,
-        capability_skips: kept.capability_skips,
-        name_skips: kept.name_skips,
-    })
+        &kept,
+        omitted_url_regex,
+    ))
 }
 
-pub(crate) fn classify_node(node: &ProxyNode) -> NodeKeep {
+fn encode_node(node: &ProxyNode) -> Result<(String, Outbound<'_>), NodeKeep> {
     let Some(tag) = plain_node_tag(node.name().as_str()) else {
-        return NodeKeep::Name;
+        return Err(NodeKeep::Name);
     };
-    if node_outbound(node, tag).is_none() {
-        NodeKeep::Capability
-    } else {
-        NodeKeep::Keep
-    }
+    let Some(outbound) = node_outbound(node, tag) else {
+        return Err(NodeKeep::Capability);
+    };
+    Ok((tag.to_owned(), outbound))
 }
 
 fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Option<Outbound<'a>> {
@@ -389,8 +387,9 @@ fn urltest_outbound(
 fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
-) -> Result<Vec<RouteRule>, AdapterRenderError> {
+) -> Result<(Vec<RouteRule>, u8), AdapterRenderError> {
     let mut rendered = Vec::new();
+    let mut omitted_url_regex = 0_u8;
     for rule in rules {
         let Some(outbound) = member_tag(rule.target(), valid_nodes)? else {
             continue;
@@ -421,11 +420,15 @@ fn render_rules(
                 outbound,
                 ..RouteRule::empty()
             },
-            RuleMatcherV1::GeoIpCn | RuleMatcherV1::Match | RuleMatcherV1::UrlRegex(_) => continue,
+            RuleMatcherV1::UrlRegex(_) => {
+                omitted_url_regex = omitted_url_regex.saturating_add(1);
+                continue;
+            }
+            RuleMatcherV1::GeoIpCn | RuleMatcherV1::Match => continue,
         };
         rendered.push(route);
     }
-    Ok(rendered)
+    Ok((rendered, omitted_url_regex))
 }
 
 fn serialize_pretty(

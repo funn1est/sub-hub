@@ -1,18 +1,20 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  assembleSubscription,
+  parseAccessToken,
+  parseServiceOrigin,
+  parseSubscriptionUrl,
+  type SubscriptionAssemblyInput,
+} from "./service-contract.ts"
+import {
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
   ACL4SSR_ONLINE_URL,
   acl4ssrConfigUrl,
-  assembleSubscription,
   clashInstallUrl,
   configPresetOf,
-  parseAccessToken,
-  parseServiceOrigin,
-  parseSubscriptionUrl,
-  type WorkshopInput,
 } from "./workshop.ts"
 
 const VLESS =
@@ -23,7 +25,9 @@ const TWO_SOURCES_ENCODED =
   "vless%3A%2F%2Fu%40h%3A443%23A%7Css%3A%2F%2Fp%40h%3A8388%23B"
 const ONLINE_ENCODED = encodeURIComponent(ACL4SSR_ONLINE_URL)
 
-function input(overrides: Partial<WorkshopInput> = {}): WorkshopInput {
+function input(
+  overrides: Partial<SubscriptionAssemblyInput> = {}
+): SubscriptionAssemblyInput {
   return {
     serviceOrigin: "http://127.0.0.1:25500",
     accessToken: "",
@@ -202,6 +206,7 @@ describe("parseSubscriptionUrl", () => {
       return
     }
     expect(parsed.warnings).toContain("unknown-keys")
+    expect(parsed.warnings).not.toContain("duplicate-keys")
     const again = assembleSubscription({
       serviceOrigin: parsed.workshop.serviceOrigin ?? "",
       accessToken: parsed.workshop.accessToken ?? "",

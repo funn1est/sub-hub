@@ -1,7 +1,18 @@
 use sub_hub_conversion::{
-    DirectRenderError, OutputTarget, SkipCountsV1, SubscriptionSourceV1,
-    prepare_direct_subscription_v1, prepare_subscription_v1,
+    ConversionRenderError, OutputTarget, SkipCountsV1, SubscriptionPreparationError,
+    SubscriptionSourceV1, prepare_subscription_v1,
 };
+
+fn prepare_direct(
+    uris: &[&str],
+) -> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
+    let sources: Vec<_> = uris
+        .iter()
+        .copied()
+        .map(SubscriptionSourceV1::Direct)
+        .collect();
+    prepare_subscription_v1(&sources)
+}
 
 const VLESS: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
 const ANYTLS: &str = "anytls://secret-canary.example:443#Canary";
@@ -17,22 +28,25 @@ fn builtin_facade_dispatches_every_released_target() {
         OutputTarget::Loon,
         OutputTarget::Egern,
     ] {
-        let rendered = prepare_direct_subscription_v1(&[VLESS])
+        let rendered = prepare_direct(&[VLESS])
             .expect("valid")
             .render_builtin_v1(target)
             .expect("vless is kept on every released target");
-        let inspected = prepare_direct_subscription_v1(&[VLESS])
-            .expect("valid")
-            .inspect_builtin_v1(target)
-            .expect("inspect matches render");
         assert!(!rendered.as_bytes().is_empty());
-        assert_eq!(inspected, rendered.skip_counts());
+        assert_eq!(
+            rendered.skip_counts(),
+            SkipCountsV1 {
+                parse: 0,
+                capability: 0,
+                name: 0,
+            }
+        );
     }
 }
 
 #[test]
 fn mihomo_keeps_supported_nodes_and_counts_parse_skips() {
-    let prepared = prepare_direct_subscription_v1(&[ANYTLS, VLESS]).expect("one valid node");
+    let prepared = prepare_direct(&[ANYTLS, VLESS]).expect("one valid node");
     let config = prepared
         .render_builtin_v1(OutputTarget::Mihomo)
         .expect("mihomo keeps vless");
@@ -53,7 +67,7 @@ fn mihomo_keeps_supported_nodes_and_counts_parse_skips() {
 
 #[test]
 fn quanx_counts_hysteria2_as_capability_and_reserved_name() {
-    let prepared = prepare_direct_subscription_v1(&[HYSTERIA2, RESERVED, VLESS]).expect("mixed");
+    let prepared = prepare_direct(&[HYSTERIA2, RESERVED, VLESS]).expect("mixed");
     let config = prepared
         .render_builtin_v1(OutputTarget::Quanx)
         .expect("vless remains");
@@ -73,52 +87,13 @@ fn quanx_counts_hysteria2_as_capability_and_reserved_name() {
 
 #[test]
 fn adapter_all_skipped_is_no_valid_nodes_with_counts() {
-    let prepared = prepare_direct_subscription_v1(&[HYSTERIA2]).expect("parsed");
+    let prepared = prepare_direct(&[HYSTERIA2]).expect("parsed");
     let error = prepared
         .render_builtin_v1(OutputTarget::Quanx)
         .expect_err("qx drops hy2");
     assert_eq!(
         error,
-        DirectRenderError::NoValidNodes {
-            skips: SkipCountsV1 {
-                parse: 0,
-                capability: 1,
-                name: 0,
-            },
-        }
-    );
-}
-
-#[test]
-fn inspect_matches_render_counts_without_emitting_config() {
-    let prepared = prepare_direct_subscription_v1(&[ANYTLS, HYSTERIA2, VLESS]).expect("mixed");
-    let inspected = prepared
-        .inspect_builtin_v1(OutputTarget::Quanx)
-        .expect("one remains");
-    let prepared = prepare_direct_subscription_v1(&[ANYTLS, HYSTERIA2, VLESS]).expect("mixed");
-    let rendered = prepared
-        .render_builtin_v1(OutputTarget::Quanx)
-        .expect("one remains");
-    assert_eq!(inspected, rendered.skip_counts());
-    assert_eq!(
-        inspected,
-        SkipCountsV1 {
-            parse: 1,
-            capability: 1,
-            name: 0,
-        }
-    );
-}
-
-#[test]
-fn inspect_all_skipped_is_no_valid_nodes() {
-    let prepared = prepare_direct_subscription_v1(&[HYSTERIA2]).expect("parsed");
-    let error = prepared
-        .inspect_builtin_v1(OutputTarget::Quanx)
-        .expect_err("none remain");
-    assert_eq!(
-        error,
-        DirectRenderError::NoValidNodes {
+        ConversionRenderError::NoValidNodes {
             skips: SkipCountsV1 {
                 parse: 0,
                 capability: 1,

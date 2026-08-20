@@ -44,7 +44,7 @@ use crate::{
 pub(crate) const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Closed policy-render error shared by every `render_*_from_policy_v1` adapter entry.
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AdapterRenderError {
     NoValidNodes {
         capability_skips: u32,
@@ -85,6 +85,19 @@ pub(crate) struct RenderedTargetV1 {
     /// Parse-accepted nodes dropped because the allocated name is reserved
     /// or unrepresentable on this target.
     pub(crate) name_skips: u32,
+    /// URL-REGEX matchers this adapter omitted from the document.
+    pub(crate) omitted_url_regex: u8,
+}
+
+impl RenderedTargetV1 {
+    pub(crate) fn from_parts(bytes: Vec<u8>, kept: &KeptNodes, omitted_url_regex: u8) -> Self {
+        Self {
+            bytes,
+            capability_skips: kept.capability_skips,
+            name_skips: kept.name_skips,
+            omitted_url_regex,
+        }
+    }
 }
 
 impl fmt::Debug for RenderedTargetV1 {
@@ -95,6 +108,7 @@ impl fmt::Debug for RenderedTargetV1 {
             .field("bytes_len", &self.bytes.len())
             .field("capability_skips", &self.capability_skips)
             .field("name_skips", &self.name_skips)
+            .field("omitted_url_regex", &self.omitted_url_regex)
             .finish()
     }
 }
@@ -106,62 +120,54 @@ pub(crate) type RenderFromPolicyFn =
 /// Whether a named, parse-accepted node is kept by one target adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NodeKeep {
+    /// Encoder must not return this as failure; [`KeptNodes::encode`] maps it to Internal.
+    #[allow(
+        dead_code,
+        reason = "defensive: encode treats Keep-as-error as Internal"
+    )]
     Keep,
     Name,
     Capability,
 }
 
-pub(crate) type ClassifyNodeFn = fn(&ProxyNode) -> NodeKeep;
-
-/// Named, parse-accepted nodes that one target adapter will encode.
-pub(crate) struct KeptNodes<'a> {
-    pub(crate) nodes: Vec<&'a ProxyNode>,
+/// Keep accounting for one target adapter's encode pass.
+pub(crate) struct KeptNodes {
     pub(crate) capability_skips: u32,
     pub(crate) name_skips: u32,
 }
 
-impl<'a> KeptNodes<'a> {
-    pub(crate) fn partition(named_nodes: &[&'a ProxyNode], classify: ClassifyNodeFn) -> Self {
-        let mut nodes = Vec::new();
+impl KeptNodes {
+    /// Encode once: keep classification is the encoder's failure mode.
+    pub(crate) fn encode<'a, T>(
+        named_nodes: &[&'a ProxyNode],
+        mut encode: impl FnMut(&'a ProxyNode) -> Result<T, NodeKeep>,
+    ) -> Result<(Self, Vec<T>), AdapterRenderError> {
+        let mut items = Vec::new();
         let mut capability_skips = 0_u32;
         let mut name_skips = 0_u32;
         for node in named_nodes {
-            match classify(node) {
-                NodeKeep::Keep => nodes.push(*node),
-                NodeKeep::Name => name_skips = name_skips.saturating_add(1),
-                NodeKeep::Capability => capability_skips = capability_skips.saturating_add(1),
+            match encode(node) {
+                Ok(item) => items.push(item),
+                Err(NodeKeep::Name) => name_skips = name_skips.saturating_add(1),
+                Err(NodeKeep::Capability) => capability_skips = capability_skips.saturating_add(1),
+                Err(NodeKeep::Keep) => return Err(AdapterRenderError::Internal),
             }
         }
-        Self {
-            nodes,
-            capability_skips,
-            name_skips,
-        }
-    }
-
-    pub(crate) fn require(
-        named_nodes: &[&'a ProxyNode],
-        classify: ClassifyNodeFn,
-    ) -> Result<Self, AdapterRenderError> {
-        let kept = Self::partition(named_nodes, classify);
-        if kept.nodes.is_empty() {
+        if items.is_empty() {
             Err(AdapterRenderError::NoValidNodes {
-                capability_skips: kept.capability_skips,
-                name_skips: kept.name_skips,
+                capability_skips,
+                name_skips,
             })
         } else {
-            Ok(kept)
+            Ok((
+                Self {
+                    capability_skips,
+                    name_skips,
+                },
+                items,
+            ))
         }
     }
-}
-
-pub(crate) fn render_from_policy(
-    target: OutputTarget,
-    nodes: &[&ProxyNode],
-    policy: &CompiledPolicyV1,
-    limit_bytes: usize,
-) -> Result<RenderedTargetV1, AdapterRenderError> {
-    render_fn(target)(nodes, policy, limit_bytes)
 }
 
 pub(crate) fn render_fn(target: OutputTarget) -> RenderFromPolicyFn {
@@ -171,16 +177,6 @@ pub(crate) fn render_fn(target: OutputTarget) -> RenderFromPolicyFn {
         OutputTarget::Singbox => render_singbox_from_policy_v1,
         OutputTarget::Loon => render_loon_from_policy_v1,
         OutputTarget::Egern => render_egern_from_policy_v1,
-    }
-}
-
-pub(crate) fn classify_for_target(target: OutputTarget) -> ClassifyNodeFn {
-    match target {
-        OutputTarget::Mihomo => crate::mihomo::classify_node,
-        OutputTarget::Quanx => crate::quanx::classify_node,
-        OutputTarget::Singbox => crate::singbox::classify_node,
-        OutputTarget::Loon => crate::loon::classify_node,
-        OutputTarget::Egern => crate::egern::classify_node,
     }
 }
 
@@ -210,16 +206,13 @@ pub(crate) fn parse_skip_count(named: &NamedSubscriptionSources) -> u32 {
 pub(crate) struct PolicyDocument {
     pub(crate) bytes: Vec<u8>,
     pub(crate) skips: SkipCountsV1,
+    pub(crate) omitted_url_regex: u8,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum NamedPolicyError {
-    NoValidNodes {
-        skips: SkipCountsV1,
-    },
-    OutputTooLarge {
-        #[expect(dead_code, reason = "limit is mapped to ConversionLimit at the façade")]
-        limit_bytes: usize,
-    },
+    NoValidNodes { skips: SkipCountsV1 },
+    OutputTooLarge { limit_bytes: usize },
     Internal,
 }
 
@@ -251,6 +244,15 @@ pub(crate) fn render_named_policy(
     target: OutputTarget,
     limit_bytes: usize,
 ) -> Result<PolicyDocument, NamedPolicyError> {
+    render_named_policy_with(named, policy, render_fn(target), limit_bytes)
+}
+
+fn render_named_policy_with(
+    named: &NamedSubscriptionSources,
+    policy: &CompiledPolicyV1,
+    render: RenderFromPolicyFn,
+    limit_bytes: usize,
+) -> Result<PolicyDocument, NamedPolicyError> {
     let parse = parse_skip_count(named);
     let nodes = accepted_nodes(named);
     if nodes.is_empty() {
@@ -262,7 +264,7 @@ pub(crate) fn render_named_policy(
             },
         });
     }
-    match render_from_policy(target, &nodes, policy, limit_bytes) {
+    match render(&nodes, policy, limit_bytes) {
         Ok(rendered) => Ok(PolicyDocument {
             bytes: rendered.bytes,
             skips: SkipCountsV1 {
@@ -270,26 +272,9 @@ pub(crate) fn render_named_policy(
                 capability: rendered.capability_skips,
                 name: rendered.name_skips,
             },
+            omitted_url_regex: rendered.omitted_url_regex,
         }),
         Err(error) => Err(NamedPolicyError::from_adapter(error, parse)),
-    }
-}
-
-pub(crate) fn inspect_named_sources(
-    named: &NamedSubscriptionSources,
-    target: OutputTarget,
-) -> Result<SkipCountsV1, SkipCountsV1> {
-    let parse = parse_skip_count(named);
-    let kept = KeptNodes::partition(&accepted_nodes(named), classify_for_target(target));
-    let skips = SkipCountsV1 {
-        parse,
-        capability: kept.capability_skips,
-        name: kept.name_skips,
-    };
-    if kept.nodes.is_empty() {
-        Err(skips)
-    } else {
-        Ok(skips)
     }
 }
 
@@ -495,45 +480,22 @@ pub(crate) fn render_builtin_with_limit(
     }
 
     let policy = compile_builtin_policy_v1(&nodes);
-    match render(&nodes, &policy, limit_bytes) {
-        Ok(rendered) => {
-            diagnostics.with_keep_counts(rendered.capability_skips, rendered.name_skips);
+    match render_named_policy_with(&named, &policy, render, limit_bytes) {
+        Ok(document) => {
+            diagnostics.with_keep_counts(document.skips.capability, document.skips.name);
             Ok(BuiltinRenderOutput {
-                config: rendered.bytes,
+                config: document.bytes,
                 diagnostics,
             })
         }
-        Err(AdapterRenderError::NoValidNodes {
-            capability_skips,
-            name_skips,
-        }) => {
-            diagnostics.with_keep_counts(capability_skips, name_skips);
+        Err(NamedPolicyError::NoValidNodes { skips }) => {
+            diagnostics.with_keep_counts(skips.capability, skips.name);
             Err(BuiltinRenderError::NoValidNodes { diagnostics })
         }
-        Err(AdapterRenderError::OutputTooLarge { limit_bytes }) => {
+        Err(NamedPolicyError::OutputTooLarge { limit_bytes }) => {
             Err(BuiltinRenderError::OutputTooLarge { limit_bytes })
         }
-        Err(AdapterRenderError::Internal) => Err(BuiltinRenderError::Serialization),
-    }
-}
-
-/// Names nodes and classifies them for one target without serializing a document.
-pub(crate) fn inspect_builtin_v1(
-    parsed: ParsedSubscriptionSources,
-    target: OutputTarget,
-) -> Result<SkipCountsV1, BuiltinRenderError> {
-    let named =
-        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinRenderError::NodeNaming)?;
-    let mut diagnostics = BuiltinRenderDiagnostics::from_named(&named);
-    match inspect_named_sources(&named, target) {
-        Ok(skips) => {
-            diagnostics.with_keep_counts(skips.capability, skips.name);
-            Ok(skips)
-        }
-        Err(skips) => {
-            diagnostics.with_keep_counts(skips.capability, skips.name);
-            Err(BuiltinRenderError::NoValidNodes { diagnostics })
-        }
+        Err(NamedPolicyError::Internal) => Err(BuiltinRenderError::Serialization),
     }
 }
 

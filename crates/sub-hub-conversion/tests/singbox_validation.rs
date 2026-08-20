@@ -9,7 +9,20 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use sub_hub_conversion::{OutputTarget, prepare_direct_subscription_v1};
+use sub_hub_conversion::{
+    OutputTarget, SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
+};
+
+fn prepare_direct(
+    uris: &[&str],
+) -> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
+    let sources: Vec<_> = uris
+        .iter()
+        .copied()
+        .map(SubscriptionSourceV1::Direct)
+        .collect();
+    prepare_subscription_v1(&sources)
+}
 
 const SING_BOX_BINARY_ENV: &str = "SUB_HUB_SING_BOX_BIN";
 const REQUIRE_SING_BOX_ENV: &str = "SUB_HUB_REQUIRE_SING_BOX";
@@ -34,7 +47,7 @@ fn configured_official_sing_box_accepts_builtin_document() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct_subscription_v1(&[VALID_DIRECT])
+    let rendered = prepare_direct(&[VALID_DIRECT])
         .expect("fixed subscription must be valid")
         .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin sing-box render must succeed")
@@ -53,7 +66,7 @@ fn configured_official_sing_box_accepts_builtin_trojan() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct_subscription_v1(&[VALID_TROJAN])
+    let rendered = prepare_direct(&[VALID_TROJAN])
         .expect("fixed Trojan subscription must be valid")
         .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin Trojan sing-box render must succeed")
@@ -72,7 +85,7 @@ fn configured_official_sing_box_accepts_builtin_vmess() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct_subscription_v1(&[VALID_VMESS])
+    let rendered = prepare_direct(&[VALID_VMESS])
         .expect("fixed VMess subscription must be valid")
         .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin VMess sing-box render must succeed")
@@ -91,7 +104,7 @@ fn configured_official_sing_box_accepts_builtin_hysteria2() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct_subscription_v1(&[VALID_HYSTERIA2])
+    let rendered = prepare_direct(&[VALID_HYSTERIA2])
         .expect("fixed Hysteria2 subscription must be valid")
         .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin Hysteria2 sing-box render must succeed")
@@ -110,7 +123,7 @@ fn configured_official_sing_box_accepts_builtin_tuic() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct_subscription_v1(&[VALID_TUIC])
+    let rendered = prepare_direct(&[VALID_TUIC])
         .expect("fixed TUIC subscription must be valid")
         .render_builtin_v1(OutputTarget::Singbox)
         .expect("builtin TUIC sing-box render must succeed")

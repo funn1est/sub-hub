@@ -1,16 +1,26 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use proptest::prelude::*;
 use sub_hub_conversion::{
-    DirectPreparationError, DirectRenderError, OutputTarget, SkipCountsV1,
-    prepare_direct_subscription_v1,
+    ConversionRenderError, OutputTarget, SkipCountsV1, SubscriptionPreparationError,
+    SubscriptionSourceV1, prepare_subscription_v1,
 };
+
+fn prepare_direct(
+    uris: &[&str],
+) -> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
+    let sources: Vec<_> = uris
+        .iter()
+        .copied()
+        .map(SubscriptionSourceV1::Direct)
+        .collect();
+    prepare_subscription_v1(&sources)
+}
 
 const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha";
 
 #[test]
 fn direct_application_prepares_and_renders_builtin_mihomo() {
-    let prepared =
-        prepare_direct_subscription_v1(&[VALID_DIRECT]).expect("valid direct subscription");
+    let prepared = prepare_direct(&[VALID_DIRECT]).expect("valid direct subscription");
     let config = prepared
         .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Mihomo config");
@@ -61,23 +71,23 @@ fn direct_preparation_enforces_occurrence_shape_and_count() {
         vec!["vless://example\rss://example"],
     ] {
         assert_eq!(
-            prepare_direct_subscription_v1(&invalid).unwrap_err(),
-            DirectPreparationError::InvalidInput
+            prepare_direct(&invalid).unwrap_err(),
+            SubscriptionPreparationError::InvalidInput
         );
     }
 
-    assert!(prepare_direct_subscription_v1(&[VALID_DIRECT; 5]).is_ok());
+    assert!(prepare_direct(&[VALID_DIRECT; 5]).is_ok());
     assert_eq!(
-        prepare_direct_subscription_v1(&[VALID_DIRECT; 6]).unwrap_err(),
-        DirectPreparationError::InvalidInput
+        prepare_direct(&[VALID_DIRECT; 6]).unwrap_err(),
+        SubscriptionPreparationError::InvalidInput
     );
 }
 
 #[test]
 fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
     assert_eq!(
-        prepare_direct_subscription_v1(&["anytls://example.com:443"]).unwrap_err(),
-        DirectPreparationError::NoValidNodes {
+        prepare_direct(&["anytls://example.com:443"]).unwrap_err(),
+        SubscriptionPreparationError::NoValidNodes {
             skips: SkipCountsV1 {
                 parse: 1,
                 capability: 0,
@@ -88,8 +98,8 @@ fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
 
     let encoded = STANDARD.encode(VALID_DIRECT);
     assert_eq!(
-        prepare_direct_subscription_v1(&[&encoded]).unwrap_err(),
-        DirectPreparationError::NoValidNodes {
+        prepare_direct(&[&encoded]).unwrap_err(),
+        SubscriptionPreparationError::NoValidNodes {
             skips: SkipCountsV1 {
                 parse: 1,
                 capability: 0,
@@ -98,7 +108,7 @@ fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
         }
     );
 
-    let prepared = prepare_direct_subscription_v1(&["anytls://example.com:443", VALID_DIRECT])
+    let prepared = prepare_direct(&["anytls://example.com:443", VALID_DIRECT])
         .expect("one accepted direct occurrence");
     let config = prepared
         .render_builtin_v1(OutputTarget::Mihomo)
@@ -108,7 +118,7 @@ fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
 
 #[test]
 fn duplicate_direct_occurrences_are_retained_in_declaration_order() {
-    let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT, VALID_DIRECT])
+    let prepared = prepare_direct(&[VALID_DIRECT, VALID_DIRECT])
         .expect("duplicate direct occurrences remain valid");
     let config = prepared
         .render_builtin_v1(OutputTarget::Mihomo)
@@ -129,13 +139,13 @@ fn direct_render_maps_the_public_output_limit() {
     let source = format!(
         "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443?type=ws&path=/{long_path}#Alpha"
     );
-    let prepared = prepare_direct_subscription_v1(&[&source]).expect("valid large direct URI");
+    let prepared = prepare_direct(&[&source]).expect("valid large direct URI");
 
     assert_eq!(
         prepared
             .render_builtin_v1(OutputTarget::Mihomo)
             .unwrap_err(),
-        DirectRenderError::ConversionLimit
+        ConversionRenderError::ConversionLimit
     );
 }
 
@@ -146,7 +156,7 @@ fn direct_application_debug_and_errors_do_not_expose_input_or_config() {
     const SECRET_NAME: &str = "secret-canary-name";
     let source = format!("vless://{SECRET_UUID}@{SECRET_HOST}:443#{SECRET_NAME}");
 
-    let prepared = prepare_direct_subscription_v1(&[&source]).expect("valid direct subscription");
+    let prepared = prepare_direct(&[&source]).expect("valid direct subscription");
     let prepared_debug = format!("{prepared:?}");
     for secret in [SECRET_UUID, SECRET_HOST, SECRET_NAME] {
         assert!(!prepared_debug.contains(secret));
@@ -160,8 +170,8 @@ fn direct_application_debug_and_errors_do_not_expose_input_or_config() {
         assert!(!config_debug.contains(secret));
     }
 
-    let invalid = prepare_direct_subscription_v1(&[" secret-canary "]).unwrap_err();
-    assert_eq!(invalid.to_string(), "invalid direct subscription input");
+    let invalid = prepare_direct(&[" secret-canary "]).unwrap_err();
+    assert_eq!(invalid.to_string(), "invalid subscription input");
     assert!(!format!("{invalid:?}").contains("secret-canary"));
 }
 
@@ -203,8 +213,8 @@ proptest! {
         ),
     ) {
         let refs = sources.iter().map(String::as_str).collect::<Vec<_>>();
-        let first = prepare_direct_subscription_v1(&refs);
-        let second = prepare_direct_subscription_v1(&refs);
+        let first = prepare_direct(&refs);
+        let second = prepare_direct(&refs);
 
         match (first, second) {
             (Err(first), Err(second)) => prop_assert_eq!(first, second),

@@ -11,7 +11,20 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use sub_hub_conversion::{OutputTarget, prepare_direct_subscription_v1};
+use sub_hub_conversion::{
+    OutputTarget, SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
+};
+
+fn prepare_direct(
+    uris: &[&str],
+) -> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
+    let sources: Vec<_> = uris
+        .iter()
+        .copied()
+        .map(SubscriptionSourceV1::Direct)
+        .collect();
+    prepare_subscription_v1(&sources)
+}
 
 const MIHOMO_BINARY_ENV: &str = "SUB_HUB_MIHOMO_BIN";
 const REQUIRE_MIHOMO_ENV: &str = "SUB_HUB_REQUIRE_MIHOMO";
@@ -58,7 +71,7 @@ fn configured_official_mihomo_accepts_builtin_trojan() {
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
     verify_mihomo_version(&binary, &sandbox, expected_version);
-    let rendered = prepare_direct_subscription_v1(&[VALID_TROJAN])
+    let rendered = prepare_direct(&[VALID_TROJAN])
         .expect("fixed Trojan subscription must be valid")
         .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Trojan Mihomo render must succeed");
@@ -77,7 +90,7 @@ fn configured_official_mihomo_accepts_builtin_vmess() {
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
     verify_mihomo_version(&binary, &sandbox, expected_version);
-    let rendered = prepare_direct_subscription_v1(&[VALID_VMESS])
+    let rendered = prepare_direct(&[VALID_VMESS])
         .expect("fixed VMess subscription must be valid")
         .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin VMess Mihomo render must succeed");
@@ -96,7 +109,7 @@ fn configured_official_mihomo_accepts_builtin_hysteria2() {
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
     verify_mihomo_version(&binary, &sandbox, expected_version);
-    let rendered = prepare_direct_subscription_v1(&[VALID_HYSTERIA2])
+    let rendered = prepare_direct(&[VALID_HYSTERIA2])
         .expect("fixed Hysteria2 subscription must be valid")
         .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin Hysteria2 Mihomo render must succeed");
@@ -115,7 +128,7 @@ fn configured_official_mihomo_accepts_builtin_tuic() {
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
     verify_mihomo_version(&binary, &sandbox, expected_version);
-    let rendered = prepare_direct_subscription_v1(&[VALID_TUIC])
+    let rendered = prepare_direct(&[VALID_TUIC])
         .expect("fixed TUIC subscription must be valid")
         .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin TUIC Mihomo render must succeed");
@@ -259,7 +272,7 @@ fn configured_acl4ssr_corpus_root(required: bool) -> Option<PathBuf> {
 
 fn render_acl4ssr_profile(root: &Path, config_path: &str) -> Vec<u8> {
     let config = read_acl4ssr_corpus_file(root, config_path);
-    let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT])
+    let prepared = prepare_direct(&[VALID_DIRECT])
         .expect("fixed corpus subscription must be valid")
         .prepare_acl4ssr_config_v1(&config)
         .expect("fixed corpus config must match its compile-time policy");
@@ -275,9 +288,11 @@ fn render_acl4ssr_profile(root: &Path, config_path: &str) -> Vec<u8> {
         })
         .collect::<Vec<_>>();
     let body_refs = bodies.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    let flights = (0..prepared.rule_set_requests().len()).collect::<Vec<_>>();
+    let urls: Vec<String> = (0..prepared.rule_set_requests().len())
+        .map(|index| format!("https://rules.example/flight/{index}"))
+        .collect();
     prepared
-        .bind_rule_set_flights_v1(&flights)
+        .bind_canonical_urls_v1(&urls)
         .expect("fixed corpus flight plan is bounded and dense")
         .render_v1(OutputTarget::Mihomo, &body_refs)
         .expect("fixed corpus must render through the strict conversion seam")

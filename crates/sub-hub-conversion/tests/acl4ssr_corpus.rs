@@ -6,7 +6,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sub_hub_conversion::{OutputTarget, PreparedAcl4SsrV1, prepare_direct_subscription_v1};
+use sub_hub_conversion::{
+    OutputTarget, PreparedAcl4SsrV1, SubscriptionPreparationError, SubscriptionSourceV1,
+    prepare_subscription_v1,
+};
+
+fn prepare_direct()
+-> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
+    prepare_subscription_v1(&[SubscriptionSourceV1::Direct(VALID_DIRECT)])
+}
 
 const CORPUS_DIR_ENV: &str = "SUB_HUB_ACL4SSR_CORPUS_DIR";
 const REQUIRE_CORPUS_ENV: &str = "SUB_HUB_REQUIRE_ACL4SSR_CORPUS";
@@ -58,9 +66,11 @@ const FULL_OUTPUT: ExpectedOutputStructure = ExpectedOutputStructure {
 };
 
 fn bind_distinct(prepared: PreparedAcl4SsrV1) -> sub_hub_conversion::PreparedAcl4SsrRuleSetsV1 {
-    let flights = (0..prepared.rule_set_requests().len()).collect::<Vec<_>>();
+    let urls: Vec<String> = (0..prepared.rule_set_requests().len())
+        .map(|index| format!("https://rules.example/flight/{index}"))
+        .collect();
     prepared
-        .bind_rule_set_flights_v1(&flights)
+        .bind_canonical_urls_v1(&urls)
         .expect("fixed corpus flight plan is bounded and dense")
 }
 
@@ -100,7 +110,7 @@ fn verify_profile(
     expected_output: &ExpectedOutputStructure,
 ) {
     let config = read_corpus_file(root, config_path);
-    let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT])
+    let prepared = prepare_direct()
         .expect("fixed corpus subscription must be valid")
         .prepare_acl4ssr_config_v1(&config)
         .expect("fixed corpus config must match its compile-time policy");
@@ -156,7 +166,7 @@ fn verify_profile(
         .map(Vec::as_slice)
         .collect::<Vec<_>>();
     let changed = bind_distinct(
-        prepare_direct_subscription_v1(&[VALID_DIRECT])
+        prepare_direct()
             .unwrap()
             .prepare_acl4ssr_config_v1(&config)
             .unwrap(),
@@ -237,7 +247,7 @@ fn a_semantic_full_config_change_is_still_accepted(root: &Path) {
         1,
     );
     assert_ne!(changed, config);
-    let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT])
+    let prepared = prepare_direct()
         .unwrap()
         .prepare_acl4ssr_config_v1(changed.as_bytes())
         .expect("a declared-URL case change is not a prepare gate");

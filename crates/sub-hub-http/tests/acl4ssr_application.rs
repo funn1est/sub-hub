@@ -83,7 +83,7 @@ fn get_applies_remote_acl4ssr_config_and_rule_sets() {
 }
 
 #[test]
-fn head_with_config_loads_config_and_inspects_without_rule_sets() {
+fn head_with_config_uses_the_same_keep_pass_as_get() {
     let requested_kinds = Arc::new(Mutex::new(Vec::new()));
     let application = Application::new(
         AclResources {
@@ -113,7 +113,7 @@ fn head_with_config_loads_config_and_inspects_without_rule_sets() {
     assert!(response.body().is_empty());
     assert_eq!(
         *requested_kinds.lock().expect("test recorder lock"),
-        [ResourceKind::Config]
+        [ResourceKind::Config, ResourceKind::RuleSet]
     );
     requested_kinds.lock().expect("test recorder lock").clear();
 

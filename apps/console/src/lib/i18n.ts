@@ -1,6 +1,9 @@
-import type { KnownServiceError, SkipCounts } from "./service-contract.ts"
+import type {
+  KnownServiceError,
+  PasteWarning,
+  SkipCounts,
+} from "./service-contract.ts"
 import type { Locale } from "./persist.ts"
-import type { PasteWarning } from "./workshop.ts"
 
 const ERROR_TITLES: Record<Locale, Record<KnownServiceError, string>> = {
   en: {

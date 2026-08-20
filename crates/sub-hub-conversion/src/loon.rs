@@ -28,19 +28,17 @@ pub(crate) fn render_loon_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let kept = KeptNodes::require(named_nodes, classify_node)?;
-    let mut proxies = Vec::new();
-    let mut valid_tags = Vec::new();
-    for node in &kept.nodes {
-        let tag = loon_node_tag(node.name().as_str()).ok_or(AdapterRenderError::Internal)?;
-        let line = render_proxy_line(node, tag).ok_or(AdapterRenderError::Internal)?;
-        valid_tags.push(tag.to_owned());
+    let (kept, encoded) = KeptNodes::encode(named_nodes, encode_node)?;
+    let mut valid_tags = Vec::with_capacity(encoded.len());
+    let mut proxies = Vec::with_capacity(encoded.len());
+    for (tag, line) in encoded {
+        valid_tags.push(tag);
         proxies.push(line);
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let groups = render_groups(policy, &valid)?;
-    let rules = render_rules(policy.rules(), &valid)?;
+    let (rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
 
     let mut body = String::new();
     if let Some(url) = shared_probe_url(policy) {
@@ -73,22 +71,21 @@ pub(crate) fn render_loon_from_policy_v1(
     if body.len() > limit_bytes {
         return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
     }
-    Ok(RenderedTargetV1 {
-        bytes: body.into_bytes(),
-        capability_skips: kept.capability_skips,
-        name_skips: kept.name_skips,
-    })
+    Ok(RenderedTargetV1::from_parts(
+        body.into_bytes(),
+        &kept,
+        omitted_url_regex,
+    ))
 }
 
-pub(crate) fn classify_node(node: &ProxyNode) -> NodeKeep {
+fn encode_node(node: &ProxyNode) -> Result<(String, String), NodeKeep> {
     let Some(tag) = loon_node_tag(node.name().as_str()) else {
-        return NodeKeep::Name;
+        return Err(NodeKeep::Name);
     };
-    if render_proxy_line(node, tag).is_none() {
-        NodeKeep::Capability
-    } else {
-        NodeKeep::Keep
-    }
+    let Some(line) = render_proxy_line(node, tag) else {
+        return Err(NodeKeep::Capability);
+    };
+    Ok((tag.to_owned(), line))
 }
 
 fn loon_node_tag(name: &str) -> Option<&str> {
@@ -507,8 +504,9 @@ fn health_url(url: &str) -> Result<&str, AdapterRenderError> {
 fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
-) -> Result<Vec<String>, AdapterRenderError> {
+) -> Result<(Vec<String>, u8), AdapterRenderError> {
     let mut lines = Vec::new();
+    let mut omitted_url_regex = 0_u8;
     for rule in rules {
         let Some(policy) = member_token(rule.target(), valid_nodes)? else {
             continue;
@@ -546,8 +544,11 @@ fn render_rules(
             {
                 format!("URL-REGEX,{value},{policy}")
             }
+            RuleMatcherV1::UrlRegex(_) => {
+                omitted_url_regex = omitted_url_regex.saturating_add(1);
+                continue;
+            }
             RuleMatcherV1::ProcessName(_)
-            | RuleMatcherV1::UrlRegex(_)
             | RuleMatcherV1::Domain(_)
             | RuleMatcherV1::DomainSuffix(_)
             | RuleMatcherV1::DomainKeyword(_)
@@ -555,7 +556,7 @@ fn render_rules(
         };
         lines.push(line);
     }
-    Ok(lines)
+    Ok((lines, omitted_url_regex))
 }
 
 #[cfg(test)]

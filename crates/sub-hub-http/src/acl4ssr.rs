@@ -1,4 +1,3 @@
-use http::StatusCode;
 use sub_hub_conversion::{Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget};
 use url::Url;
 
@@ -7,37 +6,11 @@ use crate::{
     application::Application,
     broker::{BrokerSession, LoadedRemote, RemoteLoadBatch, RemoteResource},
     remote_url::canonical_remote_url,
-    response::{
-        ApplicationError, HttpResponse, insert_lossy_headers, insert_skip_headers,
-        subscription_response_for, success_response,
-    },
-    userinfo::{SubscriptionUserInfoV1, insert_subscription_user_info},
+    response::{ApplicationError, HttpResponse},
+    userinfo::SubscriptionUserInfoV1,
 };
 
 impl<A: RemoteAdapter> Application<A> {
-    pub(crate) async fn inspect_acl4ssr(
-        &self,
-        prepared: sub_hub_conversion::PreparedSubscriptionV1,
-        broker: BrokerSession<'_, A>,
-        config_url: Url,
-        inbound_host: &str,
-        eligible_metadata: Option<SubscriptionUserInfoV1>,
-        target: OutputTarget,
-    ) -> Result<HttpResponse, ApplicationError> {
-        let (prepared, _broker) = self
-            .load_prepared_acl4ssr(prepared, broker, config_url, inbound_host)
-            .await?;
-        match prepared.inspect_v1(target) {
-            Ok(skips) => {
-                let mut response = success_response(StatusCode::OK, Vec::new());
-                insert_subscription_user_info(&mut response, eligible_metadata);
-                insert_skip_headers(&mut response, skips);
-                Ok(response)
-            }
-            Err(error) => Err(map_acl4ssr_render_error(error)),
-        }
-    }
-
     pub(crate) async fn render_acl4ssr(
         &self,
         prepared: sub_hub_conversion::PreparedSubscriptionV1,
@@ -51,8 +24,8 @@ impl<A: RemoteAdapter> Application<A> {
             .load_prepared_acl4ssr(prepared, broker, config_url, inbound_host)
             .await?;
 
-        let mut canonical_urls = Vec::with_capacity(prepared.rule_set_requests().len());
-        let mut rule_set_resources = Vec::new();
+        let mut occurrence_urls = Vec::with_capacity(prepared.rule_set_requests().len());
+        let mut unique_seen = 0_usize;
         for request in prepared.rule_set_requests() {
             let Ok(url) = canonical_remote_url(request.url(), &self.self_hosts, inbound_host)
             else {
@@ -64,26 +37,42 @@ impl<A: RemoteAdapter> Application<A> {
             {
                 return Err(ApplicationError::RemoteFailure);
             }
-            if !rule_set_resources.iter().any(|candidate: &RemoteResource| {
-                candidate.kind == ResourceKind::RuleSet && candidate.url.as_str() == url.as_str()
-            }) {
-                let Some(additional_unique) = rule_set_resources.len().checked_add(1) else {
+            if occurrence_urls
+                .iter()
+                .all(|candidate: &Url| candidate.as_str() != url.as_str())
+            {
+                let Some(additional_unique) = unique_seen.checked_add(1) else {
                     return Err(ApplicationError::ConversionLimit);
                 };
                 broker.check_reservation_capacity(additional_unique)?;
-                rule_set_resources.push(RemoteResource {
-                    kind: ResourceKind::RuleSet,
-                    url: url.clone(),
-                    max_body_bytes: MAX_RULE_SET_BYTES,
-                    capture_subscription_user_info: false,
-                });
+                unique_seen = additional_unique;
             }
-            canonical_urls.push(url.as_str().to_owned());
+            occurrence_urls.push(url);
         }
-        let mut prepared = match prepared.bind_canonical_urls_v1(&canonical_urls) {
+        let occurrence_canonical = occurrence_urls
+            .iter()
+            .map(|url| url.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let mut prepared = match prepared.bind_canonical_urls_v1(&occurrence_canonical) {
             Ok(prepared) => prepared,
             Err(error) => return Err(map_acl4ssr_render_error(error)),
         };
+        let mut rule_set_resources = Vec::with_capacity(prepared.unique_canonical_urls().len());
+        for unique in prepared.unique_canonical_urls() {
+            let Some(url) = occurrence_urls
+                .iter()
+                .find(|candidate| candidate.as_str() == unique)
+                .cloned()
+            else {
+                return Err(ApplicationError::Internal);
+            };
+            rule_set_resources.push(RemoteResource {
+                kind: ResourceKind::RuleSet,
+                url,
+                max_body_bytes: MAX_RULE_SET_BYTES,
+                capture_subscription_user_info: false,
+            });
+        }
         broker.preflight_rule_set_plan(&rule_set_resources)?;
         let rule_set_bodies =
             Self::fill_rule_set_bodies(&mut broker, &mut prepared, &rule_set_resources).await?;
@@ -96,11 +85,13 @@ impl<A: RemoteAdapter> Application<A> {
             Ok(config) => {
                 let omitted_url_regex_count = config.report().omitted_url_regex_count();
                 let skips = config.skip_counts();
-                let mut response = subscription_response_for(target, config.into_bytes());
-                insert_subscription_user_info(&mut response, eligible_metadata);
-                insert_lossy_headers(&mut response, omitted_url_regex_count);
-                insert_skip_headers(&mut response, skips);
-                Ok(response)
+                Ok(crate::application::finish_subscription(
+                    target,
+                    config.into_bytes(),
+                    skips,
+                    eligible_metadata,
+                    omitted_url_regex_count,
+                ))
             }
             Err(error) => Err(map_acl4ssr_render_error(error)),
         }
@@ -194,22 +185,14 @@ impl<A: RemoteAdapter> Application<A> {
                 Ok(crossing) => crossing,
                 Err(error) => return Err(error),
             };
-            if let Some(crossing) = crossing {
-                if let Err(prefix_error) =
-                    prepared.validate_occurrence_prefix_v1(&unique_bodies, crossing)
-                {
-                    return Err(map_acl4ssr_render_error(prefix_error));
-                }
-                return Err(ApplicationError::ConversionLimit);
+            if let Err(prefix_error) = prepared.check_loaded_prefix(&unique_bodies, crossing) {
+                return Err(map_acl4ssr_render_error(prefix_error));
             }
             for (resource, body) in rule_set_resources[chunk_start..chunk_end]
                 .iter()
                 .zip(&rule_set_bodies[chunk_start..chunk_end])
             {
                 broker.account_decoded(resource, body.len())?;
-            }
-            if let Err(prefix_error) = prepared.validate_loaded_unique_prefix_v1(&unique_bodies) {
-                return Err(map_acl4ssr_render_error(prefix_error));
             }
         }
         Ok(rule_set_bodies)
@@ -229,6 +212,7 @@ const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn adjudicate_failed_rule_set_chunk(
     broker: &mut BrokerSession<'_, impl RemoteAdapter>,
     prepared: &mut sub_hub_conversion::PreparedAcl4SsrRuleSetsV1,
@@ -259,21 +243,14 @@ fn adjudicate_failed_rule_set_chunk(
         &body_lengths,
         &prepared.occurrence_urls()[..earlier_occurrence_count],
     )?;
-    if let Some(crossing) = crossing {
-        if let Err(prefix_error) = prepared.validate_occurrence_prefix_v1(&unique_bodies, crossing)
-        {
-            return Err(map_acl4ssr_render_error(prefix_error));
-        }
-        return Err(ApplicationError::ConversionLimit);
+    if let Err(prefix_error) = prepared.check_loaded_prefix(&unique_bodies, crossing) {
+        return Err(map_acl4ssr_render_error(prefix_error));
     }
     for (resource, body) in rule_set_resources[chunk_start..failed_unique_index]
         .iter()
         .zip(&rule_set_bodies[chunk_start..])
     {
         broker.account_decoded(resource, body.len())?;
-    }
-    if let Err(prefix_error) = prepared.validate_loaded_unique_prefix_v1(&unique_bodies) {
-        return Err(map_acl4ssr_render_error(prefix_error));
     }
     Err(error)
 }

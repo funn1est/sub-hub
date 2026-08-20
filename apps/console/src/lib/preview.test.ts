@@ -6,8 +6,11 @@ import {
   classifyVersionBody,
   fallbackDownloadName,
   filenameFromDisposition,
+  isLoopbackHost,
   parseSkippedHeader,
   PREVIEW_VIEW_LIMIT_BYTES,
+  runPreview,
+  runVersionProbe,
   truncatePreviewBody,
 } from "./preview.ts"
 
@@ -17,6 +20,45 @@ describe("classifyVersionBody", () => {
     expect(classifyVersionBody("sub-hub v1.2.3 backend")).toBe("sub-hub")
     expect(classifyVersionBody("nginx")).toBe("other")
     expect(classifyVersionBody("Unauthorized!")).toBe("other")
+  })
+})
+
+describe("isLoopbackHost", () => {
+  it("recognizes localhost and loopback literals", () => {
+    expect(isLoopbackHost("localhost")).toBe(true)
+    expect(isLoopbackHost("127.0.0.1")).toBe(true)
+    expect(isLoopbackHost("::1")).toBe(true)
+    expect(isLoopbackHost("[::1]")).toBe(true)
+    expect(isLoopbackHost("example.com")).toBe(false)
+  })
+})
+
+describe("runVersionProbe", () => {
+  it("classifies a Conversion Service version body", async () => {
+    const probe = await runVersionProbe({
+      origin: "http://127.0.0.1:25500",
+      fetchImpl: async () => ({
+        text: async () => "sub-hub v0.1.0 backend",
+      }),
+    })
+    expect(probe).toEqual({ status: "ok", body: "sub-hub v0.1.0 backend" })
+  })
+
+  it("treats a foreign body as other and a throw as unreachable", async () => {
+    await expect(
+      runVersionProbe({
+        origin: "http://127.0.0.1:25500",
+        fetchImpl: async () => ({ text: async () => "nginx" }),
+      })
+    ).resolves.toEqual({ status: "other" })
+    await expect(
+      runVersionProbe({
+        origin: "http://127.0.0.1:25500",
+        fetchImpl: async () => {
+          throw new Error("network")
+        },
+      })
+    ).resolves.toEqual({ status: "unreachable" })
   })
 })
 
@@ -101,11 +143,81 @@ describe("download filename", () => {
         'attachment; filename="sub-hub-mihomo.yaml"',
       ),
     ).toBe("sub-hub-mihomo.yaml")
-    expect(fallbackDownloadName("clash")).toBe("sub-hub-clash.yaml")
+    expect(fallbackDownloadName("clash")).toBe("sub-hub-mihomo.yaml")
     expect(fallbackDownloadName("mihomo")).toBe("sub-hub-mihomo.yaml")
     expect(fallbackDownloadName("quanx")).toBe("sub-hub-quanx.conf")
     expect(fallbackDownloadName("singbox")).toBe("sub-hub-singbox.json")
     expect(fallbackDownloadName("loon")).toBe("sub-hub-loon.conf")
     expect(fallbackDownloadName("egern")).toBe("sub-hub-egern.yaml")
+  })
+})
+
+describe("runPreview", () => {
+  it("returns a done Preview from the Subscription URL GET", async () => {
+    const outcome = await runPreview({
+      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
+      target: "clash",
+      pageHttps: false,
+      serviceOrigin: "http://127.0.0.1:25500",
+      fetchImpl: async () => ({
+        status: 200,
+        text: async () => "mode: rule\n",
+        headers: {
+          get: (name: string) =>
+            name === "content-disposition"
+              ? 'attachment; filename="sub-hub-mihomo.yaml"'
+              : null,
+        },
+      }),
+    })
+    expect(outcome).toEqual({
+      status: "done",
+      httpStatus: 200,
+      kind: { kind: "ok" },
+      headers: [
+        {
+          name: "content-disposition",
+          value: 'attachment; filename="sub-hub-mihomo.yaml"',
+        },
+      ],
+      body: "mode: rule\n",
+      viewText: "mode: rule\n",
+      truncated: false,
+      filename: "sub-hub-mihomo.yaml",
+    })
+  })
+
+  it("falls back to the Mihomo download name for the clash wire token", async () => {
+    const outcome = await runPreview({
+      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
+      target: "clash",
+      pageHttps: false,
+      serviceOrigin: "http://127.0.0.1:25500",
+      fetchImpl: async () => ({
+        status: 200,
+        text: async () => "proxies:\n",
+        headers: { get: () => null },
+      }),
+    })
+    expect(outcome.status).toBe("done")
+    if (outcome.status === "done") {
+      expect(outcome.filename).toBe("sub-hub-mihomo.yaml")
+    }
+  })
+
+  it("classifies a thrown fetch as unreachable", async () => {
+    const outcome = await runPreview({
+      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
+      target: "clash",
+      pageHttps: true,
+      serviceOrigin: "http://127.0.0.1:25500",
+      fetchImpl: async () => {
+        throw new TypeError("Failed to fetch")
+      },
+    })
+    expect(outcome).toEqual({
+      status: "unreachable",
+      cause: "local-network",
+    })
   })
 })
