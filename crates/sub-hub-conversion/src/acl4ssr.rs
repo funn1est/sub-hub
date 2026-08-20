@@ -2,8 +2,9 @@
 //!
 //! The pipeline stages live in submodules — [`ini`] (parsing and reference
 //! resolution) and [`policy_compile`] (Rule Set materialization and policy
-//! compilation). This root module owns the public staged types, the closed
-//! error enums, and per-target render dispatch.
+//! compilation). This root module owns the public staged types and closed
+//! error enums. Target dispatch and the named-node render tail live in
+//! [`crate::render`].
 
 mod ini;
 mod policy_compile;
@@ -18,11 +19,8 @@ use policy_compile::{
 
 use crate::{
     OutputTarget,
-    node_name::{NamedNodeOccurrence, NamedSubscriptionSources, resolve_node_names},
-    policy::CompiledPolicyV1,
-    render::{
-        AdapterRenderError, KeptNodes, MAX_OUTPUT_BYTES, classify_for_target, render_from_policy,
-    },
+    node_name::{NamedSubscriptionSources, resolve_node_names},
+    render::{MAX_OUTPUT_BYTES, NamedPolicyError, inspect_named_sources, render_named_policy},
     skip::SkipCountsV1,
     subscription_source::ParsedSubscriptionSources,
 };
@@ -377,26 +375,11 @@ fn render(
         .collect::<Vec<_>>();
     let named = resolve_node_names(prepared.parsed_subscription, &group_names)
         .map_err(|_| Acl4SsrRenderError::Internal)?;
-    let nodes = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    let parse = u32::try_from(
-        named
-            .occurrences()
-            .iter()
-            .filter(|occurrence| matches!(occurrence, NamedNodeOccurrence::Rejected { .. }))
-            .count(),
-    )
-    .unwrap_or(u32::MAX);
+    let nodes = crate::render::accepted_nodes(&named);
     if nodes.is_empty() {
         return Err(Acl4SsrRenderError::NoValidNodes {
             skips: SkipCountsV1 {
-                parse,
+                parse: crate::render::parse_skip_count(&named),
                 capability: 0,
                 name: 0,
             },
@@ -438,77 +421,27 @@ fn render(
         empty_groups: policy.report().empty_groups,
         ignored_legacy_probe_hints: policy.report().ignored_legacy_probe_hints,
     };
-    match render_policy_bytes(target, &nodes, &policy) {
-        Ok(rendered) => Ok(Acl4SsrOutputV1 {
-            bytes: rendered.bytes,
+    match render_named_policy(&named, &policy, target, MAX_OUTPUT_BYTES) {
+        Ok(document) => Ok(Acl4SsrOutputV1 {
+            bytes: document.bytes,
             report,
-            skips: SkipCountsV1 {
-                parse,
-                capability: rendered.capability_skips,
-                name: rendered.name_skips,
-            },
+            skips: document.skips,
         }),
-        Err(Acl4SsrRenderError::NoValidNodes { skips }) => Err(Acl4SsrRenderError::NoValidNodes {
-            skips: SkipCountsV1 {
-                parse,
-                capability: skips.capability,
-                name: skips.name,
-            },
-        }),
-        Err(error) => Err(error),
+        Err(error) => Err(map_named_policy_error(error)),
     }
 }
 
-fn render_policy_bytes(
-    target: OutputTarget,
-    nodes: &[&crate::node::ProxyNode],
-    policy: &CompiledPolicyV1,
-) -> Result<crate::render::RenderedTargetV1, Acl4SsrRenderError> {
-    render_from_policy(target, nodes, policy, MAX_OUTPUT_BYTES).map_err(|error| match error {
-        AdapterRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
-        AdapterRenderError::NoValidNodes {
-            capability_skips,
-            name_skips,
-        } => Acl4SsrRenderError::NoValidNodes {
-            skips: SkipCountsV1 {
-                parse: 0,
-                capability: capability_skips,
-                name: name_skips,
-            },
-        },
-        AdapterRenderError::Internal => Acl4SsrRenderError::Internal,
-    })
+fn map_named_policy_error(error: NamedPolicyError) -> Acl4SsrRenderError {
+    match error {
+        NamedPolicyError::NoValidNodes { skips } => Acl4SsrRenderError::NoValidNodes { skips },
+        NamedPolicyError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
+        NamedPolicyError::Internal => Acl4SsrRenderError::Internal,
+    }
 }
 
 fn inspect_named_nodes(
     named: &NamedSubscriptionSources,
     target: OutputTarget,
 ) -> Result<SkipCountsV1, Acl4SsrRenderError> {
-    let parse = u32::try_from(
-        named
-            .occurrences()
-            .iter()
-            .filter(|occurrence| matches!(occurrence, NamedNodeOccurrence::Rejected { .. }))
-            .count(),
-    )
-    .unwrap_or(u32::MAX);
-    let accepted = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    let kept = KeptNodes::partition(&accepted, classify_for_target(target));
-    let skips = SkipCountsV1 {
-        parse,
-        capability: kept.capability_skips,
-        name: kept.name_skips,
-    };
-    if kept.nodes.is_empty() {
-        Err(Acl4SsrRenderError::NoValidNodes { skips })
-    } else {
-        Ok(skips)
-    }
+    inspect_named_sources(named, target).map_err(|skips| Acl4SsrRenderError::NoValidNodes { skips })
 }

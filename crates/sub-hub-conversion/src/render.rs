@@ -25,7 +25,10 @@ use crate::{
     node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::vless::{ClientFingerprint, RealityOptions},
     node::{Host, ProxyNode},
-    node_name::{NamedNodeOccurrence, NodeNameDiagnostics, NodeNameError, resolve_node_names},
+    node_name::{
+        NamedNodeOccurrence, NamedSubscriptionSources, NodeNameDiagnostics, NodeNameError,
+        resolve_node_names,
+    },
     policy::{
         BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, GroupStrategyV1, PolicyMemberV1,
         compile_builtin_policy_v1,
@@ -181,6 +184,115 @@ pub(crate) fn classify_for_target(target: OutputTarget) -> ClassifyNodeFn {
     }
 }
 
+pub(crate) fn accepted_nodes(named: &NamedSubscriptionSources) -> Vec<&ProxyNode> {
+    named
+        .occurrences()
+        .iter()
+        .filter_map(|occurrence| match occurrence {
+            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
+            NamedNodeOccurrence::Rejected { .. } => None,
+        })
+        .collect()
+}
+
+pub(crate) fn parse_skip_count(named: &NamedSubscriptionSources) -> u32 {
+    u32::try_from(
+        named
+            .occurrences()
+            .iter()
+            .filter(|occurrence| matches!(occurrence, NamedNodeOccurrence::Rejected { .. }))
+            .count(),
+    )
+    .unwrap_or(u32::MAX)
+}
+
+/// Named nodes plus compiled policy, rendered through the closed adapter module.
+pub(crate) struct PolicyDocument {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) skips: SkipCountsV1,
+}
+
+pub(crate) enum NamedPolicyError {
+    NoValidNodes {
+        skips: SkipCountsV1,
+    },
+    OutputTooLarge {
+        #[expect(dead_code, reason = "limit is mapped to ConversionLimit at the façade")]
+        limit_bytes: usize,
+    },
+    Internal,
+}
+
+impl NamedPolicyError {
+    fn from_adapter(error: AdapterRenderError, parse: u32) -> Self {
+        match error {
+            AdapterRenderError::NoValidNodes {
+                capability_skips,
+                name_skips,
+            } => Self::NoValidNodes {
+                skips: SkipCountsV1 {
+                    parse,
+                    capability: capability_skips,
+                    name: name_skips,
+                },
+            },
+            AdapterRenderError::OutputTooLarge { limit_bytes } => {
+                Self::OutputTooLarge { limit_bytes }
+            }
+            AdapterRenderError::Internal => Self::Internal,
+        }
+    }
+}
+
+/// Shared tail of No remote config and Rule frontend: named nodes + policy → document.
+pub(crate) fn render_named_policy(
+    named: &NamedSubscriptionSources,
+    policy: &CompiledPolicyV1,
+    target: OutputTarget,
+    limit_bytes: usize,
+) -> Result<PolicyDocument, NamedPolicyError> {
+    let parse = parse_skip_count(named);
+    let nodes = accepted_nodes(named);
+    if nodes.is_empty() {
+        return Err(NamedPolicyError::NoValidNodes {
+            skips: SkipCountsV1 {
+                parse,
+                capability: 0,
+                name: 0,
+            },
+        });
+    }
+    match render_from_policy(target, &nodes, policy, limit_bytes) {
+        Ok(rendered) => Ok(PolicyDocument {
+            bytes: rendered.bytes,
+            skips: SkipCountsV1 {
+                parse,
+                capability: rendered.capability_skips,
+                name: rendered.name_skips,
+            },
+        }),
+        Err(error) => Err(NamedPolicyError::from_adapter(error, parse)),
+    }
+}
+
+pub(crate) fn inspect_named_sources(
+    named: &NamedSubscriptionSources,
+    target: OutputTarget,
+) -> Result<SkipCountsV1, SkipCountsV1> {
+    let parse = parse_skip_count(named);
+    let kept = KeptNodes::partition(&accepted_nodes(named), classify_for_target(target));
+    let skips = SkipCountsV1 {
+        parse,
+        capability: kept.capability_skips,
+        name: kept.name_skips,
+    };
+    if kept.nodes.is_empty() {
+        Err(skips)
+    } else {
+        Ok(skips)
+    }
+}
+
 #[derive(PartialEq, Eq)]
 pub(crate) struct BuiltinRenderOutput {
     config: Vec<u8>,
@@ -230,6 +342,32 @@ pub(crate) struct BuiltinRenderDiagnostics {
 }
 
 impl BuiltinRenderDiagnostics {
+    fn from_named(named: &NamedSubscriptionSources) -> Self {
+        Self {
+            rejections: named
+                .occurrences()
+                .iter()
+                .filter_map(|occurrence| match occurrence {
+                    NamedNodeOccurrence::Accepted { .. } => None,
+                    NamedNodeOccurrence::Rejected { origin, rejection } => {
+                        Some(BuiltinRenderRejection {
+                            origin: *origin,
+                            rejection: rejection.clone(),
+                        })
+                    }
+                })
+                .collect(),
+            node_names: named.diagnostics().clone(),
+            capability_skips: 0,
+            name_skips: 0,
+        }
+    }
+
+    fn with_keep_counts(&mut self, capability_skips: u32, name_skips: u32) {
+        self.capability_skips = capability_skips;
+        self.name_skips = name_skips;
+    }
+
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "diagnostics stay behind the application facade")
@@ -350,32 +488,8 @@ pub(crate) fn render_builtin_with_limit(
 ) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
     let named =
         resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinRenderError::NodeNaming)?;
-    let mut diagnostics = BuiltinRenderDiagnostics {
-        rejections: named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { .. } => None,
-                NamedNodeOccurrence::Rejected { origin, rejection } => {
-                    Some(BuiltinRenderRejection {
-                        origin: *origin,
-                        rejection: rejection.clone(),
-                    })
-                }
-            })
-            .collect(),
-        node_names: named.diagnostics().clone(),
-        capability_skips: 0,
-        name_skips: 0,
-    };
-    let nodes = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
+    let mut diagnostics = BuiltinRenderDiagnostics::from_named(&named);
+    let nodes = accepted_nodes(&named);
     if nodes.is_empty() {
         return Err(BuiltinRenderError::NoValidNodes { diagnostics });
     }
@@ -383,8 +497,7 @@ pub(crate) fn render_builtin_with_limit(
     let policy = compile_builtin_policy_v1(&nodes);
     match render(&nodes, &policy, limit_bytes) {
         Ok(rendered) => {
-            diagnostics.capability_skips = rendered.capability_skips;
-            diagnostics.name_skips = rendered.name_skips;
+            diagnostics.with_keep_counts(rendered.capability_skips, rendered.name_skips);
             Ok(BuiltinRenderOutput {
                 config: rendered.bytes,
                 diagnostics,
@@ -394,8 +507,7 @@ pub(crate) fn render_builtin_with_limit(
             capability_skips,
             name_skips,
         }) => {
-            diagnostics.capability_skips = capability_skips;
-            diagnostics.name_skips = name_skips;
+            diagnostics.with_keep_counts(capability_skips, name_skips);
             Err(BuiltinRenderError::NoValidNodes { diagnostics })
         }
         Err(AdapterRenderError::OutputTooLarge { limit_bytes }) => {
@@ -406,54 +518,23 @@ pub(crate) fn render_builtin_with_limit(
 }
 
 /// Names nodes and classifies them for one target without serializing a document.
-pub(crate) fn inspect_builtin(
-    parsed: ParsedSubscriptionSources,
-    classify: ClassifyNodeFn,
-) -> Result<SkipCountsV1, BuiltinRenderError> {
-    let named =
-        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinRenderError::NodeNaming)?;
-    let mut diagnostics = BuiltinRenderDiagnostics {
-        rejections: named
-            .occurrences()
-            .iter()
-            .filter_map(|occurrence| match occurrence {
-                NamedNodeOccurrence::Accepted { .. } => None,
-                NamedNodeOccurrence::Rejected { origin, rejection } => {
-                    Some(BuiltinRenderRejection {
-                        origin: *origin,
-                        rejection: rejection.clone(),
-                    })
-                }
-            })
-            .collect(),
-        node_names: named.diagnostics().clone(),
-        capability_skips: 0,
-        name_skips: 0,
-    };
-    let accepted = named
-        .occurrences()
-        .iter()
-        .filter_map(|occurrence| match occurrence {
-            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
-            NamedNodeOccurrence::Rejected { .. } => None,
-        })
-        .collect::<Vec<_>>();
-    let kept = KeptNodes::partition(&accepted, classify);
-    diagnostics.capability_skips = kept.capability_skips;
-    diagnostics.name_skips = kept.name_skips;
-    let skips = diagnostics.skip_counts();
-    if kept.nodes.is_empty() {
-        Err(BuiltinRenderError::NoValidNodes { diagnostics })
-    } else {
-        Ok(skips)
-    }
-}
-
 pub(crate) fn inspect_builtin_v1(
     parsed: ParsedSubscriptionSources,
     target: OutputTarget,
 ) -> Result<SkipCountsV1, BuiltinRenderError> {
-    inspect_builtin(parsed, classify_for_target(target))
+    let named =
+        resolve_node_names(parsed, &["PROXY", "AUTO"]).map_err(BuiltinRenderError::NodeNaming)?;
+    let mut diagnostics = BuiltinRenderDiagnostics::from_named(&named);
+    match inspect_named_sources(&named, target) {
+        Ok(skips) => {
+            diagnostics.with_keep_counts(skips.capability, skips.name);
+            Ok(skips)
+        }
+        Err(skips) => {
+            diagnostics.with_keep_counts(skips.capability, skips.name);
+            Err(BuiltinRenderError::NoValidNodes { diagnostics })
+        }
+    }
 }
 
 /// Renders an endpoint host with a bare (bracket-free) IPv6 form.
