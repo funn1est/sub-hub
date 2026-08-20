@@ -1,13 +1,18 @@
-export const TARGETS = [
-  "clash",
-  "mihomo",
-  "quanx",
-  "singbox",
-  "loon",
-  "egern",
-] as const
+import {
+  GET_TARGET_LIMIT_BYTES,
+  MAX_SOURCES,
+  isQueryKey,
+  isTarget,
+  type Target,
+} from "./service-contract.ts"
 
-export type Target = (typeof TARGETS)[number]
+export {
+  GET_TARGET_LIMIT_BYTES,
+  MAX_SOURCES,
+  TARGETS,
+  isTarget,
+  type Target,
+} from "./service-contract.ts"
 
 export const ACL4SSR_ONLINE_FILES = [
   "ACL4SSR_Online.ini",
@@ -72,36 +77,6 @@ for (const file of ACL4SSR_FULL_FILES) {
   ACL4SSR_PRESET_BY_URL.set(acl4ssrConfigUrl(file), { kind: "full", file })
 }
 
-export const MAX_SOURCES = 5
-export const GET_TARGET_LIMIT_BYTES = 8192
-
-export const KNOWN_SERVICE_ERRORS = [
-  "Invalid target!",
-  "Invalid request!",
-  "No nodes were found!",
-  "Resource limit exceeded!",
-  "Unauthorized!",
-  "Not Found",
-  "Method Not Allowed",
-  "URI Too Long",
-  "Bad Gateway",
-  "Gateway Timeout",
-  "Internal Server Error",
-] as const
-
-export type KnownServiceError = (typeof KNOWN_SERVICE_ERRORS)[number]
-
-const KNOWN_ERROR_SET = new Set<string>(KNOWN_SERVICE_ERRORS)
-
-export const EXPOSED_HEADERS = [
-  "content-disposition",
-  "profile-update-interval",
-  "subscription-userinfo",
-  "x-subconverter-result",
-  "x-subconverter-omitted-rules",
-  "x-subconverter-skipped",
-] as const
-
 export type WorkshopInput = {
   serviceOrigin: string
   accessToken: string
@@ -129,16 +104,6 @@ export type PasteWarning =
 export type PasteResult =
   | { ok: true; workshop: Partial<WorkshopInput>; warnings: PasteWarning[] }
   | { ok: false; reason: "invalid-url" }
-
-const KNOWN_QUERY_KEYS = new Set(["target", "url", "config", "append_info"])
-
-export function isTarget(value: string): value is Target {
-  return (TARGETS as readonly string[]).includes(value)
-}
-
-export function isKnownServiceError(body: string): body is KnownServiceError {
-  return KNOWN_ERROR_SET.has(body)
-}
 
 export function parseServiceOrigin(raw: string): string | null {
   const trimmed = raw.trim()
@@ -298,7 +263,7 @@ export function parseSubscriptionUrl(raw: string): PasteResult {
   let unknown = false
   let duplicate = false
   for (const key of keys) {
-    if (!KNOWN_QUERY_KEYS.has(key)) {
+    if (!isQueryKey(key)) {
       unknown = true
     }
     if (seen.has(key)) {

@@ -1,5 +1,4 @@
-import type { SkipCounts } from "./preview.ts"
-import type { KnownServiceError } from "./workshop.ts"
+import type { KnownServiceError, SkipCounts } from "./service-contract.ts"
 import type { Locale } from "./persist.ts"
 import type { PasteWarning } from "./workshop.ts"
 

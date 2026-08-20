@@ -1,0 +1,73 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  EXPOSED_HEADERS,
+  GET_TARGET_LIMIT_BYTES,
+  KNOWN_SERVICE_ERRORS,
+  MAX_SOURCES,
+  QUERY_KEYS,
+  TARGETS,
+  fallbackDownloadName,
+  isQueryKey,
+  isTarget,
+  parseSkippedHeader,
+} from "./service-contract.ts"
+
+describe("Conversion Service GET contract", () => {
+  it("lists the closed target tokens including the clash alias", () => {
+    expect(TARGETS).toEqual([
+      "clash",
+      "mihomo",
+      "quanx",
+      "singbox",
+      "loon",
+      "egern",
+    ])
+    expect(isTarget("clash")).toBe(true)
+    expect(isTarget("clashmeta")).toBe(false)
+  })
+
+  it("pins the HTTP query keys, source cap, and GET target byte limit", () => {
+    expect(QUERY_KEYS).toEqual(["target", "url", "config", "append_info"])
+    expect(isQueryKey("insert")).toBe(false)
+    expect(MAX_SOURCES).toBe(5)
+    expect(GET_TARGET_LIMIT_BYTES).toBe(8192)
+  })
+
+  it("pins the exact English error bodies", () => {
+    expect(KNOWN_SERVICE_ERRORS).toEqual([
+      "Invalid target!",
+      "Invalid request!",
+      "No nodes were found!",
+      "Resource limit exceeded!",
+      "Unauthorized!",
+      "Not Found",
+      "Method Not Allowed",
+      "URI Too Long",
+      "Bad Gateway",
+      "Gateway Timeout",
+      "Internal Server Error",
+    ])
+  })
+
+  it("pins CORS-exposed headers and skip grammar", () => {
+    expect(EXPOSED_HEADERS).toEqual([
+      "content-disposition",
+      "profile-update-interval",
+      "subscription-userinfo",
+      "x-subconverter-result",
+      "x-subconverter-omitted-rules",
+      "x-subconverter-skipped",
+    ])
+    expect(parseSkippedHeader("parse=1;capability=4;name=0")).toEqual({
+      parse: 1,
+      capability: 4,
+      name: 0,
+    })
+  })
+
+  it("names download fallbacks per wire target", () => {
+    expect(fallbackDownloadName("mihomo")).toBe("sub-hub-mihomo.yaml")
+    expect(fallbackDownloadName("clash")).toBe("sub-hub-clash.yaml")
+  })
+})
