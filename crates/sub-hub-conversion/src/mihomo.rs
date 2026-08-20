@@ -10,9 +10,9 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, reality_public_key_base64,
-        reality_short_id_hex, render_fingerprint, render_host_plain, serialize_bounded,
-        shadowsocks_method, shadowsocks_password,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex,
+        reality_public_key_base64, reality_short_id_hex, render_fingerprint, render_host_plain,
+        serialize_bounded, shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -26,9 +26,11 @@ pub(crate) fn render_mihomo_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
+    let kept = KeptNodes::require(named_nodes, classify_node)?;
     let document = MihomoRenderedDocument {
         mode: "rule",
-        proxies: named_nodes
+        proxies: kept
+            .nodes
             .iter()
             .map(|node| MihomoProxy::from(*node))
             .collect(),
@@ -51,8 +53,8 @@ pub(crate) fn render_mihomo_from_policy_v1(
     if comments.is_empty() {
         return Ok(RenderedTargetV1 {
             bytes: body,
-            capability_skips: 0,
-            name_skips: 0,
+            capability_skips: kept.capability_skips,
+            name_skips: kept.name_skips,
         });
     }
     let mut bytes = Vec::with_capacity(comments.len() + body.len());
@@ -60,8 +62,8 @@ pub(crate) fn render_mihomo_from_policy_v1(
     bytes.extend_from_slice(&body);
     Ok(RenderedTargetV1 {
         bytes,
-        capability_skips: 0,
-        name_skips: 0,
+        capability_skips: kept.capability_skips,
+        name_skips: kept.name_skips,
     })
 }
 

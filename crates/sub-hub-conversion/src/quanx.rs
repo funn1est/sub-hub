@@ -7,7 +7,7 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, policy_member_token,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, policy_member_token,
         reality_public_key_base64, reality_short_id_hex, render_host_bracketed, shadowsocks_method,
         shadowsocks_password,
     },
@@ -18,29 +18,16 @@ pub(crate) fn render_quanx_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
+    let kept = KeptNodes::require(named_nodes, classify_node)?;
     let mut servers = Vec::new();
     let mut valid_tags = Vec::new();
-    let mut capability_skips = 0_u32;
-    let mut name_skips = 0_u32;
-    for node in named_nodes {
-        let Some(tag) = quanx_node_tag(node.name().as_str()) else {
-            name_skips = name_skips.saturating_add(1);
-            continue;
-        };
-        let Some(line) = render_server_line(node, tag) else {
-            capability_skips = capability_skips.saturating_add(1);
-            continue;
-        };
+    for node in &kept.nodes {
+        let tag = quanx_node_tag(node.name().as_str()).ok_or(AdapterRenderError::Internal)?;
+        let line = render_server_line(node, tag).ok_or(AdapterRenderError::Internal)?;
         valid_tags.push(tag.to_owned());
         servers.push(ServerRecord {
             original_tag: tag.to_owned(),
             line,
-        });
-    }
-    if servers.is_empty() {
-        return Err(AdapterRenderError::NoValidNodes {
-            capability_skips,
-            name_skips,
         });
     }
 
@@ -83,8 +70,8 @@ pub(crate) fn render_quanx_from_policy_v1(
     }
     Ok(RenderedTargetV1 {
         bytes: body.into_bytes(),
-        capability_skips,
-        name_skips,
+        capability_skips: kept.capability_skips,
+        name_skips: kept.name_skips,
     })
 }
 

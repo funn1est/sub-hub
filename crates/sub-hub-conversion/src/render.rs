@@ -1,8 +1,9 @@
 //! Target-neutral rendering seam shared by every client adapter.
 //!
-//! This module owns the request-wide output limit, the bounded serializer, the
-//! shared builtin (config-less) orchestration, and small formatting helpers
-//! whose behavior must stay identical across adapters.
+//! This module owns the closed adapter dispatch, the keep-pass used by both
+//! render and inspect, the request-wide output limit, the bounded serializer,
+//! the shared builtin (config-less) orchestration, and small formatting
+//! helpers whose behavior must stay identical across adapters.
 
 use std::{
     borrow::Cow,
@@ -108,6 +109,77 @@ pub(crate) enum NodeKeep {
 }
 
 pub(crate) type ClassifyNodeFn = fn(&ProxyNode) -> NodeKeep;
+
+/// Named, parse-accepted nodes that one target adapter will encode.
+pub(crate) struct KeptNodes<'a> {
+    pub(crate) nodes: Vec<&'a ProxyNode>,
+    pub(crate) capability_skips: u32,
+    pub(crate) name_skips: u32,
+}
+
+impl<'a> KeptNodes<'a> {
+    pub(crate) fn partition(named_nodes: &[&'a ProxyNode], classify: ClassifyNodeFn) -> Self {
+        let mut nodes = Vec::new();
+        let mut capability_skips = 0_u32;
+        let mut name_skips = 0_u32;
+        for node in named_nodes {
+            match classify(node) {
+                NodeKeep::Keep => nodes.push(*node),
+                NodeKeep::Name => name_skips = name_skips.saturating_add(1),
+                NodeKeep::Capability => capability_skips = capability_skips.saturating_add(1),
+            }
+        }
+        Self {
+            nodes,
+            capability_skips,
+            name_skips,
+        }
+    }
+
+    pub(crate) fn require(
+        named_nodes: &[&'a ProxyNode],
+        classify: ClassifyNodeFn,
+    ) -> Result<Self, AdapterRenderError> {
+        let kept = Self::partition(named_nodes, classify);
+        if kept.nodes.is_empty() {
+            Err(AdapterRenderError::NoValidNodes {
+                capability_skips: kept.capability_skips,
+                name_skips: kept.name_skips,
+            })
+        } else {
+            Ok(kept)
+        }
+    }
+}
+
+pub(crate) fn render_from_policy(
+    target: OutputTarget,
+    nodes: &[&ProxyNode],
+    policy: &CompiledPolicyV1,
+    limit_bytes: usize,
+) -> Result<RenderedTargetV1, AdapterRenderError> {
+    render_fn(target)(nodes, policy, limit_bytes)
+}
+
+pub(crate) fn render_fn(target: OutputTarget) -> RenderFromPolicyFn {
+    match target {
+        OutputTarget::Mihomo => render_mihomo_from_policy_v1,
+        OutputTarget::Quanx => render_quanx_from_policy_v1,
+        OutputTarget::Singbox => render_singbox_from_policy_v1,
+        OutputTarget::Loon => render_loon_from_policy_v1,
+        OutputTarget::Egern => render_egern_from_policy_v1,
+    }
+}
+
+pub(crate) fn classify_for_target(target: OutputTarget) -> ClassifyNodeFn {
+    match target {
+        OutputTarget::Mihomo => crate::mihomo::classify_node,
+        OutputTarget::Quanx => crate::quanx::classify_node,
+        OutputTarget::Singbox => crate::singbox::classify_node,
+        OutputTarget::Loon => crate::loon::classify_node,
+        OutputTarget::Egern => crate::egern::classify_node,
+    }
+}
 
 #[derive(PartialEq, Eq)]
 pub(crate) struct BuiltinRenderOutput {
@@ -232,14 +304,7 @@ pub(crate) fn render_builtin_v1(
     parsed: ParsedSubscriptionSources,
     target: OutputTarget,
 ) -> Result<BuiltinRenderOutput, BuiltinRenderError> {
-    let render = match target {
-        OutputTarget::Mihomo => render_mihomo_from_policy_v1,
-        OutputTarget::Quanx => render_quanx_from_policy_v1,
-        OutputTarget::Singbox => render_singbox_from_policy_v1,
-        OutputTarget::Loon => render_loon_from_policy_v1,
-        OutputTarget::Egern => render_egern_from_policy_v1,
-    };
-    render_builtin_with_limit(parsed, render, MAX_OUTPUT_BYTES)
+    render_builtin_with_limit(parsed, render_fn(target), MAX_OUTPUT_BYTES)
 }
 
 #[cfg(test)]
@@ -365,23 +430,19 @@ pub(crate) fn inspect_builtin(
         capability_skips: 0,
         name_skips: 0,
     };
-    let mut remaining = 0_u32;
-    for occurrence in named.occurrences() {
-        let NamedNodeOccurrence::Accepted { node, .. } = occurrence else {
-            continue;
-        };
-        match classify(node) {
-            NodeKeep::Keep => remaining = remaining.saturating_add(1),
-            NodeKeep::Name => {
-                diagnostics.name_skips = diagnostics.name_skips.saturating_add(1);
-            }
-            NodeKeep::Capability => {
-                diagnostics.capability_skips = diagnostics.capability_skips.saturating_add(1);
-            }
-        }
-    }
+    let accepted = named
+        .occurrences()
+        .iter()
+        .filter_map(|occurrence| match occurrence {
+            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
+            NamedNodeOccurrence::Rejected { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let kept = KeptNodes::partition(&accepted, classify);
+    diagnostics.capability_skips = kept.capability_skips;
+    diagnostics.name_skips = kept.name_skips;
     let skips = diagnostics.skip_counts();
-    if remaining == 0 {
+    if kept.nodes.is_empty() {
         Err(BuiltinRenderError::NoValidNodes { diagnostics })
     } else {
         Ok(skips)
@@ -392,14 +453,7 @@ pub(crate) fn inspect_builtin_v1(
     parsed: ParsedSubscriptionSources,
     target: OutputTarget,
 ) -> Result<SkipCountsV1, BuiltinRenderError> {
-    let classify = match target {
-        OutputTarget::Mihomo => crate::mihomo::classify_node,
-        OutputTarget::Quanx => crate::quanx::classify_node,
-        OutputTarget::Singbox => crate::singbox::classify_node,
-        OutputTarget::Loon => crate::loon::classify_node,
-        OutputTarget::Egern => crate::egern::classify_node,
-    };
-    inspect_builtin(parsed, classify)
+    inspect_builtin(parsed, classify_for_target(target))
 }
 
 /// Renders an endpoint host with a bare (bracket-free) IPv6 form.

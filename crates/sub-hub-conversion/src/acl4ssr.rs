@@ -18,14 +18,11 @@ use policy_compile::{
 
 use crate::{
     OutputTarget,
-    egern::render_egern_from_policy_v1,
-    loon::render_loon_from_policy_v1,
-    mihomo::render_mihomo_from_policy_v1,
     node_name::{NamedNodeOccurrence, NamedSubscriptionSources, resolve_node_names},
     policy::CompiledPolicyV1,
-    quanx::render_quanx_from_policy_v1,
-    render::{AdapterRenderError, MAX_OUTPUT_BYTES, NodeKeep, RenderFromPolicyFn},
-    singbox::render_singbox_from_policy_v1,
+    render::{
+        AdapterRenderError, KeptNodes, MAX_OUTPUT_BYTES, classify_for_target, render_from_policy,
+    },
     skip::SkipCountsV1,
     subscription_source::ParsedSubscriptionSources,
 };
@@ -467,14 +464,7 @@ fn render_policy_bytes(
     nodes: &[&crate::node::ProxyNode],
     policy: &CompiledPolicyV1,
 ) -> Result<crate::render::RenderedTargetV1, Acl4SsrRenderError> {
-    let render: RenderFromPolicyFn = match target {
-        OutputTarget::Mihomo => render_mihomo_from_policy_v1,
-        OutputTarget::Quanx => render_quanx_from_policy_v1,
-        OutputTarget::Singbox => render_singbox_from_policy_v1,
-        OutputTarget::Loon => render_loon_from_policy_v1,
-        OutputTarget::Egern => render_egern_from_policy_v1,
-    };
-    render(nodes, policy, MAX_OUTPUT_BYTES).map_err(|error| match error {
+    render_from_policy(target, nodes, policy, MAX_OUTPUT_BYTES).map_err(|error| match error {
         AdapterRenderError::OutputTooLarge { .. } => Acl4SsrRenderError::ConversionLimit,
         AdapterRenderError::NoValidNodes {
             capability_skips,
@@ -494,13 +484,6 @@ fn inspect_named_nodes(
     named: &NamedSubscriptionSources,
     target: OutputTarget,
 ) -> Result<SkipCountsV1, Acl4SsrRenderError> {
-    let classify = match target {
-        OutputTarget::Mihomo => crate::mihomo::classify_node,
-        OutputTarget::Quanx => crate::quanx::classify_node,
-        OutputTarget::Singbox => crate::singbox::classify_node,
-        OutputTarget::Loon => crate::loon::classify_node,
-        OutputTarget::Egern => crate::egern::classify_node,
-    };
     let parse = u32::try_from(
         named
             .occurrences()
@@ -509,25 +492,21 @@ fn inspect_named_nodes(
             .count(),
     )
     .unwrap_or(u32::MAX);
-    let mut capability = 0_u32;
-    let mut name = 0_u32;
-    let mut remaining = 0_u32;
-    for occurrence in named.occurrences() {
-        let NamedNodeOccurrence::Accepted { node, .. } = occurrence else {
-            continue;
-        };
-        match classify(node) {
-            NodeKeep::Keep => remaining = remaining.saturating_add(1),
-            NodeKeep::Name => name = name.saturating_add(1),
-            NodeKeep::Capability => capability = capability.saturating_add(1),
-        }
-    }
+    let accepted = named
+        .occurrences()
+        .iter()
+        .filter_map(|occurrence| match occurrence {
+            NamedNodeOccurrence::Accepted { node, .. } => Some(node.as_ref()),
+            NamedNodeOccurrence::Rejected { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let kept = KeptNodes::partition(&accepted, classify_for_target(target));
     let skips = SkipCountsV1 {
         parse,
-        capability,
-        name,
+        capability: kept.capability_skips,
+        name: kept.name_skips,
     };
-    if remaining == 0 {
+    if kept.nodes.is_empty() {
         Err(Acl4SsrRenderError::NoValidNodes { skips })
     } else {
         Ok(skips)

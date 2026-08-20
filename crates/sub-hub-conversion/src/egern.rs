@@ -9,7 +9,7 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, plain_group_tag,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, plain_group_tag,
         plain_node_tag, policy_member_token, probe_url_or_default, reality_public_key_base64,
         reality_short_id_hex, reject_when_empty, render_host_plain, serialize_bounded,
         shadowsocks_method, shadowsocks_password, shared_probe_url,
@@ -21,27 +21,14 @@ pub(crate) fn render_egern_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
+    let kept = KeptNodes::require(named_nodes, classify_node)?;
     let mut proxies = Vec::new();
     let mut valid_tags = Vec::new();
-    let mut capability_skips = 0_u32;
-    let mut name_skips = 0_u32;
-    for node in named_nodes {
-        let Some(tag) = plain_node_tag(node.name().as_str()) else {
-            name_skips = name_skips.saturating_add(1);
-            continue;
-        };
-        let Some(entry) = proxy_entry(node, tag) else {
-            capability_skips = capability_skips.saturating_add(1);
-            continue;
-        };
+    for node in &kept.nodes {
+        let tag = plain_node_tag(node.name().as_str()).ok_or(AdapterRenderError::Internal)?;
+        let entry = proxy_entry(node, tag).ok_or(AdapterRenderError::Internal)?;
         valid_tags.push(tag.to_owned());
         proxies.push(entry);
-    }
-    if proxies.is_empty() {
-        return Err(AdapterRenderError::NoValidNodes {
-            capability_skips,
-            name_skips,
-        });
     }
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
@@ -62,8 +49,8 @@ pub(crate) fn render_egern_from_policy_v1(
     }
     Ok(RenderedTargetV1 {
         bytes: body,
-        capability_skips,
-        name_skips,
+        capability_skips: kept.capability_skips,
+        name_skips: kept.name_skips,
     })
 }
 
