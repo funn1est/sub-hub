@@ -334,6 +334,9 @@ describe("applyPaste, canPreview, showsClashInstall", () => {
     expect(canPreview(assembleSubscription(input({ serviceOrigin: "" })))).toBe(
       false
     )
+    expect(
+      canPreview(assembleSubscription(input({ sources: ["a".repeat(8171)] })))
+    ).toBe(false)
     expect(showsClashInstall(assembleSubscription(input()), "clash")).toBe(true)
     expect(
       showsClashInstall(assembleSubscription(input({ target: "loon" })), "loon")

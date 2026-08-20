@@ -185,7 +185,9 @@ export function applyPaste(
   }
 }
 
-export function canPreview(assembled: Assembled): boolean {
+export function canPreview(
+  assembled: Assembled
+): assembled is Assembled & { url: string } {
   return assembled.url !== null && !assembled.overLimit
 }
 
