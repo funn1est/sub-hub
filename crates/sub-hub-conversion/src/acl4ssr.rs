@@ -1,25 +1,15 @@
 //! ACL4SSR INI frontend: public prepare/render façade.
 //!
 //! The pipeline stages live in submodules — [`ini`] (parsing and reference
-//! resolution), [`fingerprint`] (config hashing used by tests),
-//! and [`policy_compile`] (Rule Set materialization and policy compilation).
-//! This root module owns the public staged types, the closed error enums, and
-//! per-target render dispatch.
+//! resolution) and [`policy_compile`] (Rule Set materialization and policy
+//! compilation). This root module owns the public staged types, the closed
+//! error enums, and per-target render dispatch.
 
-mod fingerprint;
 mod ini;
 mod policy_compile;
-#[cfg(test)]
-mod reference_decoder;
-mod sha256;
 
 use std::fmt;
 
-use fingerprint::hash_config_fingerprint;
-#[cfg(test)]
-use fingerprint::{OmittedEvidenceEntry, encode_config_fingerprint, encode_omitted_evidence};
-#[cfg(test)]
-use ini::TargetRef;
 use ini::{Config, Directive, GroupMember, RuleSource};
 use policy_compile::{
     ParsedRuleSetFlights, RuleEntry, compile_acl4ssr_policy, increment_rule_count,
@@ -347,7 +337,6 @@ pub(crate) fn prepare(
     bytes: &[u8],
 ) -> Result<PreparedAcl4SsrV1, Acl4SsrPreparationError> {
     let config = Config::parse(bytes)?;
-    hash_config_fingerprint(&config).map_err(|()| Acl4SsrPreparationError::ConversionLimit)?;
     let requests = config
         .directives
         .iter()

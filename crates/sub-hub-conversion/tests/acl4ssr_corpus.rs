@@ -240,7 +240,7 @@ fn a_semantic_full_config_change_is_still_accepted(root: &Path) {
     let prepared = prepare_direct_subscription_v1(&[VALID_DIRECT])
         .unwrap()
         .prepare_acl4ssr_config_v1(changed.as_bytes())
-        .expect("a fingerprint change is not a prepare gate");
+        .expect("a declared-URL case change is not a prepare gate");
     assert_eq!(prepared.rule_set_requests().len(), 31);
 }
 

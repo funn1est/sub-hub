@@ -1,8 +1,7 @@
 //! Stage 1: strict ACL4SSR INI parsing and reference resolution.
 //!
-//! Produces the resolved [`Config`] consumed by fingerprint hashing and policy
-//! compilation. Grammar, budgets, and reference validation live here; no I/O
-//! and no policy semantics.
+//! Produces the resolved [`Config`] consumed by policy compilation. Grammar,
+//! budgets, and reference validation live here; no I/O and no policy semantics.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -32,8 +31,14 @@ pub(super) enum Directive {
         target: TargetRef,
         source: RuleSource,
     },
+    #[expect(
+        dead_code,
+        reason = "declaration-order slot; unused after fingerprint removal"
+    )]
     Group(usize),
+    #[expect(dead_code, reason = "parsed grammar; unused after fingerprint removal")]
     EnableRuleGenerator(bool),
+    #[expect(dead_code, reason = "parsed grammar; unused after fingerprint removal")]
     OverwriteOriginalRules(bool),
 }
 
@@ -71,6 +76,10 @@ pub(super) enum GroupMember {
 }
 
 pub(super) struct NodeRegex {
+    #[expect(
+        dead_code,
+        reason = "regex source retained for parse fidelity; matching uses compiled"
+    )]
     pub(super) source: String,
     pub(super) compiled: Regex,
 }
