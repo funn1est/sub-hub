@@ -3,10 +3,9 @@ use std::{fmt, future::Future, pin::Pin, sync::OnceLock, time::Duration};
 use futures::{StreamExt, future::Either, pin_mut};
 use http::{HeaderName, StatusCode, header};
 use sub_hub_http::{
-    AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, RemoteAdapter,
-    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, accept_canonical_content_length,
-    accept_identity_content_encoding, canonicalize_inbound_host, is_followed_redirect,
-    observed_subscription_user_info, parse_redirect_location,
+    AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, HttpsHopHeaders,
+    RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
+    canonicalize_inbound_host, interpret_https_headers,
 };
 use worker::wasm_bindgen::JsCast;
 use worker::{
@@ -180,64 +179,48 @@ async fn fetch_and_read(
         .map_err(|_| RemoteFetchError::Failure)?;
     let status =
         StatusCode::from_u16(response.status_code()).map_err(|_| RemoteFetchError::Failure)?;
-
-    if is_followed_redirect(status) {
-        let location = response
-            .headers()
-            .get("Location")
-            .map_err(|_| RemoteFetchError::Failure)?
-            .ok_or(RemoteFetchError::Failure)?;
-        let location = parse_redirect_location(&location).map_err(|_| RemoteFetchError::Failure)?;
-        return Ok(RemoteResponse::redirect(status, location));
-    }
-    if !status.is_success() {
-        return Ok(RemoteResponse::body(status, Vec::new()));
-    }
-
-    accept_identity_content_encoding(
-        response
-            .headers()
-            .get("Content-Encoding")
-            .map_err(|_| RemoteFetchError::Failure)?
-            .iter(),
-    )
-    .map_err(|_| RemoteFetchError::Failure)?;
-    accept_canonical_content_length(
-        response
-            .headers()
-            .get("Content-Length")
-            .map_err(|_| RemoteFetchError::Failure)?
-            .iter(),
+    let headers = response.headers();
+    let hop = interpret_https_headers(
+        status,
+        headers
+            .get_all("Location")
+            .map_err(|_| RemoteFetchError::Failure)?,
+        headers
+            .get_all("Content-Encoding")
+            .map_err(|_| RemoteFetchError::Failure)?,
+        headers
+            .get_all("Content-Length")
+            .map_err(|_| RemoteFetchError::Failure)?,
+        headers
+            .get_all("Subscription-UserInfo")
+            .map_err(|_| RemoteFetchError::Failure)?,
+        attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
     )
     .map_err(|_| RemoteFetchError::Failure)?;
-    let metadata = if attempt.capture_subscription_user_info() {
-        observed_subscription_user_info(
-            response
-                .headers()
-                .get("Subscription-UserInfo")
-                .ok()
-                .flatten()
-                .iter(),
-        )
-    } else {
-        None
-    };
-    let mut body = Vec::new();
-    let mut stream = response.stream().map_err(|_| RemoteFetchError::Failure)?;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| RemoteFetchError::Failure)?;
-        if chunk.len() > attempt.max_body_bytes().saturating_sub(body.len()) {
-            return Err(RemoteFetchError::Failure);
-        }
-        body.extend_from_slice(&chunk);
-    }
+    match hop {
+        HttpsHopHeaders::Redirect { location } => Ok(RemoteResponse::redirect(status, location)),
+        HttpsHopHeaders::Unsuccessful => Ok(RemoteResponse::body(status, Vec::new())),
+        HttpsHopHeaders::Success {
+            subscription_user_info: metadata,
+        } => {
+            let mut body = Vec::new();
+            let mut stream = response.stream().map_err(|_| RemoteFetchError::Failure)?;
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| RemoteFetchError::Failure)?;
+                if chunk.len() > attempt.max_body_bytes().saturating_sub(body.len()) {
+                    return Err(RemoteFetchError::Failure);
+                }
+                body.extend_from_slice(&chunk);
+            }
 
-    let response = RemoteResponse::body(status, body);
-    Ok(match metadata {
-        Some(value) => response.with_subscription_user_info(value),
-        None => response,
-    })
+            let response = RemoteResponse::body(status, body);
+            Ok(match metadata {
+                Some(value) => response.with_subscription_user_info(value),
+                None => response,
+            })
+        }
+    }
 }
 
 fn application_from_environment(

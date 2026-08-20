@@ -1,4 +1,6 @@
-use sub_hub_conversion::{Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget};
+use sub_hub_conversion::{
+    Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget, UniqueFlightsV1,
+};
 use url::Url;
 
 use crate::{
@@ -25,7 +27,7 @@ impl<A: RemoteAdapter> Application<A> {
             .await?;
 
         let mut occurrence_urls = Vec::with_capacity(prepared.rule_set_requests().len());
-        let mut unique_seen = 0_usize;
+        let mut occurrence_canonical = Vec::with_capacity(prepared.rule_set_requests().len());
         for request in prepared.rule_set_requests() {
             let Ok(url) = canonical_remote_url(request.url(), &self.self_hosts, inbound_host)
             else {
@@ -37,22 +39,14 @@ impl<A: RemoteAdapter> Application<A> {
             {
                 return Err(ApplicationError::RemoteFailure);
             }
-            if occurrence_urls
-                .iter()
-                .all(|candidate: &Url| candidate.as_str() != url.as_str())
-            {
-                let Some(additional_unique) = unique_seen.checked_add(1) else {
-                    return Err(ApplicationError::ConversionLimit);
-                };
-                broker.check_reservation_capacity(additional_unique)?;
-                unique_seen = additional_unique;
-            }
+            occurrence_canonical.push(url.as_str().to_owned());
+            broker.check_reservation_capacity(
+                UniqueFlightsV1::bind(&occurrence_canonical)
+                    .unique_urls()
+                    .len(),
+            )?;
             occurrence_urls.push(url);
         }
-        let occurrence_canonical = occurrence_urls
-            .iter()
-            .map(|url| url.as_str().to_owned())
-            .collect::<Vec<_>>();
         let mut prepared = match prepared.bind_canonical_urls_v1(&occurrence_canonical) {
             Ok(prepared) => prepared,
             Err(error) => return Err(map_acl4ssr_render_error(error)),
@@ -170,30 +164,19 @@ impl<A: RemoteAdapter> Application<A> {
                 }
             };
             rule_set_bodies.extend(loaded.into_iter().map(|loaded| loaded.into_response().body));
-            let available_occurrence_count =
-                prepared.covered_occurrence_count(rule_set_bodies.len());
-            let unique_bodies = rule_set_bodies
-                .iter()
-                .map(Vec::as_slice)
-                .collect::<Vec<_>>();
-            let body_lengths = rule_set_bodies.iter().map(Vec::len).collect::<Vec<_>>();
-            let crossing = match broker.first_decoded_crossing(
-                &rule_set_resources[..rule_set_bodies.len()],
-                &body_lengths,
-                &prepared.occurrence_urls()[..available_occurrence_count],
-            ) {
-                Ok(crossing) => crossing,
-                Err(error) => return Err(error),
-            };
-            if let Err(prefix_error) = prepared.check_loaded_prefix(&unique_bodies, crossing) {
-                return Err(map_acl4ssr_render_error(prefix_error));
-            }
-            for (resource, body) in rule_set_resources[chunk_start..chunk_end]
-                .iter()
-                .zip(&rule_set_bodies[chunk_start..chunk_end])
-            {
-                broker.account_decoded(resource, body.len())?;
-            }
+            adjudicate_loaded_rule_set_prefix(
+                broker,
+                prepared,
+                rule_set_resources,
+                &rule_set_bodies,
+            )?;
+            account_decoded_chunk(
+                broker,
+                rule_set_resources,
+                &rule_set_bodies,
+                chunk_start,
+                chunk_end,
+            )?;
         }
         Ok(rule_set_bodies)
     }
@@ -210,6 +193,44 @@ const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError
             ApplicationError::Internal
         }
     }
+}
+
+fn adjudicate_loaded_rule_set_prefix(
+    broker: &mut BrokerSession<'_, impl RemoteAdapter>,
+    prepared: &mut sub_hub_conversion::PreparedAcl4SsrRuleSetsV1,
+    rule_set_resources: &[RemoteResource],
+    rule_set_bodies: &[Vec<u8>],
+) -> Result<(), ApplicationError> {
+    let available_occurrence_count = prepared.covered_occurrence_count(rule_set_bodies.len());
+    let unique_bodies = rule_set_bodies
+        .iter()
+        .map(Vec::as_slice)
+        .collect::<Vec<_>>();
+    let body_lengths = rule_set_bodies.iter().map(Vec::len).collect::<Vec<_>>();
+    let crossing = broker.first_decoded_crossing(
+        &rule_set_resources[..rule_set_bodies.len()],
+        &body_lengths,
+        &prepared.occurrence_urls()[..available_occurrence_count],
+    )?;
+    prepared
+        .check_loaded_prefix(&unique_bodies, crossing)
+        .map_err(map_acl4ssr_render_error)
+}
+
+fn account_decoded_chunk(
+    broker: &mut BrokerSession<'_, impl RemoteAdapter>,
+    rule_set_resources: &[RemoteResource],
+    rule_set_bodies: &[Vec<u8>],
+    start: usize,
+    end: usize,
+) -> Result<(), ApplicationError> {
+    for (resource, body) in rule_set_resources[start..end]
+        .iter()
+        .zip(&rule_set_bodies[start..end])
+    {
+        broker.account_decoded(resource, body.len())?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -232,25 +253,13 @@ fn adjudicate_failed_rule_set_chunk(
     let Some(failed_unique_index) = chunk_start.checked_add(failed_unique_index) else {
         return Err(ApplicationError::Internal);
     };
-    let earlier_occurrence_count = prepared.covered_occurrence_count(failed_unique_index);
-    let unique_bodies = rule_set_bodies
-        .iter()
-        .map(Vec::as_slice)
-        .collect::<Vec<_>>();
-    let body_lengths = rule_set_bodies.iter().map(Vec::len).collect::<Vec<_>>();
-    let crossing = broker.first_decoded_crossing(
-        &rule_set_resources[..failed_unique_index],
-        &body_lengths,
-        &prepared.occurrence_urls()[..earlier_occurrence_count],
+    adjudicate_loaded_rule_set_prefix(broker, prepared, rule_set_resources, rule_set_bodies)?;
+    account_decoded_chunk(
+        broker,
+        rule_set_resources,
+        rule_set_bodies,
+        chunk_start,
+        failed_unique_index,
     )?;
-    if let Err(prefix_error) = prepared.check_loaded_prefix(&unique_bodies, crossing) {
-        return Err(map_acl4ssr_render_error(prefix_error));
-    }
-    for (resource, body) in rule_set_resources[chunk_start..failed_unique_index]
-        .iter()
-        .zip(&rule_set_bodies[chunk_start..])
-    {
-        broker.account_decoded(resource, body.len())?;
-    }
     Err(error)
 }

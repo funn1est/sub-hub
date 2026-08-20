@@ -56,6 +56,13 @@ describe("Conversion Service GET contract", () => {
     ])
   })
 
+  it("treats clash as the Mihomo wire alias and keeps append_info off the interval header", () => {
+    expect(fallbackDownloadName("clash")).toBe(fallbackDownloadName("mihomo"))
+    expect(QUERY_KEYS).toContain("append_info")
+    expect(EXPOSED_HEADERS).toContain("subscription-userinfo")
+    expect(EXPOSED_HEADERS).toContain("profile-update-interval")
+  })
+
   it("pins CORS-exposed headers and skip grammar", () => {
     expect(EXPOSED_HEADERS).toEqual([
       "content-disposition",

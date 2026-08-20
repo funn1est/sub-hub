@@ -138,14 +138,86 @@ where
     Some(value.to_vec())
 }
 
+/// Header decision for one HTTPS hop. Hosts stream the body after `Success`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum HttpsHopHeaders {
+    Redirect {
+        location: String,
+    },
+    Unsuccessful,
+    Success {
+        subscription_user_info: Option<Vec<u8>>,
+    },
+}
+
+/// Interprets the single-hop HTTPS header contract once for every host adapter.
+///
+/// # Errors
+///
+/// Returns [`RemoteHttpsError`] when a followed redirect is missing a single valid
+/// `Location`, or when a success hop fails the encoding/length contract.
+pub fn interpret_https_headers<L, E, C, U, LV, EV, CV, UV>(
+    status: StatusCode,
+    location_values: L,
+    content_encoding_values: E,
+    content_length_values: C,
+    userinfo_values: U,
+    capture_subscription_user_info: bool,
+    max_body_bytes: usize,
+) -> Result<HttpsHopHeaders, RemoteHttpsError>
+where
+    L: IntoIterator<Item = LV>,
+    E: IntoIterator<Item = EV>,
+    C: IntoIterator<Item = CV>,
+    U: IntoIterator<Item = UV>,
+    LV: AsRef<[u8]>,
+    EV: AsRef<[u8]>,
+    CV: AsRef<[u8]>,
+    UV: AsRef<[u8]>,
+{
+    if is_followed_redirect(status) {
+        let location = one_header_value(location_values)?;
+        let location = std::str::from_utf8(location.as_ref()).map_err(|_| RemoteHttpsError)?;
+        let location = parse_redirect_location(location)?;
+        return Ok(HttpsHopHeaders::Redirect {
+            location: location.to_owned(),
+        });
+    }
+    if !status.is_success() {
+        return Ok(HttpsHopHeaders::Unsuccessful);
+    }
+    accept_identity_content_encoding(content_encoding_values)?;
+    accept_canonical_content_length(content_length_values, max_body_bytes)?;
+    let subscription_user_info = if capture_subscription_user_info {
+        observed_subscription_user_info(userinfo_values)
+    } else {
+        None
+    };
+    Ok(HttpsHopHeaders::Success {
+        subscription_user_info,
+    })
+}
+
+fn one_header_value<I, V>(values: I) -> Result<V, RemoteHttpsError>
+where
+    I: IntoIterator<Item = V>,
+{
+    let mut values = values.into_iter();
+    let value = values.next().ok_or(RemoteHttpsError)?;
+    if values.next().is_some() {
+        return Err(RemoteHttpsError);
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use http::{HeaderMap, HeaderValue, StatusCode};
 
     use super::{
-        MAX_REDIRECT_LOCATION_BYTES, MAX_SUBSCRIPTION_USER_INFO_BYTES,
-        accept_canonical_content_length, accept_identity_content_encoding, is_followed_redirect,
-        observed_subscription_user_info, parse_redirect_location,
+        HttpsHopHeaders, MAX_REDIRECT_LOCATION_BYTES, MAX_SUBSCRIPTION_USER_INFO_BYTES,
+        accept_canonical_content_length, accept_identity_content_encoding, interpret_https_headers,
+        is_followed_redirect, observed_subscription_user_info, parse_redirect_location,
     };
 
     #[test]
@@ -227,6 +299,64 @@ mod tests {
         assert!(
             observed_subscription_user_info([&[b'a'; MAX_SUBSCRIPTION_USER_INFO_BYTES + 1][..]])
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn hop_headers_reject_a_second_content_encoding_on_success() {
+        let ok = interpret_https_headers(
+            StatusCode::OK,
+            None::<&[u8]>,
+            ["identity"],
+            ["4"],
+            None::<&[u8]>,
+            false,
+            16,
+        );
+        assert_eq!(
+            ok,
+            Ok(HttpsHopHeaders::Success {
+                subscription_user_info: None
+            })
+        );
+        assert!(
+            interpret_https_headers(
+                StatusCode::OK,
+                None::<&[u8]>,
+                ["identity", "identity"],
+                ["4"],
+                None::<&[u8]>,
+                false,
+                16,
+            )
+            .is_err()
+        );
+        let redirect = interpret_https_headers(
+            StatusCode::FOUND,
+            ["https://cdn.example/sub"],
+            ["gzip"],
+            ["999"],
+            None::<&[u8]>,
+            false,
+            16,
+        );
+        assert_eq!(
+            redirect,
+            Ok(HttpsHopHeaders::Redirect {
+                location: "https://cdn.example/sub".to_owned()
+            })
+        );
+        assert!(
+            interpret_https_headers(
+                StatusCode::FOUND,
+                ["https://cdn.example/a", "https://cdn.example/b"],
+                None::<&[u8]>,
+                None::<&[u8]>,
+                None::<&[u8]>,
+                false,
+                16,
+            )
+            .is_err()
         );
     }
 }

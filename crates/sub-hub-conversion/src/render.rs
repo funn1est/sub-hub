@@ -30,8 +30,8 @@ use crate::{
         resolve_node_names,
     },
     policy::{
-        BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, GroupStrategyV1, PolicyMemberV1,
-        compile_builtin_policy_v1,
+        BUILTIN_AUTO_PROBE_URL, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
+        RuleMatcherV1, compile_builtin_policy_v1,
     },
     quanx::render_quanx_from_policy_v1,
     share_uri::NodeRejection,
@@ -191,15 +191,40 @@ pub(crate) fn accepted_nodes(named: &NamedSubscriptionSources) -> Vec<&ProxyNode
         .collect()
 }
 
-pub(crate) fn parse_skip_count(named: &NamedSubscriptionSources) -> u32 {
-    u32::try_from(
-        named
-            .occurrences()
-            .iter()
-            .filter(|occurrence| matches!(occurrence, NamedNodeOccurrence::Rejected { .. }))
-            .count(),
-    )
-    .unwrap_or(u32::MAX)
+/// Adapter spelling of compiled rules. `None` drops the rule; a dropped
+/// `UrlRegex` increments the omitted count used by Keep-pass.
+pub(crate) fn map_compiled_rules<T>(
+    rules: &[CompiledRuleV1],
+    mut spell: impl FnMut(&CompiledRuleV1) -> Result<Option<T>, AdapterRenderError>,
+) -> Result<(Vec<T>, u8), AdapterRenderError> {
+    let mut items = Vec::with_capacity(rules.len());
+    let mut omitted_url_regex = 0_u8;
+    for rule in rules {
+        match spell(rule)? {
+            Some(item) => items.push(item),
+            None if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) => {
+                omitted_url_regex = omitted_url_regex.saturating_add(1);
+            }
+            None => {}
+        }
+    }
+    Ok((items, omitted_url_regex))
+}
+
+pub(crate) fn bounded_text(
+    body: String,
+    limit_bytes: usize,
+    kept: &KeptNodes,
+    omitted_url_regex: u8,
+) -> Result<RenderedTargetV1, AdapterRenderError> {
+    if body.len() > limit_bytes {
+        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
+    }
+    Ok(RenderedTargetV1::from_parts(
+        body.into_bytes(),
+        kept,
+        omitted_url_regex,
+    ))
 }
 
 /// Named nodes plus compiled policy, rendered through the closed adapter module.
@@ -253,15 +278,11 @@ fn render_named_policy_with(
     render: RenderFromPolicyFn,
     limit_bytes: usize,
 ) -> Result<PolicyDocument, NamedPolicyError> {
-    let parse = parse_skip_count(named);
+    let parse = named.parse_skip_count();
     let nodes = accepted_nodes(named);
     if nodes.is_empty() {
         return Err(NamedPolicyError::NoValidNodes {
-            skips: SkipCountsV1 {
-                parse,
-                capability: 0,
-                name: 0,
-            },
+            skips: SkipCountsV1::parse_only(parse),
         });
     }
     match render(&nodes, policy, limit_bytes) {
@@ -322,8 +343,7 @@ impl fmt::Debug for BuiltinRenderOutput {
 pub(crate) struct BuiltinRenderDiagnostics {
     rejections: Vec<BuiltinRenderRejection>,
     node_names: NodeNameDiagnostics,
-    capability_skips: u32,
-    name_skips: u32,
+    skips: SkipCountsV1,
 }
 
 impl BuiltinRenderDiagnostics {
@@ -343,14 +363,13 @@ impl BuiltinRenderDiagnostics {
                 })
                 .collect(),
             node_names: named.diagnostics().clone(),
-            capability_skips: 0,
-            name_skips: 0,
+            skips: SkipCountsV1::parse_only(named.parse_skip_count()),
         }
     }
 
     fn with_keep_counts(&mut self, capability_skips: u32, name_skips: u32) {
-        self.capability_skips = capability_skips;
-        self.name_skips = name_skips;
+        self.skips.capability = capability_skips;
+        self.skips.name = name_skips;
     }
 
     #[cfg_attr(
@@ -375,15 +394,11 @@ impl BuiltinRenderDiagnostics {
         expect(dead_code, reason = "diagnostics stay behind the application facade")
     )]
     pub(crate) const fn capability_skips(&self) -> u32 {
-        self.capability_skips
+        self.skips.capability
     }
 
     pub(crate) fn skip_counts(&self) -> SkipCountsV1 {
-        SkipCountsV1 {
-            parse: u32::try_from(self.rejections.len()).unwrap_or(u32::MAX),
-            capability: self.capability_skips,
-            name: self.name_skips,
-        }
+        self.skips
     }
 }
 

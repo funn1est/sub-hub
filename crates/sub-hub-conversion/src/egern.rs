@@ -9,10 +9,10 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, plain_group_tag,
-        plain_node_tag, policy_member_token, probe_url_or_default, reality_public_key_base64,
-        reality_short_id_hex, reject_when_empty, render_host_plain, serialize_bounded,
-        shadowsocks_method, shadowsocks_password, shared_probe_url,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, map_compiled_rules,
+        plain_group_tag, plain_node_tag, policy_member_token, probe_url_or_default,
+        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_host_plain,
+        serialize_bounded, shadowsocks_method, shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -449,11 +449,9 @@ fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
 ) -> Result<(Vec<RuleEntry>, u8), AdapterRenderError> {
-    let mut rendered = Vec::new();
-    let mut omitted_url_regex = 0_u8;
-    for rule in rules {
+    map_compiled_rules(rules, |rule| {
         let Some(policy) = member_token(rule.target(), valid_nodes)? else {
-            continue;
+            return Ok(None);
         };
         let entry = match rule.matcher() {
             RuleMatcherV1::Domain(value) => RuleEntry::domain(MatchPolicy {
@@ -492,15 +490,10 @@ fn render_rules(
                 no_resolve: None,
             }),
             RuleMatcherV1::Match => RuleEntry::default_policy(policy),
-            RuleMatcherV1::UrlRegex(_) => {
-                omitted_url_regex = omitted_url_regex.saturating_add(1);
-                continue;
-            }
-            RuleMatcherV1::ProcessName(_) => continue,
+            RuleMatcherV1::UrlRegex(_) | RuleMatcherV1::ProcessName(_) => return Ok(None),
         };
-        rendered.push(entry);
-    }
-    Ok((rendered, omitted_url_regex))
+        Ok(Some(entry))
+    })
 }
 
 #[derive(Serialize)]

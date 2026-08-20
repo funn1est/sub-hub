@@ -8,13 +8,15 @@ use crate::{
     node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
+    node_name::is_reserved_symbol,
     policy::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex,
-        reality_public_key_base64, reality_short_id_hex, render_fingerprint, render_host_plain,
-        serialize_bounded, shadowsocks_method, shadowsocks_password,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, map_compiled_rules,
+        policy_member_token, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
+        render_fingerprint, render_host_plain, serialize_bounded, shadowsocks_method,
+        shadowsocks_password,
     },
 };
 
@@ -29,23 +31,23 @@ pub(crate) fn render_mihomo_from_policy_v1(
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
     let (kept, proxies) = KeptNodes::encode(named_nodes, encode_node)?;
-    let mut omitted_url_regex = 0_u8;
-    let rules = policy
-        .rules()
+    let valid = proxies.iter().map(MihomoProxy::name).collect::<Vec<_>>();
+    let (rules, omitted_url_regex) = map_compiled_rules(policy.rules(), |rule| {
+        if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
+            Ok(None)
+        } else {
+            Ok(Some(render_clash_rule(rule)))
+        }
+    })?;
+    let proxy_groups = policy
+        .groups()
         .iter()
-        .filter_map(|rule| {
-            if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
-                omitted_url_regex = omitted_url_regex.saturating_add(1);
-                None
-            } else {
-                Some(render_clash_rule(rule))
-            }
-        })
-        .collect();
+        .map(|group| mihomo_group(group, &valid))
+        .collect::<Result<Vec<_>, _>>()?;
     let document = MihomoRenderedDocument {
         mode: "rule",
         proxies,
-        proxy_groups: policy.groups().iter().map(mihomo_group).collect(),
+        proxy_groups,
         rules,
     };
     let comments = comment_prefix(omitted_url_regex, policy.report().empty_groups);
@@ -66,8 +68,14 @@ pub(crate) fn render_mihomo_from_policy_v1(
     ))
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn encode_node(node: &ProxyNode) -> Result<MihomoProxy<'_>, NodeKeep> {
+    let name = node.name().as_str();
+    if name.is_empty()
+        || name.chars().any(|character| character.is_ascii_control())
+        || is_reserved_symbol(name)
+    {
+        return Err(NodeKeep::Name);
+    }
     Ok(MihomoProxy::from(node))
 }
 
@@ -119,12 +127,23 @@ fn comment_prefix(omitted_url_regex: u8, empty_groups: u8) -> String {
     comments
 }
 
-fn mihomo_group(group: &crate::policy::CompiledGroupV1) -> MihomoRenderedGroup {
-    let proxies = group
-        .members()
-        .iter()
-        .map(|member| mihomo_symbol(member).to_owned())
-        .collect();
+fn mihomo_group(
+    group: &crate::policy::CompiledGroupV1,
+    valid_nodes: &[&str],
+) -> Result<MihomoRenderedGroup, AdapterRenderError> {
+    let mut proxies = Vec::new();
+    for member in group.members() {
+        if let Some(token) = policy_member_token(
+            member,
+            "DIRECT",
+            "REJECT",
+            |name| Ok(Some(name.to_owned())),
+            valid_nodes,
+        )? {
+            proxies.push(token);
+        }
+    }
+    reject_when_empty(&mut proxies, "REJECT");
     let (kind, url, interval, tolerance, strategy) = match group.strategy() {
         GroupStrategyV1::Select => ("select", None, None, None, None),
         GroupStrategyV1::UrlTest {
@@ -149,7 +168,7 @@ fn mihomo_group(group: &crate::policy::CompiledGroupV1) -> MihomoRenderedGroup {
             Some("consistent-hashing"),
         ),
     };
-    MihomoRenderedGroup {
+    Ok(MihomoRenderedGroup {
         name: group.name().to_owned(),
         kind,
         proxies,
@@ -157,7 +176,7 @@ fn mihomo_group(group: &crate::policy::CompiledGroupV1) -> MihomoRenderedGroup {
         interval,
         tolerance,
         strategy,
-    }
+    })
 }
 
 #[derive(Serialize)]
@@ -194,6 +213,19 @@ pub(crate) enum MihomoProxy<'a> {
     Vmess(MihomoVmessProxy<'a>),
     Hysteria2(MihomoHysteria2Proxy<'a>),
     Tuic(MihomoTuicProxy<'a>),
+}
+
+impl MihomoProxy<'_> {
+    fn name(&self) -> &str {
+        match self {
+            Self::Vless(proxy) => proxy.name,
+            Self::Shadowsocks(proxy) => proxy.name,
+            Self::Trojan(proxy) => proxy.name,
+            Self::Vmess(proxy) => proxy.name,
+            Self::Hysteria2(proxy) => proxy.name,
+            Self::Tuic(proxy) => proxy.name,
+        }
+    }
 }
 
 #[derive(Serialize)]

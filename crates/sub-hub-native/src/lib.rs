@@ -4,7 +4,7 @@ use axum::{
     extract::State,
     http::{Request, Response, StatusCode, header, uri::Authority},
 };
-use http::{HeaderMap, HeaderValue};
+use http::HeaderValue;
 use std::{
     fmt,
     future::Future,
@@ -15,10 +15,9 @@ use std::{
     time::Instant,
 };
 use sub_hub_http::{
-    AccessTokens, Application, CorsOrigins, HttpRequest, RemoteAdapter, RemoteAttempt,
-    RemoteFetchError, RemoteResponse, SelfHosts, accept_canonical_content_length,
-    accept_identity_content_encoding, canonicalize_inbound_host, is_followed_redirect,
-    is_globally_reachable, observed_subscription_user_info, parse_redirect_location,
+    AccessTokens, Application, CorsOrigins, HttpRequest, HttpsHopHeaders, RemoteAdapter,
+    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, canonicalize_inbound_host,
+    interpret_https_headers, is_globally_reachable,
 };
 use url::{Host, Url};
 
@@ -340,53 +339,45 @@ async fn fetch_under_deadline(
         .map_err(|_| RemoteFetchError::Failure)?;
 
     let status = response.status();
-    if is_followed_redirect(status) {
-        let location = one_required_header(response.headers(), header::LOCATION)?;
-        let location = location
-            .to_str()
-            .ok()
-            .and_then(|value| parse_redirect_location(value).ok())
-            .ok_or(RemoteFetchError::Failure)?;
-        return Ok(RemoteResponse::redirect(status, location));
-    }
-    if !status.is_success() {
-        return Ok(RemoteResponse::body(status, Vec::new()));
-    }
-
-    accept_identity_content_encoding(response.headers().get_all(header::CONTENT_ENCODING))
-        .map_err(|_| RemoteFetchError::Failure)?;
-    accept_canonical_content_length(
+    let headers = interpret_https_headers(
+        status,
+        response.headers().get_all(header::LOCATION),
+        response.headers().get_all(header::CONTENT_ENCODING),
         response.headers().get_all(header::CONTENT_LENGTH),
+        response.headers().get_all(SUBSCRIPTION_USER_INFO),
+        attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
     )
     .map_err(|_| RemoteFetchError::Failure)?;
+    match headers {
+        HttpsHopHeaders::Redirect { location } => Ok(RemoteResponse::redirect(status, location)),
+        HttpsHopHeaders::Unsuccessful => Ok(RemoteResponse::body(status, Vec::new())),
+        HttpsHopHeaders::Success {
+            subscription_user_info,
+        } => {
+            let mut body = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|_| RemoteFetchError::Failure)?
+            {
+                let new_length = body
+                    .len()
+                    .checked_add(chunk.len())
+                    .ok_or(RemoteFetchError::Failure)?;
+                if new_length > attempt.max_body_bytes() {
+                    return Err(RemoteFetchError::Failure);
+                }
+                body.extend_from_slice(&chunk);
+            }
 
-    let subscription_user_info = if attempt.capture_subscription_user_info() {
-        observed_subscription_user_info(response.headers().get_all(SUBSCRIPTION_USER_INFO))
-    } else {
-        None
-    };
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| RemoteFetchError::Failure)?
-    {
-        let new_length = body
-            .len()
-            .checked_add(chunk.len())
-            .ok_or(RemoteFetchError::Failure)?;
-        if new_length > attempt.max_body_bytes() {
-            return Err(RemoteFetchError::Failure);
+            let mut remote = RemoteResponse::body(status, body);
+            if let Some(value) = subscription_user_info {
+                remote = remote.with_subscription_user_info(value);
+            }
+            Ok(remote)
         }
-        body.extend_from_slice(&chunk);
     }
-
-    let mut remote = RemoteResponse::body(status, body);
-    if let Some(value) = subscription_user_info {
-        remote = remote.with_subscription_user_info(value);
-    }
-    Ok(remote)
 }
 
 fn pinned_client(
@@ -414,18 +405,6 @@ fn pinned_client(
         .resolve_to_addrs(host, addresses)
         .build()
         .map_err(|_| RemoteFetchError::Failure)
-}
-
-fn one_required_header(
-    headers: &HeaderMap,
-    name: http::header::HeaderName,
-) -> Result<&HeaderValue, RemoteFetchError> {
-    let mut values = headers.get_all(name).iter();
-    let value = values.next().ok_or(RemoteFetchError::Failure)?;
-    if values.next().is_some() {
-        return Err(RemoteFetchError::Failure);
-    }
-    Ok(value)
 }
 
 pub fn build_router(application: Application<NativeRemoteAdapter>) -> Router {

@@ -256,20 +256,8 @@ pub fn prepare_subscription_v1(
         .iter()
         .any(|occurrence| matches!(occurrence, NodeOccurrence::Accepted { .. }))
     {
-        let parse = u32::try_from(
-            parsed
-                .occurrences
-                .iter()
-                .filter(|occurrence| matches!(occurrence, NodeOccurrence::Rejected { .. }))
-                .count(),
-        )
-        .unwrap_or(u32::MAX);
         return Err(SubscriptionPreparationError::NoValidNodes {
-            skips: SkipCountsV1 {
-                parse,
-                capability: 0,
-                name: 0,
-            },
+            skips: SkipCountsV1::parse_only(parsed.parse_skip_count()),
         });
     }
 

@@ -18,7 +18,7 @@ use policy_compile::{
 };
 
 use crate::{
-    OutputTarget,
+    OutputTarget, UniqueFlightsV1,
     node_name::resolve_node_names,
     render::{MAX_OUTPUT_BYTES, NamedPolicyError, render_named_policy},
     skip::SkipCountsV1,
@@ -94,21 +94,13 @@ impl PreparedAcl4SsrV1 {
         if canonical_urls.len() != self.requests.len() {
             return Err(Acl4SsrRenderError::RuleSetAlignment);
         }
-        let mut unique_urls = Vec::new();
-        let mut flight_by_occurrence = Vec::with_capacity(canonical_urls.len());
-        for url in canonical_urls {
-            let flight = unique_urls
-                .iter()
-                .position(|existing: &String| existing == url)
-                .unwrap_or_else(|| {
-                    unique_urls.push(url.clone());
-                    unique_urls.len() - 1
-                });
-            flight_by_occurrence.push(flight);
-        }
+        let flights = UniqueFlightsV1::bind(canonical_urls);
+        let flight_by_occurrence = flights
+            .dense_flights()
+            .ok_or(Acl4SsrRenderError::Internal)?;
         let mut bound = self.bind_rule_set_flights_v1(&flight_by_occurrence)?;
         bound.occurrence_urls = canonical_urls.to_vec();
-        bound.unique_urls = unique_urls;
+        bound.unique_urls = flights.unique_urls().to_vec();
         Ok(bound)
     }
 }
@@ -436,11 +428,7 @@ fn render(
     let nodes = crate::render::accepted_nodes(&named);
     if nodes.is_empty() {
         return Err(Acl4SsrRenderError::NoValidNodes {
-            skips: SkipCountsV1 {
-                parse: crate::render::parse_skip_count(&named),
-                capability: 0,
-                name: 0,
-            },
+            skips: SkipCountsV1::parse_only(named.parse_skip_count()),
         });
     }
 

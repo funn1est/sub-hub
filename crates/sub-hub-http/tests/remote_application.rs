@@ -439,6 +439,10 @@ fn append_info_false_prevents_metadata_capture_and_output() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(*captured.lock().expect("test recorder lock"), [false]);
     assert!(response.headers().get("subscription-userinfo").is_none());
+    assert_eq!(
+        response.headers().get("profile-update-interval").unwrap(),
+        "24"
+    );
 }
 
 #[test]

@@ -4,6 +4,10 @@
  * HTTP (`sub-hub-http`) is the authority. This module is a handwritten adapter
  * so Workshop URL assembly does not own error bodies, skip grammar, or wire
  * tokens. Do not generate TypeScript from Rust DTOs (ADR-0020 is retired).
+ *
+ * `append_info` captures `subscription-userinfo` on a single remote source.
+ * It does not control `profile-update-interval` (Mihomo always sends `24`).
+ * `clash` and `mihomo` are wire aliases for the same Client Format Adapter.
  */
 
 export const TARGETS = [

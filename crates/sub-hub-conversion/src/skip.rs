@@ -10,6 +10,15 @@ pub struct SkipCountsV1 {
 
 impl SkipCountsV1 {
     #[must_use]
+    pub const fn parse_only(parse: u32) -> Self {
+        Self {
+            parse,
+            capability: 0,
+            name: 0,
+        }
+    }
+
+    #[must_use]
     pub const fn total(self) -> u32 {
         self.parse
             .saturating_add(self.capability)

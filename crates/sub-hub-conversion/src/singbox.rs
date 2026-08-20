@@ -10,10 +10,10 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1},
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, plain_group_tag, plain_node_tag,
-        policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
-        reject_when_empty, render_fingerprint, render_host_plain, shadowsocks_method,
-        shadowsocks_password,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, map_compiled_rules,
+        plain_group_tag, plain_node_tag, policy_member_token, probe_url_or_default,
+        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_fingerprint,
+        render_host_plain, shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -388,11 +388,9 @@ fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
 ) -> Result<(Vec<RouteRule>, u8), AdapterRenderError> {
-    let mut rendered = Vec::new();
-    let mut omitted_url_regex = 0_u8;
-    for rule in rules {
+    map_compiled_rules(rules, |rule| {
         let Some(outbound) = member_tag(rule.target(), valid_nodes)? else {
-            continue;
+            return Ok(None);
         };
         let route = match rule.matcher() {
             RuleMatcherV1::Domain(value) => RouteRule {
@@ -420,15 +418,12 @@ fn render_rules(
                 outbound,
                 ..RouteRule::empty()
             },
-            RuleMatcherV1::UrlRegex(_) => {
-                omitted_url_regex = omitted_url_regex.saturating_add(1);
-                continue;
+            RuleMatcherV1::UrlRegex(_) | RuleMatcherV1::GeoIpCn | RuleMatcherV1::Match => {
+                return Ok(None);
             }
-            RuleMatcherV1::GeoIpCn | RuleMatcherV1::Match => continue,
         };
-        rendered.push(route);
-    }
-    Ok((rendered, omitted_url_regex))
+        Ok(Some(route))
+    })
 }
 
 fn serialize_pretty(

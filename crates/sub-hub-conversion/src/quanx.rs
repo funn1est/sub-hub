@@ -7,9 +7,9 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex, policy_member_token,
-        reality_public_key_base64, reality_short_id_hex, render_host_bracketed, shadowsocks_method,
-        shadowsocks_password,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text, encode_hex,
+        map_compiled_rules, policy_member_token, reality_public_key_base64, reality_short_id_hex,
+        render_host_bracketed, shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -28,7 +28,7 @@ pub(crate) fn render_quanx_from_policy_v1(
     let unique_urls = unique_health_urls(policy);
     let groups = render_groups(policy, &valid, &unique_urls)?;
     let servers = expand_servers(servers, policy, &valid, &unique_urls)?;
-    let (rules, omitted_url_regex) = render_rules(policy.rules());
+    let (rules, omitted_url_regex) = render_rules(policy.rules())?;
 
     let mut body = String::new();
     if let Some(url) = unique_urls.first() {
@@ -58,14 +58,7 @@ pub(crate) fn render_quanx_from_policy_v1(
         body.push_str(line);
         body.push('\n');
     }
-    if body.len() > limit_bytes {
-        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
-    }
-    Ok(RenderedTargetV1::from_parts(
-        body.into_bytes(),
-        &kept,
-        omitted_url_regex,
-    ))
+    bounded_text(body, limit_bytes, &kept, omitted_url_regex)
 }
 
 fn encode_node(node: &ProxyNode) -> Result<ServerRecord, NodeKeep> {
@@ -565,17 +558,15 @@ fn insert_before_tag(line: &str, field: &str) -> String {
     }
 }
 
-fn render_rules(rules: &[CompiledRuleV1]) -> (Vec<String>, u8) {
-    let mut lines = Vec::new();
-    let mut omitted_url_regex = 0_u8;
-    for rule in rules {
+fn render_rules(rules: &[CompiledRuleV1]) -> Result<(Vec<String>, u8), AdapterRenderError> {
+    map_compiled_rules(rules, |rule| {
         let Some(policy) = (match rule.target() {
             PolicyMemberV1::Direct => Some("direct"),
             PolicyMemberV1::Reject => Some("reject"),
             PolicyMemberV1::Group(name) => quanx_group_tag(name),
             PolicyMemberV1::Node(_) => None,
         }) else {
-            continue;
+            return Ok(None);
         };
         let line = match rule.matcher() {
             RuleMatcherV1::Domain(value) if is_safe_field(value) => {
@@ -593,19 +584,15 @@ fn render_rules(rules: &[CompiledRuleV1]) -> (Vec<String>, u8) {
             },
             RuleMatcherV1::GeoIpCn => format!("geoip, cn, {policy}"),
             RuleMatcherV1::Match => format!("final, {policy}"),
-            RuleMatcherV1::UrlRegex(_) => {
-                omitted_url_regex = omitted_url_regex.saturating_add(1);
-                continue;
-            }
-            RuleMatcherV1::ProcessName(_)
+            RuleMatcherV1::UrlRegex(_)
+            | RuleMatcherV1::ProcessName(_)
             | RuleMatcherV1::Domain(_)
             | RuleMatcherV1::DomainSuffix(_)
             | RuleMatcherV1::DomainKeyword(_)
-            | RuleMatcherV1::IpCidr { .. } => continue,
+            | RuleMatcherV1::IpCidr { .. } => return Ok(None),
         };
-        lines.push(line);
-    }
-    (lines, omitted_url_regex)
+        Ok(Some(line))
+    })
 }
 
 #[cfg(test)]

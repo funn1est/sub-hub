@@ -7,9 +7,10 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, policy_member_token,
-        probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
-        render_host_plain, shadowsocks_method, shadowsocks_password, shared_probe_url,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text,
+        map_compiled_rules, policy_member_token, probe_url_or_default, reality_public_key_base64,
+        reality_short_id_hex, reject_when_empty, render_host_plain, shadowsocks_method,
+        shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -68,14 +69,7 @@ pub(crate) fn render_loon_from_policy_v1(
         body.push_str(line);
         body.push('\n');
     }
-    if body.len() > limit_bytes {
-        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
-    }
-    Ok(RenderedTargetV1::from_parts(
-        body.into_bytes(),
-        &kept,
-        omitted_url_regex,
-    ))
+    bounded_text(body, limit_bytes, &kept, omitted_url_regex)
 }
 
 fn encode_node(node: &ProxyNode) -> Result<(String, String), NodeKeep> {
@@ -505,11 +499,9 @@ fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
 ) -> Result<(Vec<String>, u8), AdapterRenderError> {
-    let mut lines = Vec::new();
-    let mut omitted_url_regex = 0_u8;
-    for rule in rules {
+    map_compiled_rules(rules, |rule| {
         let Some(policy) = member_token(rule.target(), valid_nodes)? else {
-            continue;
+            return Ok(None);
         };
         let line = match rule.matcher() {
             RuleMatcherV1::Domain(value) if is_safe_field(value) => {
@@ -544,19 +536,15 @@ fn render_rules(
             {
                 format!("URL-REGEX,{value},{policy}")
             }
-            RuleMatcherV1::UrlRegex(_) => {
-                omitted_url_regex = omitted_url_regex.saturating_add(1);
-                continue;
-            }
-            RuleMatcherV1::ProcessName(_)
+            RuleMatcherV1::UrlRegex(_)
+            | RuleMatcherV1::ProcessName(_)
             | RuleMatcherV1::Domain(_)
             | RuleMatcherV1::DomainSuffix(_)
             | RuleMatcherV1::DomainKeyword(_)
-            | RuleMatcherV1::IpCidr { .. } => continue,
+            | RuleMatcherV1::IpCidr { .. } => return Ok(None),
         };
-        lines.push(line);
-    }
-    Ok((lines, omitted_url_regex))
+        Ok(Some(line))
+    })
 }
 
 #[cfg(test)]

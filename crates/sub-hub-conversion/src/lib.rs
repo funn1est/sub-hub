@@ -27,6 +27,8 @@ mod share_uri;
 
 mod skip;
 
+mod flight;
+
 mod target;
 
 /// One conversion request may name this many subscription sources.
@@ -44,5 +46,6 @@ pub use direct_subscription::{
     ConversionRenderError, PreparedSubscriptionV1, RemoteSourceFailureV1, RenderedConfig,
     SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
 };
+pub use flight::UniqueFlightsV1;
 pub use skip::SkipCountsV1;
 pub use target::OutputTarget;

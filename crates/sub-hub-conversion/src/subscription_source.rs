@@ -23,6 +23,18 @@ pub(crate) struct ParsedSubscriptionSources {
     pub(crate) remote_decoded_bytes: Vec<Option<usize>>,
 }
 
+impl ParsedSubscriptionSources {
+    pub(crate) fn parse_skip_count(&self) -> u32 {
+        u32::try_from(
+            self.occurrences
+                .iter()
+                .filter(|occurrence| matches!(occurrence, NodeOccurrence::Rejected { .. }))
+                .count(),
+        )
+        .unwrap_or(u32::MAX)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum SubscriptionSourceInput<'a> {
     Direct(&'a str),

@@ -3,7 +3,7 @@ use std::fmt;
 use http::Method;
 use sub_hub_conversion::{
     ConversionRenderError, OutputTarget, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, prepare_subscription_v1,
+    SubscriptionSourceV1, UniqueFlightsV1, prepare_subscription_v1,
 };
 use url::Url;
 
@@ -134,7 +134,6 @@ impl<A: RemoteAdapter> Application<A> {
             None => None,
         };
         let mut canonical_sources = Vec::with_capacity(parsed.sources.len());
-        let mut unique_urls = Vec::new();
         for source in &parsed.sources {
             if query::is_https_source(source) {
                 let url = canonical_remote_url(source, &self.self_hosts, &inbound_host)
@@ -145,24 +144,21 @@ impl<A: RemoteAdapter> Application<A> {
                 {
                     return Err(ApplicationError::InvalidRequest);
                 }
-                let canonical = url.as_str().to_owned();
-                if !unique_urls
-                    .iter()
-                    .any(|candidate: &Url| candidate.as_str() == canonical)
-                {
-                    unique_urls.push(url);
-                }
-                canonical_sources.push(Some(canonical));
+                canonical_sources.push(Some(url.as_str().to_owned()));
             } else {
                 canonical_sources.push(None);
             }
         }
+        let flights =
+            UniqueFlightsV1::bind_optional(canonical_sources.iter().map(Option::as_deref));
+        let unique_urls = unique_urls_from_flights(&flights)?;
 
         Ok(SubRequestPlan {
             parsed,
             inbound_host,
             config_url,
             canonical_sources,
+            flights,
             unique_urls,
         })
     }
@@ -220,6 +216,7 @@ impl<A: RemoteAdapter> Application<A> {
             inbound_host,
             canonical_sources,
             unique_urls,
+            flights,
             ..
         } = plan;
         let subscription_resources = unique_urls
@@ -245,6 +242,7 @@ impl<A: RemoteAdapter> Application<A> {
                     &parsed.sources,
                     canonical_sources,
                     unique_urls,
+                    flights,
                     &loaded,
                     failed_unique_index,
                 ) {
@@ -268,18 +266,13 @@ impl<A: RemoteAdapter> Application<A> {
         let source_plan = parsed
             .sources
             .iter()
-            .zip(canonical_sources.iter())
-            .map(|(source, canonical)| {
-                canonical.as_ref().map_or_else(
-                    || Ok::<_, ApplicationError>(SubscriptionSourceV1::Direct(source)),
-                    |canonical| {
-                        let index = unique_urls
-                            .iter()
-                            .position(|url| url.as_str() == canonical)
-                            .ok_or(ApplicationError::Internal)?;
-                        Ok(SubscriptionSourceV1::Remote(loaded[index].as_slice()))
-                    },
-                )
+            .enumerate()
+            .map(|(occurrence, source)| match flights.flight_of(occurrence) {
+                None => Ok::<_, ApplicationError>(SubscriptionSourceV1::Direct(source)),
+                Some(index) => loaded
+                    .get(index)
+                    .map(|body| SubscriptionSourceV1::Remote(body.as_slice()))
+                    .ok_or(ApplicationError::Internal),
             })
             .collect::<Result<Vec<_>, _>>()?;
         let prepared = prepare_subscription_v1(&source_plan).map_err(map_subscription_error)?;
@@ -317,7 +310,16 @@ struct SubRequestPlan {
     inbound_host: String,
     config_url: Option<Url>,
     canonical_sources: Vec<Option<String>>,
+    flights: UniqueFlightsV1,
     unique_urls: Vec<Url>,
+}
+
+fn unique_urls_from_flights(flights: &UniqueFlightsV1) -> Result<Vec<Url>, ApplicationError> {
+    flights
+        .unique_urls()
+        .iter()
+        .map(|canonical| Url::parse(canonical).map_err(|_| ApplicationError::Internal))
+        .collect()
 }
 
 pub(crate) fn finish_subscription(
@@ -386,15 +388,12 @@ fn preparation_error_before_remote_failure(
     sources: &[String],
     canonical_sources: &[Option<String>],
     unique_urls: &[Url],
+    flights: &UniqueFlightsV1,
     loaded: &[Option<LoadedRemote>],
     failed_unique_index: usize,
 ) -> Result<Option<ApplicationError>, ApplicationError> {
-    let failed_url = unique_urls
-        .get(failed_unique_index)
-        .ok_or(ApplicationError::Internal)?;
-    let failed_source_index = canonical_sources
-        .iter()
-        .position(|canonical| canonical.as_deref() == Some(failed_url.as_str()))
+    let failed_source_index = flights
+        .first_occurrence_of_flight(failed_unique_index)
         .ok_or(ApplicationError::Internal)?;
     if failed_source_index == 0 {
         return Ok(None);

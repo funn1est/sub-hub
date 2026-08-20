@@ -26,8 +26,9 @@ pub use cors::{CorsOriginError, CorsOrigins};
 pub use inbound_host::canonicalize_inbound_host;
 pub use public_destination::is_globally_reachable;
 pub use remote_https::{
-    RemoteHttpsError, accept_canonical_content_length, accept_identity_content_encoding,
-    is_followed_redirect, observed_subscription_user_info, parse_redirect_location,
+    HttpsHopHeaders, RemoteHttpsError, accept_canonical_content_length,
+    accept_identity_content_encoding, interpret_https_headers, is_followed_redirect,
+    observed_subscription_user_info, parse_redirect_location,
 };
 pub use request::HttpRequest;
 pub use response::HttpResponse;

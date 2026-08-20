@@ -4,6 +4,7 @@ pub(crate) struct SubQuery {
     pub(crate) target: OutputTarget,
     pub(crate) sources: Vec<String>,
     pub(crate) config: Option<String>,
+    /// Captures `subscription-userinfo` on a single remote source. Not `profile-update-interval`.
     pub(crate) append_info: bool,
 }
 
@@ -69,14 +70,8 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
         Some(_) => return Err(QueryError::InvalidRequest),
     };
     let sources = url.split('|').map(str::to_owned).collect::<Vec<_>>();
-    if sources.is_empty()
-        || sources.len() > MAX_SUBSCRIPTION_SOURCES
-        || sources.iter().any(|source| {
-            source.is_empty()
-                || source.starts_with([' ', '\t'])
-                || source.ends_with([' ', '\t'])
-                || is_http_source(source)
-        })
+    if sources.len() > MAX_SUBSCRIPTION_SOURCES
+        || sources.iter().any(|source| is_http_source(source))
     {
         return Err(QueryError::InvalidRequest);
     }

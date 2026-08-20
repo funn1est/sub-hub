@@ -79,8 +79,9 @@ export const messages = {
     configHint:
       "Empty omits config= and uses PROXY/AUTO. Listed files are fetched from ACL4SSR master and may change.",
     configEmpty: "No matching config.",
-    appendInfo: "Append profile-update-interval",
-    appendInfoHint: "On by default. Turning this off sends append_info=false.",
+    appendInfo: "Append subscription-userinfo",
+    appendInfoHint:
+      "On by default for a single remote source. Turning this off sends append_info=false. Mihomo still sends profile-update-interval: 24.",
     subscription: "Subscription URL",
     subscriptionDescription:
       "The importable URL a client fetches. Preview uses this exact URL.",
@@ -169,8 +170,9 @@ export const messages = {
     configHint:
       "留空则不发送 config=，使用 PROXY/AUTO。列表中的文件从 ACL4SSR master 拉取，内容可能变化。",
     configEmpty: "没有匹配的配置。",
-    appendInfo: "附加 profile-update-interval",
-    appendInfoHint: "默认开启。关闭时发送 append_info=false。",
+    appendInfo: "附加 subscription-userinfo",
+    appendInfoHint:
+      "单个远端源时默认开启。关闭时发送 append_info=false。Mihomo 仍会发送 profile-update-interval: 24。",
     subscription: "Subscription URL",
     subscriptionDescription:
       "客户端导入的转换 URL。Preview 会 GET 同一条 URL。",

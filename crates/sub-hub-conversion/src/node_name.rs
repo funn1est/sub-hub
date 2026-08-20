@@ -44,6 +44,16 @@ impl NamedSubscriptionSources {
     pub(crate) const fn diagnostics(&self) -> &NodeNameDiagnostics {
         &self.diagnostics
     }
+
+    pub(crate) fn parse_skip_count(&self) -> u32 {
+        u32::try_from(
+            self.occurrences
+                .iter()
+                .filter(|occurrence| matches!(occurrence, NamedNodeOccurrence::Rejected { .. }))
+                .count(),
+        )
+        .unwrap_or(u32::MAX)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
