@@ -178,6 +178,29 @@ impl CompiledRuleV1 {
     pub(crate) const fn target(&self) -> &PolicyMemberV1 {
         &self.target
     }
+
+    /// Target-neutral size used by compile-time output budgets.
+    ///
+    /// Counts matcher payload, policy symbol, and a fixed record overhead that
+    /// bounds every client spelling. It is not a Mihomo CSV length.
+    pub(crate) fn structural_budget_bytes(&self) -> usize {
+        const RECORD_OVERHEAD: usize = 16;
+        let payload = match &self.matcher {
+            RuleMatcherV1::Domain(value)
+            | RuleMatcherV1::DomainSuffix(value)
+            | RuleMatcherV1::DomainKeyword(value)
+            | RuleMatcherV1::ProcessName(value)
+            | RuleMatcherV1::UrlRegex(value) => value.len(),
+            RuleMatcherV1::IpCidr {
+                value, no_resolve, ..
+            } => value.len() + if *no_resolve { "no-resolve".len() } else { 0 },
+            RuleMatcherV1::GeoIpCn => 2,
+            RuleMatcherV1::Match => 0,
+        };
+        RECORD_OVERHEAD
+            .saturating_add(payload)
+            .saturating_add(self.target.as_symbol().len())
+    }
 }
 
 impl fmt::Debug for CompiledRuleV1 {

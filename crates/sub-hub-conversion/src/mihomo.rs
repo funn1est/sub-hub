@@ -69,7 +69,7 @@ pub(crate) const fn classify_node(_node: &ProxyNode) -> NodeKeep {
     NodeKeep::Keep
 }
 
-pub(crate) fn render_clash_rule(rule: &CompiledRuleV1) -> String {
+fn render_clash_rule(rule: &CompiledRuleV1) -> String {
     let target = rule.target().as_symbol();
     match rule.matcher() {
         RuleMatcherV1::Domain(value) => format!("DOMAIN,{value},{target}"),

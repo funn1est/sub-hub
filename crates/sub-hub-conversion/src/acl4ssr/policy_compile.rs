@@ -14,7 +14,6 @@ use super::{
     },
 };
 use crate::{
-    mihomo::render_clash_rule,
     policy::{
         CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
         PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
@@ -338,22 +337,13 @@ fn push_compiled_rule(
     rendered_bytes: &mut usize,
 ) -> Result<(), Acl4SsrRenderError> {
     *rendered_bytes = rendered_bytes
-        .checked_add(compiled_rule_budget_bytes(&rule))
+        .checked_add(rule.structural_budget_bytes())
         .ok_or(Acl4SsrRenderError::ConversionLimit)?;
     if *rendered_bytes > MAX_OUTPUT_BYTES {
         return Err(Acl4SsrRenderError::ConversionLimit);
     }
     output.push(rule);
     Ok(())
-}
-
-fn compiled_rule_budget_bytes(rule: &CompiledRuleV1) -> usize {
-    match rule.matcher() {
-        RuleMatcherV1::UrlRegex(pattern) => {
-            "URL-REGEX,".len() + pattern.len() + 1 + rule.target().as_symbol().len()
-        }
-        _ => render_clash_rule(rule).len(),
-    }
 }
 
 fn compiled_rule(entry: &RuleEntry, target: &TargetRef) -> CompiledRuleV1 {
