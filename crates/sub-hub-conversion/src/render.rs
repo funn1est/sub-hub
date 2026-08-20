@@ -1,7 +1,7 @@
 //! Target-neutral rendering seam shared by every client adapter.
 //!
-//! This module owns the closed adapter dispatch, the keep-pass used by both
-//! render and inspect, the request-wide output limit, the bounded serializer,
+//! This module owns the closed adapter dispatch, the keep-pass shared by GET
+//! and HEAD, the request-wide output limit, the bounded serializer,
 //! the shared builtin (config-less) orchestration, and small formatting
 //! helpers whose behavior must stay identical across adapters.
 

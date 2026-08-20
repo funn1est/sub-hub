@@ -129,18 +129,18 @@ describe("assembleSubscription", () => {
     expect(assembled.getTarget).toBe(`/sub?target=mihomo&url=${VLESS_ENCODED}`)
   })
 
-  it("still returns the URL when the GET target is 8192 bytes or more", () => {
+  it("flags GET targets longer than 8192 bytes and still returns the URL", () => {
     const atLimit = assembleSubscription(input({ sources: ["a".repeat(8170)] }))
     expect(atLimit.getTarget).toBe(`/sub?target=clash&url=${"a".repeat(8170)}`)
     expect(new TextEncoder().encode(atLimit.getTarget ?? "").length).toBe(8192)
-    expect(atLimit.overLimit).toBe(true)
-    expect(atLimit.url).toBe(
-      `http://127.0.0.1:25500/sub?target=clash&url=${"a".repeat(8170)}`
-    )
+    expect(atLimit.overLimit).toBe(false)
 
-    const under = assembleSubscription(input({ sources: ["a".repeat(8169)] }))
-    expect(new TextEncoder().encode(under.getTarget ?? "").length).toBe(8191)
-    expect(under.overLimit).toBe(false)
+    const over = assembleSubscription(input({ sources: ["a".repeat(8171)] }))
+    expect(new TextEncoder().encode(over.getTarget ?? "").length).toBe(8193)
+    expect(over.overLimit).toBe(true)
+    expect(over.url).toBe(
+      `http://127.0.0.1:25500/sub?target=clash&url=${"a".repeat(8171)}`
+    )
   })
 
   it("does not emit a URL when origin, token, sources, or config are incomplete", () => {

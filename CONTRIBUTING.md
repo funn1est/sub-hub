@@ -46,11 +46,12 @@ change in the same review.
 ## Scope
 
 The public HTTP surface is `GET /version` and `GET`/`HEAD` `/sub` (plus
-`/sub/:token` when tokens are configured). New protocols, client targets, query
-keys, or routes need an explicit design review before code. Do not add POST
-conversion, `GET /capabilities`, extra subconverter switches
-(`include` / `exclude` / `emoji` / `filename` / `udp` / `scv` / `sort`), or a
-second rule-file dialect in a drive-by PR.
+`/sub/:token` when tokens are configured). Absent or empty `config=` is the
+default PROXY/AUTO policy, not an ACL4SSR profile. New protocols, client
+targets, query keys, or routes need an explicit design review before code. Do
+not add POST conversion, `GET /capabilities`, extra subconverter switches
+(`include` / `exclude` / `emoji` / `filename` / `udp` / `scv` / `sort`), a
+second rule-file dialect, or AnyTLS / WireGuard / SSR in a drive-by PR.
 
 Bug fixes and tests for the current surface are welcome. Match the surrounding
 style: secret-safe `Debug`, closed error text, and byte-stable conversion

@@ -26,34 +26,26 @@ The current compatibility surface contains only:
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
 `quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), or `egern`
 (Egern YAML). Its `url` value accepts one to five ordered inputs separated by
-`|`: direct VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess, or official
-Hysteria2 (`hysteria2://` / `hy2://`), or TUIC v5 (`tuic://uuid:password@host:port`)
-share URIs, or
-HTTPS subscription URLs whose raw/Base64 contents contain supported share URIs.
-An optional HTTPS `config` value selects a strict ACL4SSR INI configuration
-and its remote Rule Sets. Absent or empty `config=` uses the default PROXY/AUTO
-policy; that is not a remote Rule frontend. `URL-REGEX` rules are emitted for
-Loon and omitted on the other targets. The Console lists the 18
+`|`: supported share URIs (VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess,
+Hysteria2 `hysteria2://` / `hy2://`, TUIC v5
+`tuic://uuid:password@host:port`) or HTTPS subscription URLs whose raw/Base64
+contents contain those URIs. An optional HTTPS `config` value selects a strict
+ACL4SSR INI configuration and its remote Rule Sets. Absent or empty `config=`
+uses the default PROXY/AUTO policy; that is not a remote Rule frontend.
+`URL-REGEX` is emitted for Loon and omitted on the other targets. Quantumult X
+skips gRPC, VLESS Vision without Reality, `auto`/`zero` VMess, and every
+Hysteria2 and TUIC node, and omits process-name rules. sing-box omits GeoIP CN,
+maps fallback to `urltest` and load-balance to `selector`, and skips Hysteria2
+gecko and `pinSHA256`. Loon skips gRPC, unpaired Vision/Reality, Trojan Reality,
+hop/pins/gecko, and every TUIC node, omits process-name rules, and maps
+load-balance to `pcc`. Egern skips Trojan gRPC, cleartext VMess gRPC, Hysteria2
+gecko, and non-default TUIC congestion, omits process-name rules, and maps
+url-test to `auto_test`. VLESS WebSocket+Reality is a parse reject on every
+target; Trojan WebSocket+Reality is kept on Egern. The Console lists the 18
 `ACL4SSR_Online*.ini` files from ACL4SSR `master`
 (`https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/`);
-that branch moves. Quantumult X skips gRPC nodes and VLESS
-Vision without Reality. sing-box keeps those combinations, omits GeoIP CN rules,
-and normalizes fallback groups to `urltest` and load-balance groups to
-`selector`. Loon keeps TCP Reality+Vision and WebSocket, skips gRPC and unpaired
-Vision/Reality, omits process-name rules, and normalizes load-balance groups to
-`pcc`. Egern keeps gRPC and Vision without Reality, skips WebSocket+Reality,
-omits process-name rules, and maps url-test to `auto_test`. Trojan TCP+TLS and
-WebSocket+TLS map on every target; Quantumult X and Egern skip Trojan gRPC; Loon
-skips Trojan Reality and gRPC. VMess accepts only JSON v2 (`vmess://` + Base64);
-Quantumult X skips `auto`/`zero` and gRPC; Loon keeps only `aes-128-gcm` TCP/WS;
-Egern skips cleartext gRPC. Hysteria2 maps salamander, hop, and certificate
-pins on Mihomo; Quantumult X skips every Hysteria2 node; sing-box 1.13.14
-skips gecko and `pinSHA256`; Loon keeps salamander on a single port and skips
-gecko, hop, and pins; Egern keeps salamander, hop, and pins and skips gecko.
-TUIC v5 maps uuid+password on Mihomo, sing-box, and Egern; Quantumult X and Loon
-skip every TUIC node; Egern skips non-default congestion control. Import a
-generated Egern file in store Egern 2.20.0
-to confirm it parses; there is no official `egern check` CLI.
+that branch moves. Import a generated Egern file in store Egern 2.20.0 to
+confirm it parses; there is no official `egern check` CLI.
 
 The service does not currently expose POST conversion, capabilities, or an
 administration API. An optional
