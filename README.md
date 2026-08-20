@@ -235,11 +235,14 @@ Set the Worker `SUB_HUB_CORS_ORIGINS` **var** to that exact origin
 `deploy:stack` against the same Console Worker.
 
 The Worker is a separate Git connection (Workers Builds, root
-`crates/sub-hub-worker`). The build image has Node but not Rust; a
-Workers Builds command must install Rust 1.97.1, `wasm32-unknown-unknown`,
-and `worker-build` 0.8.5 before `wrangler deploy --keep-vars`. The Worker
+`crates/sub-hub-worker`). The build image has Node but not Rust; use
+`sh scripts/install-workers-toolchain.sh` as the Build command and
+`sh scripts/workers-builds-deploy.sh` as the Deploy command. Those
+scripts install Rust 1.97.1, `wasm32-unknown-unknown`, and
+`worker-build` 0.8.5, then run `wrangler deploy --keep-vars`. The Worker
 name in the dashboard must match `wrangler.toml` (`sub-hub`). Keep
-`SUB_HUB_ACCESS_TOKEN` as a Cloudflare **secret**, not a var. A local
+`SUB_HUB_ACCESS_TOKEN` as a Cloudflare **secret**, not a var. Do not use
+`pnpm run deploy` on Workers Builds (`CI=true` makes it refuse). A local
 `pnpm run deploy` remains the simpler Worker publish.
 
 ## Web Console

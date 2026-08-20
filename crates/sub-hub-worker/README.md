@@ -150,6 +150,37 @@ be Mihomo YAML that contains that VLESS node.
 `pnpm run dev` starts `wrangler dev` against the same build. It is
 not a substitute for the deployed-runtime smoke above.
 
+## Cloudflare Git (Workers Builds)
+
+Connect this package as its own Worker. The build image has Node but not
+Rust; `scripts/install-workers-toolchain.sh` installs the pinned
+toolchain during the Dashboard **Build command**. Do not use
+`pnpm run deploy` here: Workers Builds sets `CI=true`, and that script
+refuses to run.
+
+| Field | Value |
+| --- | --- |
+| Worker name | `sub-hub` (must match `wrangler.toml`) |
+| Root directory | `crates/sub-hub-worker` |
+| Build command | `sh scripts/install-workers-toolchain.sh` |
+| Deploy command | `sh scripts/workers-builds-deploy.sh` |
+| Non-production deploy | `sh scripts/workers-builds-deploy.sh preview` |
+
+Set these **Build** variables (not runtime vars) if the image is older
+than the pins in the repository-root `mise.toml`. Do not add
+`.node-version` or `.nvmrc`.
+
+| Variable | Value |
+| --- | --- |
+| `NODE_VERSION` | `24.19.0` |
+| `PNPM_VERSION` | `11.22.0` |
+
+After the first successful build, set the runtime
+`SUB_HUB_ACCESS_TOKEN` **secret** and the `SUB_HUB_SELF_HOSTS` **var**
+on the Worker. The deploy helper uses `--keep-vars` so those values
+survive later pushes. Do not also run `pnpm run deploy:stack` against
+this Worker. A local `pnpm run deploy` remains the simpler publish.
+
 ## Maintainer preview gate
 
 Miniflare exercises host conformance in CI, but it is not the production
