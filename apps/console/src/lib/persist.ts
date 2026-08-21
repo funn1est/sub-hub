@@ -21,6 +21,33 @@ export type PersistedWorkshop = WorkshopFields & {
   theme: Theme
 }
 
+export type ConsoleChrome = {
+  locale: Locale
+  theme: Theme
+}
+
+export function workshopFieldsOf(state: PersistedWorkshop): WorkshopFields {
+  return {
+    serviceOrigin: state.serviceOrigin,
+    accessToken: state.accessToken,
+    sources: state.sources,
+    target: state.target,
+    configUrl: state.configUrl,
+    appendInfo: state.appendInfo,
+  }
+}
+
+export function composePersisted(
+  fields: WorkshopFields,
+  chrome: ConsoleChrome
+): PersistedWorkshop {
+  return {
+    ...fields,
+    locale: chrome.locale,
+    theme: chrome.theme,
+  }
+}
+
 type StorageLike = {
   getItem: (key: string) => string | null
   setItem?: (key: string, value: string) => void

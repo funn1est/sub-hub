@@ -68,7 +68,6 @@ import { ScrollArea } from "@/components/ui/scroll-area.tsx"
 import { Spinner } from "@/components/ui/spinner.tsx"
 import { Switch } from "@/components/ui/switch.tsx"
 import { Textarea } from "@/components/ui/textarea.tsx"
-import { toast } from "@/components/ui/toast.tsx"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx"
 import {
   knownErrorTitle,
@@ -76,30 +75,21 @@ import {
   t,
   type Messages,
 } from "@/lib/i18n.ts"
-import type { Locale, PersistedWorkshop, Theme } from "@/lib/persist.ts"
+import type { Locale, Theme } from "@/lib/persist.ts"
 import {
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
   acl4ssrConfigLabel,
-  acl4ssrConfigUrl,
-  configPresetOf,
-  configSelectionId,
   type Acl4ssrConfigFile,
 } from "@/lib/acl4ssr-catalog.ts"
 import { MAX_SOURCES, TARGETS, isTarget } from "@/lib/service-contract.ts"
-import {
-  applyPaste,
-  clashInstallUrl,
-  evaluateWorkshop,
-  parseServiceOrigin,
-  previewMediaType,
-  runPreview,
-  runVersionProbe,
-  subscriptionPasteFrom,
-  type PreviewState,
-  type VersionProbe,
-} from "@/lib/workshop.ts"
+import type {
+  ConfigSelectionId,
+  VersionState,
+  WorkshopSession,
+} from "@/lib/workshop-session.ts"
+import type { PreviewState } from "@/lib/workshop.ts"
 
 type ConfigChoice = {
   id: "none" | "custom" | Acl4ssrConfigFile
@@ -112,135 +102,37 @@ type ConfigChoiceGroup = {
 }
 
 type WorkshopProps = {
-  state: PersistedWorkshop
-  onChange: (next: PersistedWorkshop) => void
+  session: WorkshopSession
+  locale: Locale
+  theme: Theme
+  onLocaleChange: (locale: Locale) => void
+  onThemeChange: (theme: Theme) => void
   banner?: React.ReactNode
 }
 
-type VersionState = { status: "idle" } | { status: "checking" } | VersionProbe
-
-export function Workshop({ state, onChange, banner }: WorkshopProps) {
-  const copy = t(state.locale)
-  const view = evaluateWorkshop(state)
+export function Workshop({
+  session,
+  locale,
+  theme,
+  onLocaleChange,
+  onThemeChange,
+  banner,
+}: WorkshopProps) {
+  const view = React.useSyncExternalStore(
+    session.subscribe,
+    session.getView,
+    session.getView
+  )
+  const copy = t(locale)
+  const fields = view.fields
   const assembled = view.assembled
-  const originValid = !view.originInvalid
-  const tokenValid = !view.tokenInvalid
-  const configValid = !view.configInvalid
-  const canonicalOrigin = parseServiceOrigin(state.serviceOrigin)
-  const preset = configPresetOf(state.configUrl)
-  const canCollapseService = canonicalOrigin !== null && tokenValid
   const [revealToken, setRevealToken] = React.useState(false)
-  const [pickingCustom, setPickingCustom] = React.useState(false)
   const [serviceOpen, setServiceOpen] = React.useState(
-    () => parseServiceOrigin(state.serviceOrigin) === null
+    () => session.getView().canonicalOrigin === null
   )
-  const showServiceFields = serviceOpen || !canCollapseService
+  const showServiceFields = serviceOpen || !view.canCollapseService
   const configGroups = React.useMemo(() => configChoiceGroups(copy), [copy])
-  const selectedConfig = selectedConfigChoice(
-    configGroups,
-    configSelectionId(preset, pickingCustom)
-  )
-  const [pasteWarnings, setPasteWarnings] = React.useState<string[]>([])
-  const [probe, setProbe] = React.useState<{
-    origin: string
-    state: Exclude<VersionState, { status: "idle" }>
-  } | null>(null)
-  const [preview, setPreview] = React.useState<PreviewState>({ status: "idle" })
-  const version: VersionState =
-    canonicalOrigin === null
-      ? { status: "idle" }
-      : probe === null || probe.origin !== canonicalOrigin
-        ? { status: "checking" }
-        : probe.state
-
-  React.useEffect(() => {
-    document.documentElement.lang = state.locale === "zh" ? "zh-CN" : "en"
-    document.title = copy.title
-  }, [copy.title, state.locale])
-
-  React.useEffect(() => {
-    if (canonicalOrigin === null) {
-      return undefined
-    }
-
-    const origin = canonicalOrigin
-    const controller = new AbortController()
-    void runVersionProbe({ origin, signal: controller.signal }).then(
-      (state) => {
-        if (!controller.signal.aborted) {
-          setProbe({ origin, state })
-        }
-      }
-    )
-
-    return () => {
-      controller.abort()
-    }
-  }, [canonicalOrigin])
-
-  const patch = (partial: Partial<PersistedWorkshop>) => {
-    onChange({ ...state, ...partial })
-  }
-
-  const setSources = (sources: string[]) => {
-    patch({ sources: sources.length > 0 ? sources : [""] })
-  }
-
-  const importSubscription = (
-    parsed: NonNullable<ReturnType<typeof subscriptionPasteFrom>>
-  ) => {
-    const next = applyPaste(state, parsed)
-    setPickingCustom(false)
-    setPasteWarnings(
-      parsed.warnings.map((warning) => copy.pasteWarnings[warning])
-    )
-    onChange(next)
-    toast.add({ type: "success", title: copy.imported })
-  }
-
-  const onCopy = async () => {
-    if (assembled.url === null) {
-      return
-    }
-    try {
-      await navigator.clipboard.writeText(assembled.url)
-      toast.add({ type: "success", title: copy.copied })
-    } catch {
-      toast.add({ type: "error", title: copy.copyFailed })
-    }
-  }
-
-  const onPreview = async () => {
-    if (assembled.url === null || !assembled.previewable) {
-      return
-    }
-    setPreview({ status: "loading" })
-    setPreview(
-      await runPreview({
-        url: assembled.url,
-        target: state.target,
-        pageHttps: window.location.protocol === "https:",
-      })
-    )
-  }
-
-  const onDownload = () => {
-    if (preview.status !== "done" || preview.httpStatus !== 200) {
-      return
-    }
-    const blob = new Blob([preview.body], {
-      type: previewMediaType(state.target),
-    })
-    const objectUrl = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = objectUrl
-    link.download = preview.filename
-    link.click()
-    URL.revokeObjectURL(objectUrl)
-  }
-
-  const previewEnabled = assembled.previewable
-  const showClash = assembled.clashInstall
+  const selectedConfig = selectedConfigChoice(configGroups, view.configSelection)
 
   return (
     <div className="console-shell relative isolate">
@@ -265,16 +157,16 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
           <div className="flex shrink-0 items-center gap-2">
             <LocaleMenu
               label={copy.language}
-              locale={state.locale}
-              onChange={(locale) => patch({ locale })}
+              locale={locale}
+              onChange={onLocaleChange}
             />
             <ThemeMenu
               label={copy.theme}
-              theme={state.theme}
+              theme={theme}
               system={copy.themeSystem}
               light={copy.themeLight}
               dark={copy.themeDark}
-              onChange={(theme) => patch({ theme })}
+              onChange={onThemeChange}
             />
           </div>
         </div>
@@ -286,11 +178,10 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
           if (
             (event.metaKey || event.ctrlKey) &&
             event.key === "Enter" &&
-            previewEnabled &&
-            preview.status !== "loading"
+            view.previewEnabled
           ) {
             event.preventDefault()
-            void onPreview()
+            void session.actions.preview()
           }
         }}
       >
@@ -302,17 +193,19 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
               icon={<ServerIcon />}
               title={copy.service}
               description={
-                showServiceFields ? copy.serviceDescription : canonicalOrigin
+                showServiceFields
+                  ? copy.serviceDescription
+                  : (view.canonicalOrigin ?? undefined)
               }
               descriptionClassName={showServiceFields ? undefined : "break-all"}
             />
             <CardAction>
               <div className="flex items-center gap-2">
-                {state.accessToken.trim().length > 0 ? (
+                {fields.accessToken.trim().length > 0 ? (
                   <Badge variant="outline">{copy.tokenSet}</Badge>
                 ) : null}
-                <VersionBadge state={version} copy={copy} />
-                {canCollapseService ? (
+                <VersionBadge state={view.version} copy={copy} />
+                {view.canCollapseService ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -329,37 +222,29 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
           {showServiceFields ? (
             <CardContent>
               <FieldGroup>
-                <Field data-invalid={!originValid || undefined}>
+                <Field data-invalid={view.originInvalid || undefined}>
                   <FieldLabel htmlFor="service-origin">
                     {copy.serviceOrigin}
                   </FieldLabel>
                   <InputGroup>
                     <InputGroupInput
                       id="service-origin"
-                      value={state.serviceOrigin}
+                      value={fields.serviceOrigin}
                       autoComplete="url"
                       spellCheck={false}
-                      aria-invalid={!originValid || undefined}
+                      aria-invalid={view.originInvalid || undefined}
                       placeholder="http://127.0.0.1:25500"
                       onChange={(event) =>
-                        patch({ serviceOrigin: event.target.value })
+                        session.actions.patch({
+                          serviceOrigin: event.target.value,
+                        })
                       }
-                      onBlur={() => {
-                        const canonical = parseServiceOrigin(
-                          state.serviceOrigin
-                        )
-                        if (
-                          canonical !== null &&
-                          canonical !== state.serviceOrigin
-                        ) {
-                          patch({ serviceOrigin: canonical })
-                        }
-                      }}
+                      onBlur={() => session.actions.blurOrigin()}
                     />
                   </InputGroup>
                   <FieldDescription>{copy.serviceOriginHint}</FieldDescription>
                 </Field>
-                <Field data-invalid={!tokenValid || undefined}>
+                <Field data-invalid={view.tokenInvalid || undefined}>
                   <FieldLabel htmlFor="access-token">
                     {copy.accessToken}
                   </FieldLabel>
@@ -367,12 +252,14 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
                     <InputGroupInput
                       id="access-token"
                       type={revealToken ? "text" : "password"}
-                      value={state.accessToken}
+                      value={fields.accessToken}
                       autoComplete="off"
                       spellCheck={false}
-                      aria-invalid={!tokenValid || undefined}
+                      aria-invalid={view.tokenInvalid || undefined}
                       onChange={(event) =>
-                        patch({ accessToken: event.target.value })
+                        session.actions.patch({
+                          accessToken: event.target.value,
+                        })
                       }
                     />
                     <InputGroupAddon align="inline-end">
@@ -389,11 +276,11 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
                   </InputGroup>
                   <FieldDescription>{copy.accessTokenHint}</FieldDescription>
                 </Field>
-                <VersionAlert state={version} copy={copy} />
+                <VersionAlert state={view.version} copy={copy} />
               </FieldGroup>
             </CardContent>
           ) : (
-            <VersionAlert state={version} copy={copy} padded />
+            <VersionAlert state={view.version} copy={copy} padded />
           )}
         </Card>
 
@@ -403,7 +290,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
           description={copy.sourcesDescription}
         >
           <FieldGroup>
-            {state.sources.map((source, index) => {
+            {fields.sources.map((source, index) => {
               const invalid = view.sourceInvalid[index] === true
               return (
                 <Field key={index} data-invalid={invalid || undefined}>
@@ -422,29 +309,36 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
                       spellCheck={false}
                       aria-invalid={invalid || undefined}
                       onChange={(event) => {
-                        const next = state.sources.slice()
+                        const next = fields.sources.slice()
                         next[index] = event.target.value
-                        setSources(next)
+                        session.actions.patch({ sources: next })
                       }}
                       onPaste={(event) => {
-                        const pasted = event.clipboardData.getData("text")
-                        const parsed = subscriptionPasteFrom(pasted)
-                        if (parsed === null || !pasteReplacesField(event)) {
-                          return
+                        const field = event.currentTarget
+                        const outcome = session.actions.pasteIntoSource(
+                          event.clipboardData.getData("text"),
+                          {
+                            value: field.value,
+                            selectionStart: field.selectionStart,
+                            selectionEnd: field.selectionEnd,
+                          }
+                        )
+                        if (outcome === "imported") {
+                          event.preventDefault()
                         }
-                        event.preventDefault()
-                        importSubscription(parsed)
                       }}
                     />
-                    {state.sources.length > 1 ? (
+                    {fields.sources.length > 1 ? (
                       <InputGroupAddon align="inline-end">
                         <InputGroupButton
                           size="icon-xs"
                           aria-label={copy.removeSource}
                           onClick={() => {
-                            setSources(
-                              state.sources.filter((_, item) => item !== index)
-                            )
+                            session.actions.patch({
+                              sources: fields.sources.filter(
+                                (_, item) => item !== index
+                              ),
+                            })
                           }}
                         >
                           <Trash2Icon />
@@ -455,21 +349,25 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
                 </Field>
               )
             })}
-            {state.sources.length < MAX_SOURCES ? (
+            {fields.sources.length < MAX_SOURCES ? (
               <Button
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => setSources([...state.sources, ""])}
+                onClick={() =>
+                  session.actions.patch({ sources: [...fields.sources, ""] })
+                }
               >
                 <PlusIcon data-icon="inline-start" />
                 {copy.addSource}
               </Button>
             ) : null}
-            {pasteWarnings.map((warning) => (
+            {view.pasteWarnings.map((warning) => (
               <Alert key={warning}>
                 <CircleAlertIcon />
-                <AlertDescription>{warning}</AlertDescription>
+                <AlertDescription>
+                  {copy.pasteWarnings[warning]}
+                </AlertDescription>
               </Alert>
             ))}
           </FieldGroup>
@@ -482,11 +380,11 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
               <ToggleGroup
                 variant="outline"
                 size="sm"
-                value={[state.target]}
+                value={[fields.target]}
                 onValueChange={(value) => {
                   const next = value[0]
                   if (next !== undefined && isTarget(next)) {
-                    patch({ target: next })
+                    session.actions.patch({ target: next })
                   }
                 }}
                 spacing={2}
@@ -508,17 +406,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
                   if (item == null || !("id" in item)) {
                     return
                   }
-                  if (item.id === "none") {
-                    setPickingCustom(false)
-                    patch({ configUrl: "" })
-                    return
-                  }
-                  if (item.id === "custom") {
-                    setPickingCustom(true)
-                    return
-                  }
-                  setPickingCustom(false)
-                  patch({ configUrl: acl4ssrConfigUrl(item.id) })
+                  session.actions.selectConfig(item.id)
                 }}
                 itemToStringValue={(item) => item.label}
               >
@@ -551,22 +439,19 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
               </Combobox>
               <FieldDescription>{copy.configHint}</FieldDescription>
             </Field>
-            {pickingCustom || preset.kind === "custom" ? (
-              <Field data-invalid={!configValid || undefined}>
+            {view.showCustomConfigField ? (
+              <Field data-invalid={view.configInvalid || undefined}>
                 <FieldLabel htmlFor="config-url">{copy.configUrl}</FieldLabel>
                 <InputGroup>
                   <InputGroupInput
                     id="config-url"
-                    value={state.configUrl}
+                    value={fields.configUrl}
                     spellCheck={false}
-                    aria-invalid={!configValid || undefined}
+                    aria-invalid={view.configInvalid || undefined}
                     placeholder="https://"
-                    onChange={(event) => {
-                      const next = event.target.value
-                      const nextPreset = configPresetOf(next)
-                      setPickingCustom(nextPreset.kind === "custom")
-                      patch({ configUrl: next })
-                    }}
+                    onChange={(event) =>
+                      session.actions.editCustomConfigUrl(event.target.value)
+                    }
                   />
                 </InputGroup>
               </Field>
@@ -578,8 +463,10 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
               </FieldContent>
               <Switch
                 id="append-info"
-                checked={state.appendInfo}
-                onCheckedChange={(checked) => patch({ appendInfo: checked })}
+                checked={fields.appendInfo}
+                onCheckedChange={(checked) =>
+                  session.actions.patch({ appendInfo: checked })
+                }
               />
             </Field>
           </FieldGroup>
@@ -620,7 +507,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
           <CardFooter className="flex-wrap gap-2">
             <Button
               type="button"
-              onClick={() => void onCopy()}
+              onClick={() => void session.actions.copy()}
               disabled={assembled.url === null}
             >
               <CopyIcon data-icon="inline-start" />
@@ -629,19 +516,21 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
             <Button
               type="button"
               variant="secondary"
-              onClick={() => void onPreview()}
-              disabled={!previewEnabled || preview.status === "loading"}
+              onClick={() => void session.actions.preview()}
+              disabled={!view.previewEnabled}
             >
-              {preview.status === "loading" ? (
+              {view.preview.status === "loading" ? (
                 <Spinner data-icon="inline-start" />
               ) : null}
-              {preview.status === "loading" ? copy.previewing : copy.preview}
+              {view.preview.status === "loading"
+                ? copy.previewing
+                : copy.preview}
             </Button>
-            {showClash && assembled.url !== null ? (
+            {view.clashInstallHref !== null ? (
               <Button
                 nativeButton={false}
                 variant="outline"
-                render={<a href={clashInstallUrl(assembled.url)} />}
+                render={<a href={view.clashInstallHref} />}
               >
                 {copy.clashInstall}
               </Button>
@@ -650,10 +539,10 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
         </Card>
 
         <PreviewCard
-          locale={state.locale}
-          preview={preview}
+          locale={locale}
+          preview={view.preview}
           copy={copy}
-          onDownload={onDownload}
+          onDownload={session.actions.download}
         />
 
         <p className="pb-4 text-center text-xs text-muted-foreground">
@@ -661,16 +550,6 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
         </p>
       </main>
     </div>
-  )
-}
-
-function pasteReplacesField(
-  event: React.ClipboardEvent<HTMLInputElement>
-): boolean {
-  const field = event.currentTarget
-  return (
-    field.value.trim().length === 0 ||
-    (field.selectionStart === 0 && field.selectionEnd === field.value.length)
   )
 }
 
@@ -953,7 +832,7 @@ function configChoiceGroups(copy: Messages): ConfigChoiceGroup[] {
 
 function selectedConfigChoice(
   groups: readonly ConfigChoiceGroup[],
-  id: ReturnType<typeof configSelectionId>
+  id: ConfigSelectionId
 ): ConfigChoice {
   for (const group of groups) {
     const found = group.items.find((item) => item.id === id)

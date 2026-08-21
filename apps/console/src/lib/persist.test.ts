@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  composePersisted,
   defaultLocale,
   loadPersisted,
   PERSIST_KEY,
   serializePersisted,
+  workshopFieldsOf,
   type PersistedWorkshop,
 } from "./persist.ts"
 
@@ -70,5 +72,22 @@ describe("persist", () => {
     expect(junk.target).toBe("clash")
     expect(junk.sources).toEqual([""])
     expect(junk.accessToken).toBe("")
+  })
+
+  it("splits conversion fields from Console chrome and composes them back", () => {
+    expect(workshopFieldsOf(sample)).toEqual({
+      serviceOrigin: sample.serviceOrigin,
+      accessToken: sample.accessToken,
+      sources: sample.sources,
+      target: sample.target,
+      configUrl: sample.configUrl,
+      appendInfo: sample.appendInfo,
+    })
+    expect(
+      composePersisted(workshopFieldsOf(sample), {
+        locale: "en",
+        theme: "dark",
+      })
+    ).toEqual({ ...sample, locale: "en", theme: "dark" })
   })
 })

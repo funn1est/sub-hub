@@ -9,7 +9,7 @@ import {
   percentDecodeValue,
   type Target,
 } from "./service-contract.ts"
-import type { PersistedWorkshop, WorkshopFields } from "./persist.ts"
+import type { WorkshopFields } from "./persist.ts"
 
 export {
   runPreview,
@@ -350,17 +350,16 @@ export function parseSubscriptionUrl(raw: string): PasteResult {
 }
 
 export function applyPaste(
-  state: PersistedWorkshop,
+  fields: WorkshopFields,
   parsed: Extract<PasteResult, { ok: true }>
-): PersistedWorkshop {
+): WorkshopFields {
   return {
-    ...state,
-    serviceOrigin: parsed.workshop.serviceOrigin ?? state.serviceOrigin,
-    accessToken: parsed.workshop.accessToken ?? state.accessToken,
-    sources: parsed.workshop.sources ?? state.sources,
-    target: parsed.workshop.target ?? state.target,
-    configUrl: parsed.workshop.configUrl ?? state.configUrl,
-    appendInfo: parsed.workshop.appendInfo ?? state.appendInfo,
+    serviceOrigin: parsed.workshop.serviceOrigin ?? fields.serviceOrigin,
+    accessToken: parsed.workshop.accessToken ?? fields.accessToken,
+    sources: parsed.workshop.sources ?? fields.sources,
+    target: parsed.workshop.target ?? fields.target,
+    configUrl: parsed.workshop.configUrl ?? fields.configUrl,
+    appendInfo: parsed.workshop.appendInfo ?? fields.appendInfo,
   }
 }
 

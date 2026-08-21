@@ -20,7 +20,6 @@ import {
   subscriptionPasteFrom,
   type SubscriptionAssemblyInput,
 } from "./workshop.ts"
-import { defaultPersisted } from "./persist.ts"
 
 const VLESS =
   "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
@@ -380,8 +379,8 @@ describe("subscriptionPasteFrom", () => {
 })
 
 describe("applyPaste and evaluateWorkshop", () => {
-  it("merges a successful paste onto the Workshop record", () => {
-    const next = applyPaste(defaultPersisted(), {
+  it("merges a successful paste onto the Workshop conversion fields", () => {
+    const next = applyPaste(input(), {
       ok: true,
       workshop: {
         serviceOrigin: "http://127.0.0.1:25500",
@@ -396,7 +395,14 @@ describe("applyPaste and evaluateWorkshop", () => {
     expect(next.accessToken).toBe("deployer-token_1")
     expect(next.target).toBe("loon")
     expect(next.appendInfo).toBe(false)
-    expect(next.locale).toBe("en")
+    expect(Object.keys(next).sort()).toEqual([
+      "accessToken",
+      "appendInfo",
+      "configUrl",
+      "serviceOrigin",
+      "sources",
+      "target",
+    ])
   })
 
   it("diagnoses fields with the same rules assemble uses", () => {

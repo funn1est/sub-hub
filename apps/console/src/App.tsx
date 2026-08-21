@@ -5,16 +5,25 @@ import { ThemeProvider } from "@/components/theme-provider.tsx"
 import { Workshop } from "@/components/workshop.tsx"
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert.tsx"
 import { Button } from "@/components/ui/button.tsx"
+import { toast } from "@/components/ui/toast.tsx"
 import { t } from "@/lib/i18n.ts"
 import {
+  composePersisted,
   defaultLocale,
   loadPersisted,
   savePersisted,
-  type PersistedWorkshop,
+  workshopFieldsOf,
+  type ConsoleChrome,
+  type Locale,
 } from "@/lib/persist.ts"
-import { parseServiceOrigin, runVersionProbe } from "@/lib/workshop.ts"
+import {
+  createWorkshopSession,
+  type WorkshopNotice,
+  type WorkshopSession,
+} from "@/lib/workshop-session.ts"
+import { parseServiceOrigin } from "@/lib/workshop.ts"
 
-function initialState(): PersistedWorkshop {
+function loadInitial() {
   const envOrigin = parseServiceOrigin(
     import.meta.env.VITE_DEFAULT_SERVICE_ORIGIN ?? ""
   )
@@ -24,54 +33,88 @@ function initialState(): PersistedWorkshop {
   })
 }
 
+function toastNotice(locale: Locale, notice: WorkshopNotice) {
+  const copy = t(locale)
+  if (notice === "imported") {
+    toast.add({ type: "success", title: copy.imported })
+    return
+  }
+  if (notice === "copied") {
+    toast.add({ type: "success", title: copy.copied })
+    return
+  }
+  toast.add({ type: "error", title: copy.copyFailed })
+}
+
+type BootSession = {
+  session: WorkshopSession
+  setNotifyLocale: (locale: Locale) => void
+}
+
 export function App() {
-  const [state, setState] = React.useState<PersistedWorkshop>(initialState)
-  const copy = t(state.locale)
+  const [boot] = React.useState(loadInitial)
+  const [bootSession] = React.useState<BootSession>(() => {
+    let locale = boot.locale
+    return {
+      session: createWorkshopSession({
+        initialFields: workshopFieldsOf(boot),
+        env: {
+          pageHttps: window.location.protocol === "https:",
+          consoleOrigin: import.meta.env.DEV
+            ? undefined
+            : (parseServiceOrigin(window.location.origin) ?? undefined),
+        },
+        ports: {
+          notify: (notice) => toastNotice(locale, notice),
+        },
+      }),
+      setNotifyLocale: (next) => {
+        locale = next
+      },
+    }
+  })
+  const session = bootSession.session
+  const [chrome, setChrome] = React.useState<ConsoleChrome>({
+    locale: boot.locale,
+    theme: boot.theme,
+  })
+  const view = React.useSyncExternalStore(
+    session.subscribe,
+    session.getView,
+    session.getView
+  )
+  const copy = t(chrome.locale)
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({ immediate: true })
-  const guessedSameOrigin = React.useRef(false)
 
   React.useEffect(() => {
-    savePersisted(window.localStorage, state)
-  }, [state])
+    bootSession.setNotifyLocale(chrome.locale)
+  }, [bootSession, chrome.locale])
 
   React.useEffect(() => {
-    if (guessedSameOrigin.current || import.meta.env.DEV) {
-      return undefined
-    }
-    if (state.serviceOrigin.trim() !== "") {
-      return undefined
-    }
-    const here = parseServiceOrigin(window.location.origin)
-    if (here === null) {
-      return undefined
-    }
-    guessedSameOrigin.current = true
-    const controller = new AbortController()
-    void runVersionProbe({ origin: here, signal: controller.signal }).then(
-      (result) => {
-        if (controller.signal.aborted || result.status !== "ok") {
-          return
-        }
-        setState((current) =>
-          current.serviceOrigin.trim() !== ""
-            ? current
-            : { ...current, serviceOrigin: here }
-        )
-      }
-    )
-    return () => {
-      controller.abort()
-    }
-  }, [state.serviceOrigin])
+    savePersisted(window.localStorage, composePersisted(view.fields, chrome))
+  }, [chrome, view.fields])
+
+  React.useEffect(() => {
+    document.documentElement.lang = chrome.locale === "zh" ? "zh-CN" : "en"
+    document.title = copy.title
+  }, [chrome.locale, copy.title])
 
   return (
-    <ThemeProvider theme={state.theme}>
+    <ThemeProvider theme={chrome.theme}>
       <Workshop
-        state={state}
-        onChange={setState}
+        session={session}
+        locale={chrome.locale}
+        theme={chrome.theme}
+        onLocaleChange={(locale) => {
+          bootSession.setNotifyLocale(locale)
+          setChrome((current) => ({ ...current, locale }))
+        }}
+        onThemeChange={(theme) =>
+          setChrome((current) => ({ ...current, theme }))
+        }
         banner={
           needRefresh ? (
             <Alert>
