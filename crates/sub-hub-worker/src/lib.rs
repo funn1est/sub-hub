@@ -1,22 +1,29 @@
-use std::{fmt, future::Future, pin::Pin, sync::OnceLock, time::Duration};
+use std::cell::RefCell;
+use std::future::poll_fn;
+use std::rc::Rc;
+use std::task::{Poll, Waker};
+use std::{fmt, future::Future, pin::Pin, sync::OnceLock};
 
-use futures::{StreamExt, future::Either, pin_mut};
 use http::{HeaderName, StatusCode};
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, HttpsHopHeaders,
     RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
     canonicalize_inbound_host, interpret_https_headers, request_origin,
 };
-use worker::wasm_bindgen::JsCast;
+use worker::js_sys::{self, Promise, Uint8Array};
+use worker::wasm_bindgen::closure::Closure;
+use worker::wasm_bindgen::{JsCast, JsValue};
+use worker::web_sys;
 use worker::{
-    AbortController, CacheMode, Context, Delay, Env, Fetch, Headers, Request, RequestInit,
-    RequestRedirect, Response,
+    AbortSignal, CacheMode, Context, Env, Headers, Request, RequestInit, RequestRedirect, Response,
 };
 use worker_macros::event;
 
 const SELF_HOSTS_BINDING: &str = "SUB_HUB_SELF_HOSTS";
 const ACCESS_TOKEN_BINDING: &str = "SUB_HUB_ACCESS_TOKEN";
 const CORS_ORIGINS_BINDING: &str = "SUB_HUB_CORS_ORIGINS";
+/// Cloudflare `fetch` does not send a default User-Agent. GitHub requires one.
+const OUTBOUND_USER_AGENT: &str = concat!("sub-hub/", env!("CARGO_PKG_VERSION"));
 
 static APPLICATION: ApplicationCache = ApplicationCache::new();
 
@@ -136,20 +143,84 @@ async fn fetch_once(attempt: RemoteAttempt) -> Result<RemoteResponse, RemoteFetc
     }
 
     let request = outbound_request(&attempt)?;
-    let controller = AbortController::default();
-    let signal = controller.signal();
-    let operation = fetch_and_read(request, &attempt, signal);
-    let timeout = Delay::from(Duration::from_millis(remaining));
-    pin_mut!(operation);
-    pin_mut!(timeout);
+    let signal = timeout_signal(remaining);
+    fetch_and_read(request, &attempt, signal).await
+}
 
-    match futures::future::select(operation, timeout).await {
-        Either::Left((result, _)) => result,
-        Either::Right(((), _)) => {
-            controller.abort();
-            Err(RemoteFetchError::Timeout)
-        }
+fn timeout_signal(remaining_millis: u64) -> AbortSignal {
+    let millis = u32::try_from(remaining_millis).unwrap_or(u32::MAX);
+    web_sys::AbortSignal::timeout_with_u32(millis).into()
+}
+
+fn map_js_error(error: &JsValue) -> RemoteFetchError {
+    let name = js_sys::Reflect::get(error, &JsValue::from_str("name"))
+        .ok()
+        .and_then(|value| value.as_string())
+        .unwrap_or_default();
+    let message = js_sys::Reflect::get(error, &JsValue::from_str("message"))
+        .ok()
+        .and_then(|value| value.as_string())
+        .or_else(|| error.as_string())
+        .unwrap_or_default();
+    if is_timeout_or_abort_text(&name) || is_timeout_or_abort_text(&message) {
+        RemoteFetchError::Timeout
+    } else {
+        RemoteFetchError::Failure
     }
+}
+
+fn header_values(headers: &web_sys::Headers, name: &str) -> Result<Vec<String>, RemoteFetchError> {
+    match headers.get(name) {
+        Ok(Some(value)) => Ok(vec![value]),
+        Ok(None) => Ok(Vec::new()),
+        Err(_) => Err(RemoteFetchError::Failure),
+    }
+}
+
+fn is_timeout_or_abort_text(text: &str) -> bool {
+    text.contains("TimeoutError")
+        || text.contains("AbortError")
+        || text.contains("The operation was aborted")
+}
+
+struct PromiseSlot {
+    result: Option<Result<JsValue, JsValue>>,
+    waker: Option<Waker>,
+}
+
+fn settle_promise(state: &RefCell<PromiseSlot>, result: Result<JsValue, JsValue>) {
+    let mut slot = state.borrow_mut();
+    slot.result = Some(result);
+    if let Some(waker) = slot.waker.take() {
+        waker.wake();
+    }
+}
+
+fn await_promise(promise: impl Into<JsValue>) -> impl Future<Output = Result<JsValue, JsValue>> {
+    let promise = Promise::from(promise.into());
+    let state = Rc::new(RefCell::new(PromiseSlot {
+        result: None,
+        waker: None,
+    }));
+    let fulfill_state = Rc::clone(&state);
+    let on_fulfill = Closure::new(move |value: JsValue| {
+        settle_promise(&fulfill_state, Ok(value));
+    });
+    let reject_state = Rc::clone(&state);
+    let on_reject = Closure::new(move |value: JsValue| {
+        settle_promise(&reject_state, Err(value));
+    });
+    let _ = promise.then2(&on_fulfill, &on_reject);
+    let keep = Rc::new((on_fulfill, on_reject));
+    poll_fn(move |cx| {
+        let _keep = &keep;
+        let mut slot = state.borrow_mut();
+        if let Some(result) = slot.result.take() {
+            return Poll::Ready(result);
+        }
+        slot.waker = Some(cx.waker().clone());
+        Poll::Pending
+    })
 }
 
 fn outbound_request(attempt: &RemoteAttempt) -> Result<Request, RemoteFetchError> {
@@ -162,6 +233,9 @@ fn outbound_request(attempt: &RemoteAttempt) -> Result<Request, RemoteFetchError
         .map_err(|_| RemoteFetchError::Failure)?;
     headers
         .set("Cache-Control", "no-store")
+        .map_err(|_| RemoteFetchError::Failure)?;
+    headers
+        .set("User-Agent", OUTBOUND_USER_AGENT)
         .map_err(|_| RemoteFetchError::Failure)?;
 
     let mut init = RequestInit::new();
@@ -177,27 +251,24 @@ async fn fetch_and_read(
     attempt: &RemoteAttempt,
     signal: worker::AbortSignal,
 ) -> Result<RemoteResponse, RemoteFetchError> {
-    let mut response = Fetch::Request(request)
-        .send_with_signal(&signal)
+    // Avoid worker::Fetch: js_sys JsFuture panics on an already-settled
+    // outbound Promise, and Response.getAll is Cloudflare-only. Either fault
+    // leaves the fetch event pending and workerd reports 1101.
+    let global = js_sys::global().unchecked_into::<web_sys::WorkerGlobalScope>();
+    let init = web_sys::RequestInit::new();
+    init.set_signal(Some(&signal));
+    let response = await_promise(global.fetch_with_request_and_init(request.inner(), &init))
         .await
-        .map_err(|_| RemoteFetchError::Failure)?;
-    let status =
-        StatusCode::from_u16(response.status_code()).map_err(|_| RemoteFetchError::Failure)?;
+        .map_err(|error| map_js_error(&error))?;
+    let response: web_sys::Response = response.dyn_into().map_err(|_| RemoteFetchError::Failure)?;
+    let status = StatusCode::from_u16(response.status()).map_err(|_| RemoteFetchError::Failure)?;
     let headers = response.headers();
     let hop = interpret_https_headers(
         status,
-        headers
-            .get_all("Location")
-            .map_err(|_| RemoteFetchError::Failure)?,
-        headers
-            .get_all("Content-Encoding")
-            .map_err(|_| RemoteFetchError::Failure)?,
-        headers
-            .get_all("Content-Length")
-            .map_err(|_| RemoteFetchError::Failure)?,
-        headers
-            .get_all("Subscription-UserInfo")
-            .map_err(|_| RemoteFetchError::Failure)?,
+        header_values(&headers, "Location")?,
+        header_values(&headers, "Content-Encoding")?,
+        header_values(&headers, "Content-Length")?,
+        header_values(&headers, "Subscription-UserInfo")?,
         attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
     )
@@ -207,15 +278,20 @@ async fn fetch_and_read(
             Ok(RemoteResponse::from_hop(status, hop, Vec::new()))
         }
         HttpsHopHeaders::Success { .. } => {
-            let mut body = Vec::new();
-            let mut stream = response.stream().map_err(|_| RemoteFetchError::Failure)?;
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|_| RemoteFetchError::Failure)?;
-                if chunk.len() > attempt.max_body_bytes().saturating_sub(body.len()) {
-                    return Err(RemoteFetchError::Failure);
-                }
-                body.extend_from_slice(&chunk);
+            let buffer = await_promise(
+                response
+                    .array_buffer()
+                    .map_err(|_| RemoteFetchError::Failure)?,
+            )
+            .await
+            .map_err(|error| map_js_error(&error))?;
+            let bytes = Uint8Array::new(&buffer);
+            let length = usize::try_from(bytes.length()).unwrap_or(usize::MAX);
+            if length > attempt.max_body_bytes() {
+                return Err(RemoteFetchError::Failure);
             }
+            let mut body = vec![0_u8; length];
+            bytes.copy_to(&mut body);
             Ok(RemoteResponse::from_hop(status, hop, body))
         }
     }

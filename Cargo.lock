@@ -1271,7 +1271,6 @@ dependencies = [
 name = "sub-hub-worker"
 version = "0.1.0"
 dependencies = [
- "futures",
  "http",
  "sub-hub-http",
  "url",

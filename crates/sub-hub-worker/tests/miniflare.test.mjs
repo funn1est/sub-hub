@@ -172,7 +172,7 @@ test("host-visible application contract is table driven", async (t) => {
 });
 
 test("invalid self-host binding returns the fixed application 500", async (t) => {
-  const mf = runtime({ SUB_HUB_SELF_HOSTS: "one.example,,two.example" });
+  const mf = runtime({ SUB_HUB_SELF_HOSTS: "," });
   t.after(() => mf.dispose());
 
   const response = await mf.dispatchFetch("https://worker.example/version");
@@ -196,7 +196,7 @@ test("present non-string self-host binding returns the fixed application 500", a
 });
 
 test("fixed configuration failure suppresses the HEAD body", async (t) => {
-  const mf = runtime({ SUB_HUB_SELF_HOSTS: "one.example,,two.example" });
+  const mf = runtime({ SUB_HUB_SELF_HOSTS: "," });
   t.after(() => mf.dispose());
 
   const response = await mf.dispatchFetch("https://worker.example/version", {
@@ -460,6 +460,7 @@ test("remote fetch is constrained and preserves the shared response", async (t) 
   assert.equal(observed.headers.accept, "*/*");
   assert.equal(observed.headers["accept-encoding"], "identity");
   assert.equal(observed.headers["cache-control"], "no-store");
+  assert.equal(observed.headers["user-agent"], "sub-hub/0.1.0");
   assert.equal(observed.headers.authorization, undefined);
   assert.equal(observed.headers.cookie, undefined);
   assert.equal(observed.headers["x-caller-header"], undefined);
@@ -607,4 +608,25 @@ test("upstream failure maps to bad gateway", async (t) => {
   assert.equal(response.status, 502);
   assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
   assert.equal(await response.text(), "Bad Gateway");
+});
+
+test("hung remote fetch returns an application error without crashing the isolate", async (t) => {
+  const fetchMock = createFetchMock();
+  fetchMock.disableNetConnect();
+  fetchMock
+    .get("https://example.com")
+    .intercept({ path: "/sub", method: "GET" })
+    .reply(() => new Promise(() => {}));
+  const mf = runtime({}, fetchMock);
+  t.after(() => mf.dispose());
+  const remote = encodeURIComponent("https://example.com/sub");
+
+  const response = await mf.dispatchFetch(
+    `https://worker.example/sub?target=clash&url=${remote}`,
+  );
+
+  const body = await response.text();
+  assert.ok([502, 504].includes(response.status), body);
+  assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
+  assert.ok(["Bad Gateway", "Gateway Timeout"].includes(body), body);
 });

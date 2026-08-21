@@ -6,3 +6,4 @@ docs/
 tools/
 .scratch/
 CONTEXT.md
+.env
