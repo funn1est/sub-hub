@@ -3,6 +3,7 @@
 Static Workshop PWA for a self-hosted Conversion Service. It assembles a
 Subscription URL (`/sub` or `/sub/:token`), previews that same URL with `GET`,
 and copies or downloads the result. It is not a second conversion API.
+Pasting a Subscription URL into a source row fills the form.
 
 This package lives at `apps/console`. It is not a Cargo crate. This repository
 does not operate a public instance.
@@ -35,7 +36,8 @@ set SUB_HUB_CONSOLE_ROOT=apps/console/dist
 cargo run --locked -p sub-hub-native
 ```
 
-Then open `http://127.0.0.1:25500/` and set the Conversion Service origin to
+Then open `http://127.0.0.1:25500/`. When `/version` on that origin succeeds,
+the Workshop fills the Conversion Service origin itself. Otherwise set it to
 `http://127.0.0.1:25500`.
 
 A Vite Workshop against Native loopback (separate origin) needs:

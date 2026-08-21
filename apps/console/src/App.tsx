@@ -12,7 +12,7 @@ import {
   savePersisted,
   type PersistedWorkshop,
 } from "@/lib/persist.ts"
-import { parseServiceOrigin } from "@/lib/workshop.ts"
+import { parseServiceOrigin, runVersionProbe } from "@/lib/workshop.ts"
 
 function initialState(): PersistedWorkshop {
   const envOrigin = parseServiceOrigin(
@@ -31,10 +31,41 @@ export function App() {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({ immediate: true })
+  const guessedSameOrigin = React.useRef(false)
 
   React.useEffect(() => {
     savePersisted(window.localStorage, state)
   }, [state])
+
+  React.useEffect(() => {
+    if (guessedSameOrigin.current || import.meta.env.DEV) {
+      return undefined
+    }
+    if (state.serviceOrigin.trim() !== "") {
+      return undefined
+    }
+    const here = parseServiceOrigin(window.location.origin)
+    if (here === null) {
+      return undefined
+    }
+    guessedSameOrigin.current = true
+    const controller = new AbortController()
+    void runVersionProbe({ origin: here, signal: controller.signal }).then(
+      (result) => {
+        if (controller.signal.aborted || result.status !== "ok") {
+          return
+        }
+        setState((current) =>
+          current.serviceOrigin.trim() !== ""
+            ? current
+            : { ...current, serviceOrigin: here }
+        )
+      }
+    )
+    return () => {
+      controller.abort()
+    }
+  }, [state.serviceOrigin])
 
   return (
     <ThemeProvider theme={state.theme}>

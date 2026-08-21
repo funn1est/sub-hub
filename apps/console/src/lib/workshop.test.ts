@@ -17,6 +17,7 @@ import {
   evaluateWorkshop,
   parseServiceOrigin,
   parseSubscriptionUrl,
+  subscriptionPasteFrom,
   type SubscriptionAssemblyInput,
 } from "./workshop.ts"
 import { defaultPersisted } from "./persist.ts"
@@ -162,17 +163,15 @@ describe("assembleSubscription", () => {
       ).url
     ).toBeNull()
     expect(
-      assembleSubscription(
-        input({ sources: ["http://insecure.example/sub"] })
-      ).url
+      assembleSubscription(input({ sources: ["http://insecure.example/sub"] }))
+        .url
     ).toBeNull()
   })
 
   it("does not copy Conversion Service outbound host policy", () => {
     expect(
-      assembleSubscription(
-        input({ configUrl: "https://127.0.0.1/acl.ini" })
-      ).url
+      assembleSubscription(input({ configUrl: "https://127.0.0.1/acl.ini" }))
+        .url
     ).not.toBeNull()
   })
 })
@@ -353,6 +352,33 @@ describe("clashInstallUrl", () => {
   })
 })
 
+describe("subscriptionPasteFrom", () => {
+  it("imports a Conversion Service Subscription URL and ignores provider /sub sources", () => {
+    const assembled = subscriptionPasteFrom(
+      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}`
+    )
+    expect(assembled).not.toBeNull()
+    expect(assembled?.workshop.sources).toEqual([VLESS])
+    expect(assembled?.workshop.target).toBe("clash")
+
+    const tokenized = subscriptionPasteFrom(
+      `https://sub-hub.example/sub/deployer-token_1?target=loon&url=${VLESS_ENCODED}`
+    )
+    expect(tokenized?.workshop.accessToken).toBe("deployer-token_1")
+    expect(
+      subscriptionPasteFrom("https://sub-hub.example/sub/deployer-token_1")
+        ?.workshop.accessToken
+    ).toBe("deployer-token_1")
+
+    expect(subscriptionPasteFrom(VLESS)).toBeNull()
+    expect(
+      subscriptionPasteFrom("https://provider.example/sub?token=abc")
+    ).toBeNull()
+    expect(subscriptionPasteFrom("http://127.0.0.1:25500/sub")).toBeNull()
+    expect(subscriptionPasteFrom("https://example.com/subscribe")).toBeNull()
+  })
+})
+
 describe("applyPaste and evaluateWorkshop", () => {
   it("merges a successful paste onto the Workshop record", () => {
     const next = applyPaste(defaultPersisted(), {
@@ -380,9 +406,9 @@ describe("applyPaste and evaluateWorkshop", () => {
     expect(ready.originInvalid).toBe(false)
     expect(ready.sourceInvalid).toEqual([false])
 
-    expect(evaluateWorkshop(input({ serviceOrigin: "" })).assembled.previewable).toBe(
-      false
-    )
+    expect(
+      evaluateWorkshop(input({ serviceOrigin: "" })).assembled.previewable
+    ).toBe(false)
     expect(
       evaluateWorkshop(input({ sources: ["a".repeat(8171)] })).assembled
         .previewable

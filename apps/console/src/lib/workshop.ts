@@ -363,3 +363,29 @@ export function applyPaste(
     appendInfo: parsed.workshop.appendInfo ?? state.appendInfo,
   }
 }
+
+function looksLikeAssembledSubscription(
+  workshop: Partial<SubscriptionAssemblyInput>
+): boolean {
+  return (
+    (workshop.accessToken?.length ?? 0) > 0 ||
+    workshop.target !== undefined ||
+    (workshop.sources?.length ?? 0) > 0 ||
+    (workshop.configUrl?.length ?? 0) > 0 ||
+    workshop.appendInfo === false
+  )
+}
+
+/**
+ * True when pasted text is a Conversion Service Subscription URL, not a
+ * provider `https://…/sub?token=` source.
+ */
+export function subscriptionPasteFrom(
+  raw: string
+): Extract<PasteResult, { ok: true }> | null {
+  const parsed = parseSubscriptionUrl(raw)
+  if (!parsed.ok || !looksLikeAssembledSubscription(parsed.workshop)) {
+    return null
+  }
+  return parsed
+}
