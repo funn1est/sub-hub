@@ -1,7 +1,8 @@
 # Sub Hub Cloudflare Worker
 
-This crate hosts Sub Hub on Cloudflare Workers. The native service and this
-Worker share the same host-neutral HTTP and conversion modules.
+This crate hosts Sub Hub on Cloudflare Workers. One origin serves the
+Conversion Service and the Web Console. The native service with
+`SUB_HUB_CONSOLE_ROOT` is the same shape.
 
 This repository does not operate a public instance. Deploy your own Worker if
 you want a public URL.
@@ -15,11 +16,6 @@ not apply to the native host.
 
 The hostname of the inbound request is always treated as a self-target. Remote
 subscription and config URLs must not point at that host.
-
-`SUB_HUB_SELF_HOSTS` is an optional, comma-separated list of additional
-canonical DNS aliases that remote loading must also reject. List every
-published hostname — the `*.workers.dev` name and any custom domain — so a
-request arriving on one alias cannot fetch another.
 
 ## Access token
 
@@ -51,24 +47,6 @@ pnpm run deploy -- --replace
 
 A present-but-empty or malformed secret makes every request return `500`.
 
-## Console origins
-
-`SUB_HUB_CORS_ORIGINS` is a Cloudflare **var**, not a secret. The blob is a
-comma- or newline-separated list of at most eight exact origins (scheme, host,
-and non-default port). A listed Console may `fetch()` `GET /version` and
-`GET /sub` / `GET /sub/:token` and read the body. Unset means no CORS headers
-and today's subscription clients are unchanged.
-
-```sh
-pnpm exec wrangler deploy --keep-vars --var SUB_HUB_CORS_ORIGINS:https://sub-hub-console.<subdomain>.workers.dev
-```
-
-`pnpm run deploy:stack` publishes the Console and writes that origin for you.
-Do not commit a live Console origin into this Worker `wrangler.toml`. Publish
-the Console from `apps/console`; do not add `[assets]` to this Worker config.
-A present-but-empty or malformed list (`https://x.example/path`,
-a ninth origin) makes every request return `500`.
-
 Do not log complete request URLs. Query strings commonly contain credentials.
 
 ## Prerequisites
@@ -94,36 +72,49 @@ pnpm install --frozen-lockfile
 pnpm exec wrangler login
 pnpm run build
 pnpm run test:host
-pnpm run deploy:stack
+pnpm run deploy
 ```
 
-`pnpm run deploy:stack` builds `apps/console`, publishes it with
-`wrangler deploy` as Workers Static Assets (`sub-hub-console`), then runs
-the access-token ensure script and `wrangler deploy --keep-vars` with
-`SUB_HUB_CORS_ORIGINS` and `SUB_HUB_SELF_HOSTS` filled from the live URLs.
-Worker-only publishes stay on `pnpm run deploy`. The first successful
-Worker deploy prints a `*.workers.dev` URL. Save any generated token
-immediately; Cloudflare cannot show it again.
+`pnpm run deploy` is layout `all`: it builds `apps/console`, ensures the
+access-token secret, and publishes **one** Worker (Wasm + Console assets).
+Open the printed `*.workers.dev` URL: that is the Console. Same-origin
+`/version` fills the Conversion Service origin. Paste the token into the
+page. Save any generated token immediately; Cloudflare cannot show it
+again.
 
-If the account already has a Worker named `sub-hub`, pass `--worker-name` or
-set `CLOUDFLARE_WORKER_NAME` so the deploy does not collide. Do not commit a
-local `name` rename, an `account_id`, API tokens, or a `.dev.vars` file that
-holds real values.
+Three layouts:
 
-### Publish every hostname as a self-target
+| Command | What is published |
+| --- | --- |
+| `pnpm run deploy` | Conversion + Console, same origin (default) |
+| `pnpm run deploy:worker` | Conversion only (`wrangler.worker.toml`) |
+| `pnpm run deploy:console` | Console only (`apps/console`, Worker `sub-hub-console`) |
 
-`deploy:stack` writes the published `*.workers.dev` hostname into
-`SUB_HUB_SELF_HOSTS`. For a Worker-only publish, set that var and deploy
-again. Use a Cloudflare dashboard text variable, or pass the value at
-deploy time without writing it into the committed `wrangler.toml`:
+`--layout all|worker|console` is the same switch. Conversion-only plus
+a separate Console needs `SUB_HUB_CORS_ORIGINS` on Conversion:
 
 ```sh
-pnpm exec wrangler deploy --var SUB_HUB_SELF_HOSTS:sub-hub.<subdomain>.workers.dev
+pnpm run deploy:console
+pnpm run deploy:worker -- --cors-origin https://sub-hub-console.<subdomain>.workers.dev
 ```
 
-Add every extra custom-domain hostname to the same comma-separated list and
-redeploy. A malformed list (non-DNS values, or more than 16 names) makes the
-Worker return `500` for every request.
+If the account already has a Worker named `sub-hub`, pass `--worker-name` or
+set `CLOUDFLARE_WORKER_NAME` so the deploy does not collide. Console-only
+uses `--console-name` / `CLOUDFLARE_CONSOLE_NAME`. Do not commit a local
+`name` rename, an `account_id`, API tokens, or a `.dev.vars` file that
+holds real values.
+
+### Cloudflare Free
+
+Layout `all` fits the [Workers Free](https://developers.cloudflare.com/workers/platform/limits/)
+plan: the compressed Worker script is under the 3 MB gzip limit (this
+repository's Wasm gzip is well under 1 MB); Console files are Workers
+Static Assets (Free allows 20,000 files, 25 MiB each) and do **not**
+count toward that 3 MB. Static asset requests are [free and
+unlimited](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/).
+`/version` and `/sub` invoke the script (`run_worker_first`) and count
+toward the Free 100,000 requests/day and 10 ms CPU/request. Two Workers
+(console-only + conversion-only) also fit Free (100 Workers/account).
 
 ### Smoke the deployed URL
 
@@ -143,18 +134,34 @@ curl --get "$WORKER_URL/sub" \
 After deploy, replace `/sub` with `/sub/<token>` in the second command.
 
 `GET /version` must print `sub-hub v0.1.0 backend`. The `/sub` response must
-be Mihomo YAML that contains that VLESS node.
+be Mihomo YAML that contains that VLESS node. On layout `all`,
+`GET $WORKER_URL/` must be the Console HTML.
 
 ### Local session
 
-`pnpm run dev` starts `wrangler dev` against the same build. It is
-not a substitute for the deployed-runtime smoke above.
+`pnpm run dev` is layout `all`. `pnpm run dev -- --layout worker` skips
+Console assets. It is not a substitute for the deployed-runtime smoke above.
+
+A Vite Workshop (`apps/console`, `pnpm run dev`) is a different origin. Point
+it at this Worker only after setting `SUB_HUB_CORS_ORIGINS` to
+`http://localhost:5173,http://127.0.0.1:5173`. Production same-origin Console
+does not need that var.
+
+## Extra aliases (optional)
+
+If this Worker is reachable on more than one hostname (custom domain plus
+`*.workers.dev`, or several custom domains), set `SUB_HUB_SELF_HOSTS` to the
+comma-separated extra names so a request arriving on one alias cannot fetch
+another. A single hostname does not need the var: the inbound host is already
+a self-target. A malformed list (non-DNS values, or more than 16 names) makes
+the Worker return `500` for every request.
 
 ## Cloudflare Git (Workers Builds)
 
 Connect this package as its own Worker. The build image has Node but not
 Rust; `scripts/install-workers-toolchain.sh` installs the pinned
-toolchain during the Dashboard **Build command**. Do not use
+toolchain during the Dashboard **Build command**. The **Deploy command**
+builds the Console and publishes Wasm plus assets. Do not use
 `pnpm run deploy` here: Workers Builds sets `CI=true`, and that script
 refuses to run.
 
@@ -163,8 +170,8 @@ refuses to run.
 | Worker name | `sub-hub` (must match `wrangler.toml`) |
 | Root directory | `crates/sub-hub-worker` |
 | Build command | `sh scripts/install-workers-toolchain.sh` |
-| Deploy command | `sh scripts/workers-builds-deploy.sh` |
-| Non-production deploy | `sh scripts/workers-builds-deploy.sh preview` |
+| Deploy command | `sh scripts/workers-builds-deploy.sh` (all). Conversion only: `sh scripts/workers-builds-deploy.sh worker` |
+| Non-production deploy | `sh scripts/workers-builds-deploy.sh preview` (add `worker` for Conversion only) |
 
 Set these **Build** variables (not runtime vars) if the image is older
 than the pins in the repository-root `mise.toml`. Do not add
@@ -176,10 +183,10 @@ than the pins in the repository-root `mise.toml`. Do not add
 | `PNPM_VERSION` | `11.22.0` |
 
 After the first successful build, set the runtime
-`SUB_HUB_ACCESS_TOKEN` **secret** and the `SUB_HUB_SELF_HOSTS` **var**
-on the Worker. The deploy helper uses `--keep-vars` so those values
-survive later pushes. Do not also run `pnpm run deploy:stack` against
-this Worker. A local `pnpm run deploy` remains the simpler publish.
+`SUB_HUB_ACCESS_TOKEN` **secret** on the Worker. The deploy helper uses
+`--keep-vars` so later pushes keep that secret. Console-only Git is a
+separate Worker whose root is `apps/console`. A local `pnpm run deploy`
+remains the simpler publish.
 
 ## Maintainer preview gate
 

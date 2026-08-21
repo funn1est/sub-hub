@@ -15,36 +15,44 @@ Node 24.19.0 and pnpm 11.22.0 are pinned in the repository-root `mise.toml`.
 
 ## Develop
 
-From this directory:
+Hot reload is two processes: Native Conversion on loopback, Vite Workshop
+on another origin.
+
+Terminal 1, from the repository root:
+
+```sh
+SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173 \
+  cargo run --locked -p sub-hub-native
+```
+
+Terminal 2, from this directory:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm test
 pnpm run dev
 ```
 
-Optional: `VITE_DEFAULT_SERVICE_ORIGIN=http://127.0.0.1:25500` (origin only,
-never a token). The access token is typed in the page and stored only in
-`localStorage`.
+Open the Vite URL (usually `http://localhost:5173`). Set Conversion Service
+origin to `http://127.0.0.1:25500`, or:
 
-Same-origin Native pairing (no CORS) after a Console build:
+```sh
+VITE_DEFAULT_SERVICE_ORIGIN=http://127.0.0.1:25500 pnpm run dev
+```
+
+Origin only, never a token. The access token is typed in the page and stored
+only in `localStorage`. Loopback Native has no token unless you set
+`SUB_HUB_ACCESS_TOKEN`.
+
+Same-origin Native (no Vite, no CORS, no hot reload) after a Console build:
 
 ```sh
 pnpm run build
 # from the repository root
-set SUB_HUB_CONSOLE_ROOT=apps/console/dist
-cargo run --locked -p sub-hub-native
+SUB_HUB_CONSOLE_ROOT=apps/console/dist cargo run --locked -p sub-hub-native
 ```
 
 Then open `http://127.0.0.1:25500/`. When `/version` on that origin succeeds,
-the Workshop fills the Conversion Service origin itself. Otherwise set it to
-`http://127.0.0.1:25500`.
-
-A Vite Workshop against Native loopback (separate origin) needs:
-
-```sh
-SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173 cargo run --locked -p sub-hub-native
-```
+the Workshop fills the Conversion Service origin itself.
 
 Preview is a simple `GET`. The Conversion Service does not answer `OPTIONS`.
 When the service skipped nodes, Preview shows the counts from
@@ -68,130 +76,67 @@ Output is `dist/`. `public/_headers` is copied into `dist/` and sets
 `Referrer-Policy: no-referrer` plus a CSP of `default-src 'self'` with
 `connect-src 'self' http: https:` and `script-src 'self'`.
 
-The service worker uses `registerType: prompt` and does not runtime-cache the
-Conversion Service origin.
+The service worker uses `registerType: prompt`, does not runtime-cache
+`/sub` or `/version`, and does not navigate-fallback those paths.
 
 ## Deploy
 
-Create a **separate** Worker for this package. Do not add `[assets]` or a
-second `name` to the Conversion Service `wrangler.toml`. The default name
-is `sub-hub-console` in this package's `wrangler.toml`; override it per
-account instead of committing an `account_id` or API token.
+From `crates/sub-hub-worker` after `wrangler login`:
+
+```sh
+pnpm run deploy
+```
+
+Default layout `all` builds this package and uploads `dist/` as assets
+on the Conversion Worker. Open that `*.workers.dev` URL. The Workshop fills
+the Conversion Service origin from same-origin `/version`. Paste the token.
+
+Console-only (separate origin) is:
+
+```sh
+pnpm run deploy:console
+pnpm run deploy:worker -- --cors-origin https://sub-hub-console.<subdomain>.workers.dev
+```
+
+Git for Console-only: Workers Builds, Worker name `sub-hub-console`, root
+`apps/console`, build `pnpm install --frozen-lockfile && pnpm run build`,
+deploy the default `npx wrangler deploy`. Then set `SUB_HUB_CORS_ORIGINS`
+on Conversion to that exact origin. Do not commit an `account_id` or API
+token.
 
 Local toolchains stay in the repository-root `mise.toml`. Do not add
 `.node-version`, `.nvmrc`, or other extra version managers in this package.
 
-### Connect to Git
-
-Push to the connected branch rebuilds this package. `wrangler.toml` uses
-Workers Static Assets, so the dashboard can keep the default deploy command
-(`npx wrangler deploy`). Do not switch it to `wrangler pages deploy`, and
-do not set a Pages output directory.
-
-1. [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages)
-   → **Create** → **Worker** → import this repository.
-2. Set only the monorepo root (the repository root is not this package):
-
-   | Field | Value |
-   | --- | --- |
-   | Worker name | `sub-hub-console` (must match `wrangler.toml`) |
-   | Root directory | `apps/console` |
-   | Build command | `pnpm install --frozen-lockfile && pnpm run build` |
-   | Deploy command | leave the default `npx wrangler deploy` |
-
-3. Optional: `NODE_VERSION=24.19.0` if the build image is older than the
-   pin in the repository-root `mise.toml`.
-4. Save. Production origin is
-   `https://sub-hub-console.<subdomain>.workers.dev`.
-5. Put that **exact** origin on the Conversion Service
-   (`SUB_HUB_CORS_ORIGINS`). No `*.workers.dev` wildcards. Add each preview
-   origin the same way if that preview must `fetch()` `/sub`.
-6. Optional: **Build watch paths** → `apps/console/**` so Worker-only
-   commits do not rebuild the Console.
-
-If this Worker is already Git-connected, push is enough — do not change
-the deploy command. Do not also run `pnpm run deploy:stack` against the
-same Worker. CI builds this package and does not deploy. Do not send
-Cloudflare credentials in a pull request.
-
-Worker-only local publish after `wrangler login` from
-`crates/sub-hub-worker`:
-
-```sh
-pnpm exec wrangler deploy --keep-vars \
-  --var SUB_HUB_CORS_ORIGINS:https://sub-hub-console.<subdomain>.workers.dev
-```
-
-### Direct Upload
-
-For a one-shot upload of `dist/` instead of Git (from the Worker package,
-which pins Wrangler 4.122.0):
-
-```sh
-cd apps/console
-pnpm install --frozen-lockfile
-pnpm test
-pnpm run build
-
-cd ../../crates/sub-hub-worker
-pnpm exec wrangler deploy --config ../../apps/console/wrangler.toml
-```
-
-`deploy:stack` does that upload and sets the Worker CORS var. Direct
-upload does not run a Cloudflare build. Do not Git-connect and Direct-Upload
-the same Worker.
-
-Then list that exact origin on the Conversion Service. No host-suffix
-wildcards. Preview `*.workers.dev` hashes must be added as extra exact
-origins if those previews should read `/sub`.
-
-```sh
-# Conversion Service — keep existing vars and the access-token secret
-pnpm exec wrangler deploy --keep-vars \
-  --var SUB_HUB_CORS_ORIGINS:https://sub-hub-console.<subdomain>.workers.dev
-
-# Native
-set SUB_HUB_CORS_ORIGINS=https://sub-hub-console.<subdomain>.workers.dev
-```
-
-A present-but-empty or malformed `SUB_HUB_CORS_ORIGINS` makes every Worker
-request return `500`.
+Layout `all` Git is the Conversion Worker (see
+[`crates/sub-hub-worker/README.md`](../../crates/sub-hub-worker/README.md)).
+CI builds and tests here and does not deploy. Do not send Cloudflare
+credentials in a pull request.
 
 ## Manual smoke
 
-Not a CI gate. Replace `$CONSOLE` and `$WORKER` with the HTTPS origins, no
-trailing slash.
+Not a CI gate. Replace `$ORIGIN` with the HTTPS Conversion Worker origin,
+no trailing slash.
 
 ```sh
-curl -D - -o NUL "$CONSOLE/"
+curl -D - -o NUL "$ORIGIN/"
 # Expect 200, title Sub Hub Console, Referrer-Policy: no-referrer,
 # CSP default-src 'self'; connect-src 'self' http: https:; script-src 'self'
 
-curl -D - "$WORKER/version"
+curl -D - "$ORIGIN/version"
 # Expect: sub-hub v0.1.0 backend. No Access-Control-Allow-Origin.
-
-curl -D - -H "Origin: $CONSOLE" "$WORKER/version"
-# Expect the same body plus
-# Access-Control-Allow-Origin: $CONSOLE
-# Vary: Origin
-
-curl -D - -H "Origin: https://evil.example" "$WORKER/version"
-# Expect the version body and no Access-Control-* headers.
 ```
 
-In the Web Console, set the Conversion Service origin to `$WORKER` and the
-access token to the operator-kept value (empty only if the Worker is anonymous).
-The `/version` probe should show `sub-hub v0.1.0 backend`. Preview a direct
-VLESS with `target=clash`; the body should be Mihomo YAML that contains that
-node.
-
-A Worker **without** this Console origin in `SUB_HUB_CORS_ORIGINS` must show the
-localized CORS / network explanation, not a fake `401 Unauthorized!`. (A listed
-origin plus a missing token is a real `401 Unauthorized!` and is correct.)
+In the Web Console, the Conversion Service origin should already be this
+page's origin. Set the access token to the operator-kept value (empty only
+if the Worker is anonymous). The `/version` probe should show
+`sub-hub v0.1.0 backend`. Preview a direct VLESS with `target=clash`; the
+body should be Mihomo YAML that contains that node.
 
 Native pairing from `pnpm run dev` still needs
-`SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173` and is not
-part of the Console gate.
+`SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173` and is
+not part of the Worker gate. Layout `all` without that var must not
+show the localized CORS explanation. Layout `console` against Conversion
+must list this origin in `SUB_HUB_CORS_ORIGINS`.
 
 ## Persistence and secrets
 

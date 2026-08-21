@@ -7,6 +7,7 @@
 # Dashboard (Worker name `sub-hub`, root `crates/sub-hub-worker`):
 #   Build:  sh scripts/install-workers-toolchain.sh
 #   Deploy: sh scripts/workers-builds-deploy.sh
+# The deploy helper builds apps/console into dist/ for [assets].
 #
 # Local Windows PowerShell is not a target. Use WSL/Git Bash, or stay on
 # `pnpm run deploy` after a machine-local `cargo install worker-build`.

@@ -39,7 +39,7 @@ test("Workers Builds toolchain pins match the workspace", () => {
   assert.doesNotMatch(commands, /pnpm run deploy/);
 });
 
-test("Workers Builds deploy helper keeps vars and skips token ensure", () => {
+test("Workers Builds deploy helper keeps vars, builds Console, and skips token ensure", () => {
   const script = fs.readFileSync(
     path.join(here, "workers-builds-deploy.sh"),
     "utf8",
@@ -47,6 +47,13 @@ test("Workers Builds deploy helper keeps vars and skips token ensure", () => {
   assert.match(script, /wrangler deploy --keep-vars/);
   assert.match(script, /wrangler versions upload --keep-vars/);
   assert.match(script, /install-workers-toolchain\.sh/);
+  assert.match(script, /apps\/console/);
+  assert.match(script, /pnpm run build/);
+  assert.match(script, /dist\/index\.html/);
+  assert.match(script, /wrangler\.worker\.toml/);
+  assert.match(script, /all\|worker/);
   assert.doesNotMatch(script, /ensure-access-token/);
   assert.doesNotMatch(script, /pnpm run deploy/);
+  assert.doesNotMatch(script, /SUB_HUB_CORS_ORIGINS/);
+  assert.doesNotMatch(script, /SUB_HUB_SELF_HOSTS/);
 });

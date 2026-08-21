@@ -163,35 +163,29 @@ pnpm install --frozen-lockfile
 pnpm exec wrangler login
 pnpm run build
 pnpm run test:host
-pnpm run deploy:stack
+pnpm run deploy
 ```
 
-`pnpm run deploy:stack` builds the Web Console, publishes it as Workers
-Static Assets (`sub-hub-console`), publishes the Conversion Worker, and
-sets `SUB_HUB_CORS_ORIGINS` plus `SUB_HUB_SELF_HOSTS` from the live
-origins. Worker-only publishes stay on `pnpm run deploy`. Do not commit
-an `account_id`, API tokens, a local `name` rename, or a `.dev.vars` file
-with real values. Override the Console or Worker name with
-`CLOUDFLARE_PAGES_PROJECT`, `CLOUDFLARE_WORKER_NAME`, or the matching
-flags; do not edit the committed names unless you intend that default for
-every clone.
+`pnpm run deploy` is the `all` layout: one Worker, Console assets on
+that same origin. That fits Cloudflare Workers Free (compressed script
+under 3 MB gzip; static assets are a separate, free quota). Open the
+printed `*.workers.dev` URL; paste the access token into the page.
 
-The first Worker deploy prints a `*.workers.dev` URL. The stack command
-writes that hostname into `SUB_HUB_SELF_HOSTS`. Add every custom-domain
-alias the same way (or set `CLOUDFLARE_EXTRA_SELF_HOSTS`) so remote loading
-cannot target those names.
+Conversion only: `pnpm run deploy:worker`. Console only:
+`pnpm run deploy:console` (then set `SUB_HUB_CORS_ORIGINS` on Conversion
+with `--cors-origin`). Do not commit an `account_id`, API tokens, a local
+`name` rename, or a `.dev.vars` file with real values. Override the Worker
+name with `CLOUDFLARE_WORKER_NAME` or `--worker-name`; do not edit the
+committed name unless you intend that default for every clone.
 
 `pnpm run deploy` leaves an existing `SUB_HUB_ACCESS_TOKEN` secret, puts a list
 you pass with `--tokens-file`, or generates one token and prints it once. Keep
 that value in a password manager; Cloudflare cannot show it again. Do not write
 tokens into the committed `wrangler.toml`. Clients use
 `GET /sub/<token>?target=clash&url=...`. `GET /version` stays public.
-
-To let the Web Console read those responses, set the
-`SUB_HUB_CORS_ORIGINS` **var** (not a secret) to that exact origin, for
-example `https://sub-hub-console.<subdomain>.workers.dev`. Leave it unset
-if no Console will `fetch()` the Worker. A present-but-empty or invalid
-list makes every request return `500`.
+Same-origin Console does not need `SUB_HUB_CORS_ORIGINS`. Extra DNS aliases
+(custom domain plus `*.workers.dev`) can be listed in `SUB_HUB_SELF_HOSTS`;
+a single hostname does not need that var.
 
 Smoke the deployed origin without fetching an external subscription:
 
@@ -219,31 +213,23 @@ boundary, variable setup, and what not to commit.
 
 ### Cloudflare Git
 
-The Web Console can update on push without GitHub secrets. Connect the
-repo as a Worker (Workers Builds), set Root directory to `apps/console`,
-and leave the deploy command at the default `npx wrangler deploy`.
-`apps/console/wrangler.toml` already points at `dist/`. Full notes are in
-the [Console deploy notes](apps/console/README.md#connect-to-git).
+Connect the repo as one Worker (Workers Builds, root
+`crates/sub-hub-worker`). That publish includes the Web Console. The build
+image has Node but not Rust; use `sh scripts/install-workers-toolchain.sh`
+as the Build command and `sh scripts/workers-builds-deploy.sh` as the
+Deploy command. Those scripts install Rust 1.97.1,
+`wasm32-unknown-unknown`, and `worker-build` 0.8.5, build the Console,
+and run `wrangler deploy --keep-vars`. The Worker name in the dashboard
+must match `wrangler.toml` (`sub-hub`).
 
-Workers Builds does not run `mise`. Set `NODE_VERSION` on the project to
-the pin in the repository-root `mise.toml` if the image is older. Do not
-add `.node-version` or `.nvmrc`.
-
-The production origin is `https://sub-hub-console.<subdomain>.workers.dev`.
-Set the Worker `SUB_HUB_CORS_ORIGINS` **var** to that exact origin
-(Dashboard or `wrangler deploy --keep-vars`). Do not also run
-`deploy:stack` against the same Console Worker.
-
-The Worker is a separate Git connection (Workers Builds, root
-`crates/sub-hub-worker`). The build image has Node but not Rust; use
-`sh scripts/install-workers-toolchain.sh` as the Build command and
-`sh scripts/workers-builds-deploy.sh` as the Deploy command. Those
-scripts install Rust 1.97.1, `wasm32-unknown-unknown`, and
-`worker-build` 0.8.5, then run `wrangler deploy --keep-vars`. The Worker
-name in the dashboard must match `wrangler.toml` (`sub-hub`). Keep
-`SUB_HUB_ACCESS_TOKEN` as a Cloudflare **secret**, not a var. Do not use
-`pnpm run deploy` on Workers Builds (`CI=true` makes it refuse). A local
-`pnpm run deploy` remains the simpler Worker publish.
+Workers Builds does not run `mise`. Set `NODE_VERSION` and `PNPM_VERSION`
+on the project to the pins in the repository-root `mise.toml` if the image
+is older. Do not add `.node-version` or `.nvmrc`. After the first
+successful build, set the `SUB_HUB_ACCESS_TOKEN` **secret** (not a var).
+Do not use `pnpm run deploy` on Workers Builds (`CI=true` makes it
+refuse). Conversion-only Git uses `sh scripts/workers-builds-deploy.sh worker`.
+Console-only Git is a second Worker with root `apps/console`. A local
+`pnpm run deploy` remains the simpler publish.
 
 ## Web Console
 
@@ -260,11 +246,16 @@ pnpm test
 pnpm run dev
 ```
 
-A Vite Workshop against Native loopback needs
-`SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`. The
-stack command publishes the Console as a separate Workers Static Assets
-project (root `apps/console`, upload `dist/`) and sets the Worker
-`SUB_HUB_CORS_ORIGINS` **var** to that exact origin. CI builds and tests
+Hot reload is that Vite process plus Native. From the repository root, in
+another terminal:
+
+```sh
+SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173 \
+  cargo run --locked -p sub-hub-native
+```
+
+Set the Workshop origin to `http://127.0.0.1:25500`. Layout `all` on a
+deployed Worker is same-origin and does not need CORS. CI builds and tests
 the Console; it does not deploy. See the
 [Console notes](apps/console/README.md).
 

@@ -1,6 +1,6 @@
-# Workers Static Assets. Git Builds can keep the default deploy command
-# (`npx wrangler deploy`). Dashboard root directory: apps/console.
-# Do not add account_id.
+# Console-only Worker (`pnpm run deploy -- --layout console` from
+# crates/sub-hub-worker). Default publish is `all` on the Conversion
+# Worker. Do not add account_id.
 name = "sub-hub-console"
 compatibility_date = "2026-08-13"
 

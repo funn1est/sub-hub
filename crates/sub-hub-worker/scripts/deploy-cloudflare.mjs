@@ -4,35 +4,50 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export const DEFAULT_PAGES_PROJECT = "sub-hub-console";
-export const DEFAULT_PRODUCTION_BRANCH = "main";
-
 const VALUE_FLAGS = new Set([
-  "--pages-project",
   "--worker-name",
-  "--branch",
+  "--name",
   "--tokens",
   "--tokens-file",
+  "--layout",
+  "--cors-origin",
+  "--console-name",
+]);
+
+const LAYOUT_ALIASES = new Map([
+  ["all", "all"],
+  ["worker", "worker"],
+  ["console", "console"],
 ]);
 
 const workerRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.join(workerRoot, "..", "..");
 const ensureScript = path.join(workerRoot, "scripts", "ensure-access-token.mjs");
 
-export function parseStackArgv(argv) {
+export function parseLayout(raw) {
+  const layout = LAYOUT_ALIASES.get(raw);
+  if (!layout) {
+    throw new Error("layout must be all, worker, or console");
+  }
+  return layout;
+}
+
+export function parseDeployArgv(argv) {
   const flags = {
     skipBuild: false,
-    skipConsole: false,
-    skipWorker: false,
     dryRun: false,
     fromEnv: false,
     replace: false,
-    pagesProject: undefined,
+    dev: false,
+    preview: false,
+    layout: undefined,
     workerName: undefined,
-    branch: undefined,
+    consoleName: undefined,
+    corsOrigin: undefined,
     tokens: undefined,
     tokensFile: undefined,
   };
+  const forwarded = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -41,14 +56,6 @@ export function parseStackArgv(argv) {
     }
     if (arg === "--skip-build") {
       flags.skipBuild = true;
-      continue;
-    }
-    if (arg === "--skip-console") {
-      flags.skipConsole = true;
-      continue;
-    }
-    if (arg === "--skip-worker") {
-      flags.skipWorker = true;
       continue;
     }
     if (arg === "--dry-run") {
@@ -63,18 +70,41 @@ export function parseStackArgv(argv) {
       flags.replace = true;
       continue;
     }
+    if (arg === "--dev") {
+      flags.dev = true;
+      continue;
+    }
+    if (arg === "--preview") {
+      flags.preview = true;
+      continue;
+    }
+    if (arg === "--all" || arg === "--worker-only" || arg === "--console-only") {
+      const alias =
+        arg === "--all" ? "all" : arg === "--worker-only" ? "worker" : "console";
+      if (flags.layout !== undefined && flags.layout !== alias) {
+        throw new Error("use only one layout");
+      }
+      flags.layout = alias;
+      continue;
+    }
     if (VALUE_FLAGS.has(arg)) {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("-")) {
         throw new Error(`missing value for ${arg}`);
       }
       index += 1;
-      if (arg === "--pages-project") {
-        flags.pagesProject = value;
-      } else if (arg === "--worker-name") {
+      if (arg === "--worker-name" || arg === "--name") {
         flags.workerName = value;
-      } else if (arg === "--branch") {
-        flags.branch = value;
+      } else if (arg === "--console-name") {
+        flags.consoleName = value;
+      } else if (arg === "--layout") {
+        const layout = parseLayout(value);
+        if (flags.layout !== undefined && flags.layout !== layout) {
+          throw new Error("use only one layout");
+        }
+        flags.layout = layout;
+      } else if (arg === "--cors-origin") {
+        flags.corsOrigin = value;
       } else if (arg === "--tokens") {
         flags.tokens = value;
       } else {
@@ -82,10 +112,26 @@ export function parseStackArgv(argv) {
       }
       continue;
     }
-    throw new Error(`unknown argument: ${arg}`);
+    forwarded.push(arg);
   }
 
-  return flags;
+  if (flags.dev && flags.preview) {
+    throw new Error("use only one of --dev or --preview");
+  }
+  flags.layout ??= "all";
+  if (flags.layout === "console" && flags.workerName && !flags.consoleName) {
+    flags.consoleName = flags.workerName;
+  }
+  if (flags.corsOrigin && flags.layout !== "worker") {
+    throw new Error("--cors-origin is only for --layout worker");
+  }
+  if (
+    flags.layout === "console" &&
+    (flags.tokens !== undefined || flags.tokensFile || flags.fromEnv || flags.replace)
+  ) {
+    throw new Error("access-token flags are only for the Conversion Worker");
+  }
+  return { flags, forwarded };
 }
 
 function firstNonEmpty(...values) {
@@ -97,48 +143,48 @@ function firstNonEmpty(...values) {
   return undefined;
 }
 
-export function resolveStackConfig({ flags, env, roots = { repoRoot, workerRoot } }) {
+export function resolveDeployConfig({ flags, env, roots = { repoRoot, workerRoot } }) {
+  const layout = flags.layout ?? "all";
   return {
     skipBuild: Boolean(flags.skipBuild),
-    skipConsole: Boolean(flags.skipConsole),
-    skipWorker: Boolean(flags.skipWorker),
     dryRun: Boolean(flags.dryRun),
     fromEnv: Boolean(flags.fromEnv),
     replace: Boolean(flags.replace),
+    dev: Boolean(flags.dev),
+    preview: Boolean(flags.preview),
+    layout,
     tokens: flags.tokens,
     tokensFile: flags.tokensFile,
-    pagesProject:
-      firstNonEmpty(flags.pagesProject, env.CLOUDFLARE_PAGES_PROJECT) ??
-      DEFAULT_PAGES_PROJECT,
+    corsOrigin: flags.corsOrigin,
     workerName: firstNonEmpty(flags.workerName, env.CLOUDFLARE_WORKER_NAME),
-    branch:
-      firstNonEmpty(flags.branch, env.CLOUDFLARE_PAGES_BRANCH) ??
-      DEFAULT_PRODUCTION_BRANCH,
-    extraCorsOrigins: env.CLOUDFLARE_EXTRA_CORS_ORIGINS,
-    extraSelfHosts: env.CLOUDFLARE_EXTRA_SELF_HOSTS,
-    commitHash: firstNonEmpty(env.GITHUB_SHA),
+    consoleName: firstNonEmpty(flags.consoleName, env.CLOUDFLARE_CONSOLE_NAME),
     consoleRoot: path.join(roots.repoRoot, "apps", "console"),
     consoleDist: path.join(roots.repoRoot, "apps", "console", "dist"),
     consoleWrangler: path.join(roots.repoRoot, "apps", "console", "wrangler.toml"),
     workerRoot: roots.workerRoot,
+    workerOnlyConfig: path.join(roots.workerRoot, "wrangler.worker.toml"),
   };
 }
 
-export function parsePagesProductionOrigin(text) {
-  if (typeof text !== "string") {
-    return null;
+export function needsConsoleBuild(layout) {
+  return layout !== "worker";
+}
+
+export function wranglerConfigArgs(config) {
+  if (config.layout === "worker") {
+    return ["--config", "wrangler.worker.toml"];
   }
-  const matches = text.match(/https:\/\/[a-z0-9.-]+\.pages\.dev/gi) ?? [];
-  const unique = [
-    ...new Set(matches.map((url) => url.toLowerCase().replace(/\/+$/, ""))),
-  ];
-  return (
-    unique.find((url) => {
-      const host = new URL(url).hostname;
-      const labels = host.slice(0, -".pages.dev".length).split(".");
-      return labels.length === 1;
-    }) ?? null
-  );
+  if (config.layout === "console") {
+    return ["--config", config.consoleWrangler];
+  }
+  return [];
+}
+
+export function conversionVarArgs(config) {
+  if (config.layout !== "worker" || !config.corsOrigin) {
+    return [];
+  }
+  return ["--var", `SUB_HUB_CORS_ORIGINS:${config.corsOrigin}`];
 }
 
 export function parseWorkerOrigin(text) {
@@ -149,68 +195,15 @@ export function parseWorkerOrigin(text) {
   return match ? match[0].toLowerCase().replace(/\/+$/, "") : null;
 }
 
-export function resolveConsoleOrigin(text) {
-  return parseWorkerOrigin(text) ?? parsePagesProductionOrigin(text);
+export function consoleIndexPath(config) {
+  return path.join(config.consoleDist, "index.html");
 }
 
-export function consoleDeployArgv(config) {
-  const args = ["deploy", "--config", config.consoleWrangler];
-  if (config.pagesProject !== DEFAULT_PAGES_PROJECT) {
-    args.push("--name", config.pagesProject);
+export function ensureDeployArgv(config, forwarded = []) {
+  if (config.layout === "console") {
+    throw new Error("access-token ensure is only for the Conversion Worker");
   }
-  return args;
-}
-
-export function hostnameFromHttpsUrl(url) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:") {
-      return null;
-    }
-    return parsed.hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-export function joinBindingList(values) {
-  const out = [];
-  for (const value of values) {
-    if (typeof value !== "string" || value.length === 0) {
-      continue;
-    }
-    for (const part of value.split(/[,\n\r]/)) {
-      const piece = part.replace(/^[ \t]+|[ \t]+$/g, "");
-      if (piece.length === 0 || out.includes(piece)) {
-        continue;
-      }
-      out.push(piece);
-    }
-  }
-  return out.join(",");
-}
-
-export function workerVarArgs({ corsOrigins, selfHosts }) {
-  const args = [];
-  if (corsOrigins) {
-    args.push("--var", `SUB_HUB_CORS_ORIGINS:${corsOrigins}`);
-  }
-  if (selfHosts) {
-    args.push("--var", `SUB_HUB_SELF_HOSTS:${selfHosts}`);
-  }
-  return args;
-}
-
-export function needsSelfHostsFollowUp(appliedHosts, discoveredHostname) {
-  if (!discoveredHostname) {
-    return false;
-  }
-  const listed = joinBindingList([appliedHosts]);
-  return !listed.split(",").includes(discoveredHostname);
-}
-
-export function ensureDeployArgv(config, { hasAccessToken }) {
-  const args = ["--deploy"];
+  const args = config.preview ? ["--preview"] : ["--deploy"];
   if (config.replace) {
     args.push("--replace");
   }
@@ -226,11 +219,21 @@ export function ensureDeployArgv(config, { hasAccessToken }) {
     args.push("--tokens", config.tokens);
   } else if (config.tokensFile) {
     args.push("--tokens-file", config.tokensFile);
-  } else if (config.fromEnv || hasAccessToken) {
+  } else if (config.fromEnv) {
     args.push("--from-env");
   }
   if (config.workerName) {
     args.push("--name", config.workerName);
+  }
+  args.push(...wranglerConfigArgs(config), ...conversionVarArgs(config), ...forwarded);
+  return args;
+}
+
+export function consoleDeployArgv(config) {
+  const command = config.preview ? ["versions", "upload"] : ["deploy"];
+  const args = [...command, "--keep-vars", ...wranglerConfigArgs(config)];
+  if (config.consoleName) {
+    args.push("--name", config.consoleName);
   }
   return args;
 }
@@ -259,13 +262,6 @@ function runCaptured(command, args, options) {
   return result;
 }
 
-function runWrangler(args, { cwd, env } = {}) {
-  return runCaptured(process.execPath, [wranglerBin(), ...args], {
-    cwd: cwd ?? workerRoot,
-    env: { ...env, WRANGLER_LOG: "error" },
-  });
-}
-
 function runPnpm(cwd, args) {
   return spawnSync(process.platform === "win32" ? "pnpm.cmd" : "pnpm", args, {
     cwd,
@@ -279,17 +275,9 @@ function combinedOutput(result) {
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 }
 
-function writeSummary(env, lines) {
-  const body = `${lines.join("\n")}\n`;
-  process.stdout.write(`${body}`);
-  if (env.GITHUB_STEP_SUMMARY) {
-    fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `## Cloudflare stack\n\n${body}`);
-  }
-}
-
 function ensureConsoleBuilt(config) {
   if (config.skipBuild) {
-    if (!fs.existsSync(path.join(config.consoleDist, "index.html"))) {
+    if (!fs.existsSync(consoleIndexPath(config))) {
       fail(`Console dist is missing at ${config.consoleDist}; omit --skip-build`);
     }
     return;
@@ -302,66 +290,64 @@ function ensureConsoleBuilt(config) {
   if ((build.status ?? 1) !== 0) {
     fail("Console build failed");
   }
+  if (!fs.existsSync(consoleIndexPath(config))) {
+    fail(`Console dist is missing at ${config.consoleDist} after build`);
+  }
 }
 
-function deployConsole(config, env) {
-  const result = runWrangler(consoleDeployArgv(config), {
-    cwd: config.consoleRoot,
-    env,
-  });
-  if ((result.status ?? 1) !== 0) {
-    fail("Console wrangler deploy failed");
+function writeSummary(config, origin) {
+  if (config.layout === "console") {
+    const line = origin
+      ? `Published Console: ${origin}`
+      : "Published: Console Worker";
+    process.stdout.write(`${line}\n`);
+    if (origin) {
+      process.stdout.write(
+        `Set SUB_HUB_CORS_ORIGINS on the Conversion Worker to this origin:\n  pnpm run deploy:worker -- --cors-origin ${origin}\n`,
+      );
+    }
+    return;
   }
-  const origin = resolveConsoleOrigin(combinedOutput(result));
-  if (!origin) {
-    fail("Console wrangler deploy did not print a workers.dev or pages.dev origin");
+  if (config.layout === "worker") {
+    const line = origin
+      ? `Published Conversion Service: ${origin}`
+      : "Published: Conversion Worker";
+    process.stdout.write(`${line}\n`);
+    return;
   }
-  return origin;
-}
-
-function deployWorker(config, env, vars) {
-  const args = [
-    ...ensureDeployArgv(config, {
-      hasAccessToken: Boolean(env.SUB_HUB_ACCESS_TOKEN),
-    }),
-    ...workerVarArgs(vars),
-  ];
-  const result = runCaptured(process.execPath, [ensureScript, ...args], {
-    cwd: config.workerRoot,
-    env,
-  });
-  if ((result.status ?? 1) !== 0) {
-    fail("Worker deploy failed", result.status ?? 1);
-  }
-  return parseWorkerOrigin(combinedOutput(result));
+  const line = origin
+    ? `Published: ${origin}  (Console and Conversion Service)`
+    : "Published: Conversion Worker with same-origin Console";
+  process.stdout.write(`${line}\n`);
 }
 
 export function main(argv = process.argv.slice(2), env = process.env) {
-  let flags;
+  let parsed;
   try {
-    flags = parseStackArgv(argv);
+    parsed = parseDeployArgv(argv);
   } catch (error) {
     fail(error instanceof Error ? error.message : "invalid arguments");
   }
-  if (flags.skipConsole && flags.skipWorker) {
-    fail("nothing to deploy; omit one of --skip-console or --skip-worker");
-  }
+  const { flags, forwarded } = parsed;
 
-  const config = resolveStackConfig({ flags, env });
+  const config = resolveDeployConfig({ flags, env });
   if (env.CI) {
-    fail("deploy:stack refuses to run when CI is set", 2);
+    fail("deploy refuses to run when CI is set", 2);
   }
 
   if (config.dryRun) {
     process.stdout.write(
       `${JSON.stringify(
         {
-          pagesProject: config.pagesProject,
+          layout: config.layout,
           workerName: config.workerName ?? "sub-hub",
-          branch: config.branch,
+          consoleName: config.consoleName ?? "sub-hub-console",
           skipBuild: config.skipBuild,
-          skipConsole: config.skipConsole,
-          skipWorker: config.skipWorker,
+          needsConsoleBuild: needsConsoleBuild(config.layout),
+          wranglerConfig: wranglerConfigArgs(config),
+          dev: config.dev,
+          preview: config.preview,
+          consoleDist: config.consoleDist,
         },
         null,
         2,
@@ -370,32 +356,58 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     return;
   }
 
-  let consoleOrigin;
-  if (!config.skipConsole) {
+  if (needsConsoleBuild(config.layout)) {
     ensureConsoleBuilt(config);
-    consoleOrigin = deployConsole(config, env);
   }
 
-  let workerOrigin;
-  if (!config.skipWorker) {
-    const corsOrigins = joinBindingList([
-      consoleOrigin,
-      config.extraCorsOrigins,
-    ]);
-    let selfHosts = joinBindingList([config.extraSelfHosts]);
-    workerOrigin = deployWorker(config, env, { corsOrigins, selfHosts });
-    const hostname = hostnameFromHttpsUrl(workerOrigin ?? "");
-    if (needsSelfHostsFollowUp(selfHosts, hostname)) {
-      selfHosts = joinBindingList([selfHosts, hostname]);
-      workerOrigin =
-        deployWorker(config, env, { corsOrigins, selfHosts }) ?? workerOrigin;
+  if (config.dev) {
+    const result = spawnSync(
+      process.execPath,
+      [wranglerBin(), "dev", ...wranglerConfigArgs(config), ...forwarded],
+      {
+        cwd: config.layout === "console" ? config.consoleRoot : config.workerRoot,
+        stdio: "inherit",
+        env,
+        windowsHide: true,
+      },
+    );
+    if ((result.status ?? 1) !== 0) {
+      fail("wrangler dev failed", result.status ?? 1);
     }
+    return;
   }
 
-  writeSummary(env, [
-    consoleOrigin ? `Console: ${consoleOrigin}` : "Console: skipped",
-    workerOrigin ? `Worker: ${workerOrigin}` : "Worker: published",
-  ]);
+  if (config.layout === "console") {
+    const result = runCaptured(
+      process.execPath,
+      [wranglerBin(), ...consoleDeployArgv(config), ...forwarded],
+      {
+        cwd: config.consoleRoot,
+        env,
+      },
+    );
+    if ((result.status ?? 1) !== 0) {
+      fail("Console deploy failed", result.status ?? 1);
+    }
+    writeSummary(config, parseWorkerOrigin(combinedOutput(result)));
+    return;
+  }
+
+  let ensureArgv;
+  try {
+    ensureArgv = ensureDeployArgv(config, forwarded);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : "invalid arguments");
+  }
+
+  const result = runCaptured(process.execPath, [ensureScript, ...ensureArgv], {
+    cwd: config.workerRoot,
+    env,
+  });
+  if ((result.status ?? 1) !== 0) {
+    fail("Worker deploy failed", result.status ?? 1);
+  }
+  writeSummary(config, parseWorkerOrigin(combinedOutput(result)));
 }
 
 const invokedDirectly =
