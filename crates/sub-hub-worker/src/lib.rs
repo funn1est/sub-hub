@@ -1,7 +1,3 @@
-use std::cell::RefCell;
-use std::future::poll_fn;
-use std::rc::Rc;
-use std::task::{Poll, Waker};
 use std::{fmt, future::Future, pin::Pin, sync::OnceLock};
 
 use http::{HeaderName, StatusCode};
@@ -11,12 +7,11 @@ use sub_hub_http::{
     RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, begin_https_hop_lookup,
     canonicalize_inbound_host, request_origin,
 };
-use worker::js_sys::{self, Promise, Uint8Array};
-use worker::wasm_bindgen::closure::Closure;
-use worker::wasm_bindgen::{JsCast, JsValue};
+use worker::wasm_bindgen::JsCast;
 use worker::web_sys;
 use worker::{
-    AbortSignal, CacheMode, Context, Env, Headers, Request, RequestInit, RequestRedirect, Response,
+    AbortSignal, CacheMode, Context, Env, Fetch, Headers, Request, RequestInit, RequestRedirect,
+    Response,
 };
 use worker_macros::event;
 
@@ -159,24 +154,18 @@ fn timeout_signal(remaining_millis: u64) -> AbortSignal {
     web_sys::AbortSignal::timeout_with_u32(millis).into()
 }
 
-fn map_js_error(error: &JsValue) -> RemoteFetchError {
-    let name = js_sys::Reflect::get(error, &JsValue::from_str("name"))
-        .ok()
-        .and_then(|value| value.as_string())
-        .unwrap_or_default();
-    let message = js_sys::Reflect::get(error, &JsValue::from_str("message"))
-        .ok()
-        .and_then(|value| value.as_string())
-        .or_else(|| error.as_string())
-        .unwrap_or_default();
-    if is_timeout_or_abort_text(&name) || is_timeout_or_abort_text(&message) {
+fn map_fetch_error(error: &worker::Error) -> RemoteFetchError {
+    let text = error.to_string();
+    if is_timeout_or_abort_text(&text) {
         RemoteFetchError::Timeout
     } else {
         RemoteFetchError::Failure
     }
 }
 
-fn header_values(headers: &web_sys::Headers, name: &str) -> Result<Vec<String>, RemoteFetchError> {
+/// Hop headers are single-valued. Cloudflare `Headers.getAll` exists only for
+/// `Set-Cookie`; calling it for these names panics in Miniflare and hangs the isolate.
+fn header_values(headers: &Headers, name: &str) -> Result<Vec<String>, RemoteFetchError> {
     match headers.get(name) {
         Ok(Some(value)) => Ok(vec![value]),
         Ok(None) => Ok(Vec::new()),
@@ -188,46 +177,6 @@ fn is_timeout_or_abort_text(text: &str) -> bool {
     text.contains("TimeoutError")
         || text.contains("AbortError")
         || text.contains("The operation was aborted")
-}
-
-struct PromiseSlot {
-    result: Option<Result<JsValue, JsValue>>,
-    waker: Option<Waker>,
-}
-
-fn settle_promise(state: &RefCell<PromiseSlot>, result: Result<JsValue, JsValue>) {
-    let mut slot = state.borrow_mut();
-    slot.result = Some(result);
-    if let Some(waker) = slot.waker.take() {
-        waker.wake();
-    }
-}
-
-fn await_promise(promise: impl Into<JsValue>) -> impl Future<Output = Result<JsValue, JsValue>> {
-    let promise = Promise::from(promise.into());
-    let state = Rc::new(RefCell::new(PromiseSlot {
-        result: None,
-        waker: None,
-    }));
-    let fulfill_state = Rc::clone(&state);
-    let on_fulfill = Closure::new(move |value: JsValue| {
-        settle_promise(&fulfill_state, Ok(value));
-    });
-    let reject_state = Rc::clone(&state);
-    let on_reject = Closure::new(move |value: JsValue| {
-        settle_promise(&reject_state, Err(value));
-    });
-    let _ = promise.then2(&on_fulfill, &on_reject);
-    let keep = Rc::new((on_fulfill, on_reject));
-    poll_fn(move |cx| {
-        let _keep = &keep;
-        let mut slot = state.borrow_mut();
-        if let Some(result) = slot.result.take() {
-            return Poll::Ready(result);
-        }
-        slot.waker = Some(cx.waker().clone());
-        Poll::Pending
-    })
 }
 
 fn outbound_request(attempt: &RemoteAttempt) -> Result<Request, RemoteFetchError> {
@@ -273,41 +222,28 @@ async fn fetch_and_read(
     attempt: &RemoteAttempt,
     signal: worker::AbortSignal,
 ) -> Result<RemoteResponse, RemoteFetchError> {
-    // Avoid worker::Fetch: js_sys JsFuture panics on an already-settled
-    // outbound Promise, and Response.getAll is Cloudflare-only. Either fault
-    // leaves the fetch event pending and workerd reports 1101.
-    let global = js_sys::global().unchecked_into::<web_sys::WorkerGlobalScope>();
-    let init = web_sys::RequestInit::new();
-    init.set_signal(Some(&signal));
-    let response = await_promise(global.fetch_with_request_and_init(request.inner(), &init))
+    let mut response = Fetch::Request(request)
+        .send_with_signal(&signal)
         .await
-        .map_err(|error| map_js_error(&error))?;
-    let response: web_sys::Response = response.dyn_into().map_err(|_| RemoteFetchError::Failure)?;
-    let status = StatusCode::from_u16(response.status()).map_err(|_| RemoteFetchError::Failure)?;
-    let headers = response.headers();
+        .map_err(|error| map_fetch_error(&error))?;
+    let status =
+        StatusCode::from_u16(response.status_code()).map_err(|_| RemoteFetchError::Failure)?;
     let pending = match begin_https_hop_lookup(
         status,
-        |name| header_values(&headers, name),
+        |name| header_values(response.headers(), name),
         attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
     )? {
         HttpsHopOutcome::Complete(complete) => return Ok(complete),
         HttpsHopOutcome::ReadBody(pending) => pending,
     };
-    let buffer = await_promise(
-        response
-            .array_buffer()
-            .map_err(|_| RemoteFetchError::Failure)?,
-    )
-    .await
-    .map_err(|error| map_js_error(&error))?;
-    let bytes = Uint8Array::new(&buffer);
-    let length = usize::try_from(bytes.length()).unwrap_or(usize::MAX);
-    if length > pending.max_body_bytes() {
+    let body = response
+        .bytes()
+        .await
+        .map_err(|error| map_fetch_error(&error))?;
+    if body.len() > pending.max_body_bytes() {
         return Err(RemoteFetchError::Failure);
     }
-    let mut body = vec![0_u8; length];
-    bytes.copy_to(&mut body);
     pending.finish(body)
 }
 
