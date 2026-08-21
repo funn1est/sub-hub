@@ -8,7 +8,7 @@ use std::{
 
 use axum::{
     body::Body,
-    http::{Method, Request, Response, StatusCode, header},
+    http::{HeaderValue, Method, Request, Response, StatusCode, header},
 };
 use http_body_util::BodyExt;
 use sub_hub_http::{AccessTokens, Application, CorsOrigins, SelfHosts};
@@ -219,7 +219,7 @@ async fn request_without_exactly_one_host_header_is_rejected() {
         response
             .headers()
             .get("referrer-policy")
-            .map(|value| value.as_bytes()),
+            .map(HeaderValue::as_bytes),
         Some(&b"no-referrer"[..])
     );
     assert_eq!(

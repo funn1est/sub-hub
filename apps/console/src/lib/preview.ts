@@ -165,7 +165,7 @@ export async function runPreview(input: {
       filename: headers.filename ?? "",
     }
   } catch {
-    let serviceOrigin = input.assembled.url
+    let serviceOrigin: string
     try {
       serviceOrigin = new URL(input.assembled.url).origin
     } catch {

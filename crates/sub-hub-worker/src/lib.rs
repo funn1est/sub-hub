@@ -28,7 +28,7 @@ const OUTBOUND_USER_AGENT: &str = concat!("sub-hub/", env!("CARGO_PKG_VERSION"))
 static APPLICATION: ApplicationCache = ApplicationCache::new();
 
 struct ApplicationCache {
-    cell: OnceLock<Result<Application<CloudflareRemoteAdapter>, ()>>,
+    cell: OnceLock<Result<Application<CloudflareRemoteAdapter>, InvalidBinding>>,
 }
 
 impl ApplicationCache {
@@ -40,12 +40,12 @@ impl ApplicationCache {
 
     fn get_or_load<F>(&self, load: F) -> Result<&Application<CloudflareRemoteAdapter>, HostFailure>
     where
-        F: FnOnce() -> Result<Application<CloudflareRemoteAdapter>, ()>,
+        F: FnOnce() -> Result<Application<CloudflareRemoteAdapter>, InvalidBinding>,
     {
         self.cell
             .get_or_init(load)
             .as_ref()
-            .map_err(|()| HostFailure::InvalidConfiguration)
+            .map_err(|&InvalidBinding(binding)| HostFailure::InvalidConfiguration { binding })
     }
 }
 
@@ -95,10 +95,13 @@ pub async fn fetch(
             sub_hub_http::HttpResponse::invalid_request(),
             suppress_body,
         )),
-        Err(HostFailure::InvalidConfiguration) => map_application_response(host_error_response(
-            sub_hub_http::HttpResponse::internal_error(),
-            suppress_body,
-        )),
+        Err(HostFailure::InvalidConfiguration { binding }) => {
+            worker::console_error!("invalid worker binding {binding}");
+            map_application_response(host_error_response(
+                sub_hub_http::HttpResponse::internal_error(),
+                suppress_body,
+            ))
+        }
     };
     mapped.or_else(|_| fixed_internal_error(suppress_body))
 }
@@ -132,8 +135,11 @@ async fn handle_request(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum HostFailure {
     InvalidRequest,
-    InvalidConfiguration,
+    InvalidConfiguration { binding: &'static str },
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct InvalidBinding(&'static str);
 
 async fn fetch_once(attempt: RemoteAttempt) -> Result<RemoteResponse, RemoteFetchError> {
     let now = monotonic_millis();
@@ -299,7 +305,7 @@ async fn fetch_and_read(
 
 fn application_from_environment(
     environment: &Env,
-) -> Result<Application<CloudflareRemoteAdapter>, ()> {
+) -> Result<Application<CloudflareRemoteAdapter>, InvalidBinding> {
     application_from_bindings(
         optional_var(environment, SELF_HOSTS_BINDING)?.as_deref(),
         optional_binding(environment, ACCESS_TOKEN_BINDING)?.as_deref(),
@@ -311,37 +317,48 @@ fn application_from_bindings(
     self_hosts: Option<&str>,
     access_token: Option<&str>,
     cors_origins: Option<&str>,
-) -> Result<Application<CloudflareRemoteAdapter>, ()> {
+) -> Result<Application<CloudflareRemoteAdapter>, InvalidBinding> {
     Ok(Application::new(
         CloudflareRemoteAdapter,
-        SelfHosts::parse_optional(self_hosts).map_err(|_| ())?,
+        SelfHosts::parse_optional(self_hosts).map_err(|_| InvalidBinding(SELF_HOSTS_BINDING))?,
     )
-    .with_access_tokens(AccessTokens::parse_optional(access_token).map_err(|_| ())?)
-    .with_cors_origins(CorsOrigins::parse_optional(cors_origins).map_err(|_| ())?))
+    .with_access_tokens(
+        AccessTokens::parse_optional(access_token)
+            .map_err(|_| InvalidBinding(ACCESS_TOKEN_BINDING))?,
+    )
+    .with_cors_origins(
+        CorsOrigins::parse_optional(cors_origins)
+            .map_err(|_| InvalidBinding(CORS_ORIGINS_BINDING))?,
+    ))
 }
 
-fn optional_var(environment: &Env, name: &str) -> Result<Option<String>, ()> {
+fn optional_var(environment: &Env, name: &'static str) -> Result<Option<String>, InvalidBinding> {
     let key = worker::wasm_bindgen::JsValue::from_str(name);
-    let has_binding = worker::js_sys::Reflect::has(environment.as_ref(), &key).map_err(|_| ())?;
+    let has_binding = worker::js_sys::Reflect::has(environment.as_ref(), &key)
+        .map_err(|_| InvalidBinding(name))?;
     if !has_binding {
         return Ok(None);
     }
     environment
         .var(name)
         .map(|value| Some(value.to_string()))
-        .map_err(|_| ())
+        .map_err(|_| InvalidBinding(name))
 }
 
-fn optional_binding(environment: &Env, name: &str) -> Result<Option<String>, ()> {
+fn optional_binding(
+    environment: &Env,
+    name: &'static str,
+) -> Result<Option<String>, InvalidBinding> {
     let key = worker::wasm_bindgen::JsValue::from_str(name);
-    let has_binding = worker::js_sys::Reflect::has(environment.as_ref(), &key).map_err(|_| ())?;
+    let has_binding = worker::js_sys::Reflect::has(environment.as_ref(), &key)
+        .map_err(|_| InvalidBinding(name))?;
     if !has_binding {
         return Ok(None);
     }
     let value = environment
         .var(name)
         .or_else(|_| environment.secret(name))
-        .map_err(|_| ())?
+        .map_err(|_| InvalidBinding(name))?
         .to_string();
     Ok(Some(value))
 }
@@ -407,7 +424,10 @@ fn monotonic_millis() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApplicationCache, HostFailure, application_from_bindings};
+    use super::{
+        ACCESS_TOKEN_BINDING, ApplicationCache, CORS_ORIGINS_BINDING, HostFailure, InvalidBinding,
+        SELF_HOSTS_BINDING, application_from_bindings,
+    };
 
     #[test]
     fn isolate_cache_reuses_one_application_and_keeps_failed_config_closed() {
@@ -425,13 +445,17 @@ mod tests {
             failed
                 .get_or_load(|| application_from_bindings(None, Some(""), None))
                 .err(),
-            Some(HostFailure::InvalidConfiguration)
+            Some(HostFailure::InvalidConfiguration {
+                binding: ACCESS_TOKEN_BINDING
+            })
         );
         assert_eq!(
             failed
                 .get_or_load(|| panic!("failed config must stay closed"))
                 .err(),
-            Some(HostFailure::InvalidConfiguration)
+            Some(HostFailure::InvalidConfiguration {
+                binding: ACCESS_TOKEN_BINDING
+            })
         );
     }
 
@@ -439,8 +463,21 @@ mod tests {
     fn application_bindings_reject_present_empty_token_or_cors_blobs() {
         assert!(application_from_bindings(None, None, None).is_ok());
         assert!(application_from_bindings(Some(""), None, None).is_ok());
-        assert!(application_from_bindings(None, Some(""), None).is_err());
-        assert!(application_from_bindings(None, None, Some("")).is_err());
-        assert!(application_from_bindings(Some("127.0.0.1"), None, None).is_err());
+        assert_eq!(
+            application_from_bindings(None, Some(""), None).err(),
+            Some(InvalidBinding(ACCESS_TOKEN_BINDING))
+        );
+        assert_eq!(
+            application_from_bindings(None, None, Some("")).err(),
+            Some(InvalidBinding(CORS_ORIGINS_BINDING))
+        );
+        assert_eq!(
+            application_from_bindings(Some("127.0.0.1"), None, None).err(),
+            Some(InvalidBinding(SELF_HOSTS_BINDING))
+        );
+        assert_eq!(
+            application_from_bindings(None, None, Some("console.example")).err(),
+            Some(InvalidBinding(CORS_ORIGINS_BINDING))
+        );
     }
 }

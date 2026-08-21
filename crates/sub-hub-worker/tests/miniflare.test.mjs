@@ -402,6 +402,16 @@ test("invalid cors origin binding returns the fixed application 500", async (t) 
   const rejected = await empty.dispatchFetch("https://worker.example/version");
   assert.equal(rejected.status, 500);
   assert.equal(await rejected.text(), "Internal Server Error");
+
+  const missingScheme = runtime({
+    SUB_HUB_CORS_ORIGINS: "console.example",
+  });
+  t.after(() => missingScheme.dispose());
+  const incident = await missingScheme.dispatchFetch(
+    "https://worker.example/version",
+  );
+  assert.equal(incident.status, 500);
+  assert.equal(await incident.text(), "Internal Server Error");
 });
 
 test("non-443 remote source is rejected before fetch", async (t) => {
