@@ -6,9 +6,10 @@ use std::{fmt, future::Future, pin::Pin, sync::OnceLock};
 
 use http::{HeaderName, StatusCode};
 use sub_hub_http::{
-    AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, HttpsHopHeaders,
-    RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
-    canonicalize_inbound_host, interpret_https_headers, request_origin,
+    AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, HttpsHopOutcome,
+    OUTBOUND_ACCEPT, OUTBOUND_ACCEPT_ENCODING, OUTBOUND_CACHE_CONTROL, RemoteAdapter,
+    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, begin_https_hop_lookup,
+    canonicalize_inbound_host, request_origin,
 };
 use worker::js_sys::{self, Promise, Uint8Array};
 use worker::wasm_bindgen::closure::Closure;
@@ -88,22 +89,22 @@ pub async fn fetch(
     environment: Env,
     _context: Context,
 ) -> worker::Result<Response> {
-    let suppress_body = request.method() == http::Method::HEAD;
+    let method = request.method().clone();
     let mapped = match handle_request(request, &environment).await {
         Ok(response) => map_application_response(response),
-        Err(HostFailure::InvalidRequest) => map_application_response(host_error_response(
-            sub_hub_http::HttpResponse::invalid_request(),
-            suppress_body,
-        )),
+        Err(HostFailure::InvalidRequest) => map_application_response(
+            sub_hub_http::HttpResponse::invalid_request().with_method(&method),
+        ),
         Err(HostFailure::InvalidConfiguration { binding }) => {
             worker::console_error!("invalid worker binding {binding}");
-            map_application_response(host_error_response(
-                sub_hub_http::HttpResponse::internal_error(),
-                suppress_body,
-            ))
+            map_application_response(
+                sub_hub_http::HttpResponse::internal_error().with_method(&method),
+            )
         }
     };
-    mapped.or_else(|_| fixed_internal_error(suppress_body))
+    mapped.or_else(|_| {
+        map_application_response(sub_hub_http::HttpResponse::internal_error().with_method(&method))
+    })
 }
 
 async fn handle_request(
@@ -232,13 +233,28 @@ fn await_promise(promise: impl Into<JsValue>) -> impl Future<Output = Result<JsV
 fn outbound_request(attempt: &RemoteAttempt) -> Result<Request, RemoteFetchError> {
     let headers = Headers::new();
     headers
-        .set("Accept", "*/*")
+        .set(
+            "Accept",
+            OUTBOUND_ACCEPT
+                .to_str()
+                .map_err(|_| RemoteFetchError::Failure)?,
+        )
         .map_err(|_| RemoteFetchError::Failure)?;
     headers
-        .set("Accept-Encoding", "identity")
+        .set(
+            "Accept-Encoding",
+            OUTBOUND_ACCEPT_ENCODING
+                .to_str()
+                .map_err(|_| RemoteFetchError::Failure)?,
+        )
         .map_err(|_| RemoteFetchError::Failure)?;
     headers
-        .set("Cache-Control", "no-store")
+        .set(
+            "Cache-Control",
+            OUTBOUND_CACHE_CONTROL
+                .to_str()
+                .map_err(|_| RemoteFetchError::Failure)?,
+        )
         .map_err(|_| RemoteFetchError::Failure)?;
     headers
         .set("User-Agent", OUTBOUND_USER_AGENT)
@@ -269,38 +285,30 @@ async fn fetch_and_read(
     let response: web_sys::Response = response.dyn_into().map_err(|_| RemoteFetchError::Failure)?;
     let status = StatusCode::from_u16(response.status()).map_err(|_| RemoteFetchError::Failure)?;
     let headers = response.headers();
-    let hop = interpret_https_headers(
+    let pending = match begin_https_hop_lookup(
         status,
-        header_values(&headers, "Location")?,
-        header_values(&headers, "Content-Encoding")?,
-        header_values(&headers, "Content-Length")?,
-        header_values(&headers, "Subscription-UserInfo")?,
+        |name| header_values(&headers, name),
         attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
+    )? {
+        HttpsHopOutcome::Complete(complete) => return Ok(complete),
+        HttpsHopOutcome::ReadBody(pending) => pending,
+    };
+    let buffer = await_promise(
+        response
+            .array_buffer()
+            .map_err(|_| RemoteFetchError::Failure)?,
     )
-    .map_err(|_| RemoteFetchError::Failure)?;
-    match hop {
-        HttpsHopHeaders::Redirect { .. } | HttpsHopHeaders::Unsuccessful => {
-            Ok(RemoteResponse::from_hop(status, hop, Vec::new()))
-        }
-        HttpsHopHeaders::Success { .. } => {
-            let buffer = await_promise(
-                response
-                    .array_buffer()
-                    .map_err(|_| RemoteFetchError::Failure)?,
-            )
-            .await
-            .map_err(|error| map_js_error(&error))?;
-            let bytes = Uint8Array::new(&buffer);
-            let length = usize::try_from(bytes.length()).unwrap_or(usize::MAX);
-            if length > attempt.max_body_bytes() {
-                return Err(RemoteFetchError::Failure);
-            }
-            let mut body = vec![0_u8; length];
-            bytes.copy_to(&mut body);
-            Ok(RemoteResponse::from_hop(status, hop, body))
-        }
+    .await
+    .map_err(|error| map_js_error(&error))?;
+    let bytes = Uint8Array::new(&buffer);
+    let length = usize::try_from(bytes.length()).unwrap_or(usize::MAX);
+    if length > pending.max_body_bytes() {
+        return Err(RemoteFetchError::Failure);
     }
+    let mut body = vec![0_u8; length];
+    bytes.copy_to(&mut body);
+    pending.finish(body)
 }
 
 fn application_from_environment(
@@ -385,23 +393,6 @@ fn map_application_response(application: sub_hub_http::HttpResponse) -> worker::
 
 fn is_managed_response_header(name: &HeaderName) -> bool {
     name == http::header::CONTENT_LENGTH || name == http::header::TRANSFER_ENCODING
-}
-
-fn host_error_response(
-    mut response: sub_hub_http::HttpResponse,
-    suppress_body: bool,
-) -> sub_hub_http::HttpResponse {
-    if suppress_body {
-        response.suppress_body();
-    }
-    response
-}
-
-fn fixed_internal_error(suppress_body: bool) -> worker::Result<Response> {
-    map_application_response(host_error_response(
-        sub_hub_http::HttpResponse::internal_error(),
-        suppress_body,
-    ))
 }
 
 fn monotonic_millis() -> u64 {

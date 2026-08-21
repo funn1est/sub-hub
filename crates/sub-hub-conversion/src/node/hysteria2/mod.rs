@@ -1,5 +1,8 @@
 use std::{fmt, num::NonZeroU16};
 
+mod share;
+pub(crate) use share::parse;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Hysteria2Node {
     auth: Hysteria2Auth,

@@ -23,11 +23,11 @@ pub mod node_name_tests;
 
 mod subscription_source;
 
-mod share_uri;
-
 mod skip;
 
 mod flight;
+
+mod unique_fill;
 
 mod target;
 
@@ -41,14 +41,17 @@ pub const MAX_RULE_SET_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 
 pub use acl4ssr::{
-    Acl4SsrConversionReportV1, Acl4SsrOutputV1, Acl4SsrPreparationError, Acl4SsrRenderError,
-    Acl4SsrRuleSetBinder, Acl4SsrRuleSetRequestV1, PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
+    Acl4SsrPreparationError, Acl4SsrRenderError, Acl4SsrRuleSetBinder, Acl4SsrRuleSetRequestV1,
+    PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
 };
 pub use direct_subscription::{
-    ConversionRenderError, PreparedSubscriptionV1, RemoteSourceFailureV1, RenderedConfig,
-    SubscriptionPreparationError, SubscriptionSourceV1, prefix_preparation_error_v1,
-    prepare_subscription_v1,
+    PreparedSubscriptionV1, RemoteSourceFailureV1, SubscriptionPreparationError,
+    SubscriptionSourceV1, prepare_subscription_v1,
 };
-pub use flight::UniqueFlightsV1;
+pub use render::{ConversionRenderError, RenderedConfig};
 pub use skip::SkipCountsV1;
 pub use target::OutputTarget;
+pub use unique_fill::{
+    UniqueFlightFillV1, UniqueFlightKind, UniqueFlightNeed, UniqueFlightPrefix,
+    UniqueFlightSessionError, UniqueFlightSessionV1,
+};

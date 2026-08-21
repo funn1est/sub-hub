@@ -1,7 +1,10 @@
-use http::{HeaderMap, HeaderValue, StatusCode, header};
-use sub_hub_conversion::{OutputTarget, SkipCountsV1};
+use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
+use sub_hub_conversion::{
+    Acl4SsrPreparationError, Acl4SsrRenderError, ConversionRenderError, OutputTarget, SkipCountsV1,
+    SubscriptionPreparationError,
+};
 
-use crate::{JSON_CONTENT_TYPE, NO_STORE, TEXT_CONTENT_TYPE};
+use crate::{JSON_CONTENT_TYPE, NO_STORE, TEXT_CONTENT_TYPE, broker::BrokerError};
 
 pub struct HttpResponse {
     pub(crate) status: StatusCode,
@@ -36,6 +39,18 @@ impl HttpResponse {
     #[must_use]
     pub fn internal_error() -> Self {
         error_response(ApplicationError::Internal)
+    }
+
+    /// HEAD: drop document bytes, keep headers. GET and others unchanged.
+    ///
+    /// Host-local 400/500 that never enter [`crate::Application::handle`] use this
+    /// so HEAD does not depend on whether handle ran.
+    #[must_use]
+    pub fn with_method(mut self, method: &Method) -> Self {
+        if *method == Method::HEAD {
+            self.suppress_body();
+        }
+        self
     }
 
     /// HEAD suppress: drop document bytes, keep headers.
@@ -141,6 +156,57 @@ pub(crate) fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_rege
         .insert("x-subconverter-omitted-rules", omitted);
 }
 
+pub(crate) const fn map_subscription_error(
+    error: SubscriptionPreparationError,
+) -> ApplicationError {
+    match error {
+        SubscriptionPreparationError::InvalidInput => ApplicationError::InvalidRequest,
+        SubscriptionPreparationError::RemoteFailure { .. } => ApplicationError::RemoteFailure,
+        SubscriptionPreparationError::ConversionLimit => ApplicationError::ConversionLimit,
+        SubscriptionPreparationError::NoValidNodes { skips } => {
+            ApplicationError::NoValidNodes { skips }
+        }
+    }
+}
+
+pub(crate) const fn map_conversion_error(error: ConversionRenderError) -> ApplicationError {
+    match error {
+        ConversionRenderError::ConversionLimit => ApplicationError::ConversionLimit,
+        ConversionRenderError::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
+        ConversionRenderError::Internal => ApplicationError::Internal,
+    }
+}
+
+pub(crate) const fn map_acl4ssr_preparation_error(
+    error: Acl4SsrPreparationError,
+) -> ApplicationError {
+    match error {
+        Acl4SsrPreparationError::InvalidConfig => ApplicationError::RemoteFailure,
+        Acl4SsrPreparationError::ConversionLimit => ApplicationError::ConversionLimit,
+        Acl4SsrPreparationError::Internal => ApplicationError::Internal,
+    }
+}
+
+pub(crate) const fn map_broker_error(error: BrokerError) -> ApplicationError {
+    match error {
+        BrokerError::Failure => ApplicationError::RemoteFailure,
+        BrokerError::Timeout => ApplicationError::RemoteTimeout,
+        BrokerError::ConversionLimit => ApplicationError::ConversionLimit,
+        BrokerError::Internal => ApplicationError::Internal,
+    }
+}
+
+pub(crate) const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError {
+    match error {
+        Acl4SsrRenderError::InvalidRuleSet => ApplicationError::RemoteFailure,
+        Acl4SsrRenderError::RuleSetAlignment | Acl4SsrRenderError::Internal => {
+            ApplicationError::Internal
+        }
+        Acl4SsrRenderError::ConversionLimit => ApplicationError::ConversionLimit,
+        Acl4SsrRenderError::KeepPass(error) => map_conversion_error(error),
+    }
+}
+
 pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
     let (status, body, allow): (StatusCode, &[u8], Option<&'static str>) = match error {
         ApplicationError::InvalidTarget => (StatusCode::BAD_REQUEST, b"Invalid target!", None),
@@ -179,7 +245,7 @@ pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
             .insert(header::ALLOW, HeaderValue::from_static(allow));
     }
     if let ApplicationError::NoValidNodes { skips } = error {
-        insert_skip_headers(&mut response, skips);
+        attach_conversion_headers(&mut response, skips, 0);
     }
     response
 }

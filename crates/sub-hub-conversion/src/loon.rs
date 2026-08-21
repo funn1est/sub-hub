@@ -7,10 +7,10 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text, keep_named, keep_tagged,
-        map_compiled_rules, policy_member_token, probe_url_or_default, reality_public_key_base64,
-        reality_short_id_hex, reject_when_empty, render_host_plain, shadowsocks_method,
-        shadowsocks_password, shared_probe_url,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text, hysteria2_has_gecko,
+        hysteria2_has_pin, keep_named, keep_tagged, map_compiled_rules, policy_member_token,
+        probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
+        render_host_plain, shadowsocks_method, shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -138,11 +138,7 @@ fn render_hysteria2_line(
     port: u16,
     hysteria2: &crate::node::hysteria2::Hysteria2Node,
 ) -> Option<String> {
-    if hysteria2.ports().is_hop()
-        || hysteria2.pin_sha256().is_some()
-        || hysteria2
-            .obfs()
-            .is_some_and(crate::node::hysteria2::Hysteria2Obfs::is_gecko)
+    if hysteria2.ports().is_hop() || hysteria2_has_pin(hysteria2) || hysteria2_has_gecko(hysteria2)
     {
         return None;
     }

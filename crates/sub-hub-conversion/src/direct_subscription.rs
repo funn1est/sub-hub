@@ -2,20 +2,31 @@ use std::fmt;
 
 use crate::{
     MAX_SUBSCRIPTION_SOURCES, OutputTarget,
-    flight::UniqueFlightsV1,
-    render::{BuiltinRenderError, render_builtin_v1},
+    render::{ConversionRenderError, RenderedConfig, render_builtin_v1},
     skip::SkipCountsV1,
     subscription_source::{
-        NodeOccurrence, ParsedSubscriptionSources, SubscriptionParseError, SubscriptionSourceInput,
+        NodeOccurrence, ParsedSubscriptionSources, SubscriptionParseError,
         parse_subscription_source_inputs,
     },
 };
+
+pub use crate::subscription_source::SubscriptionSourceV1;
 
 pub struct PreparedSubscriptionV1 {
     parsed: ParsedSubscriptionSources,
 }
 
 impl PreparedSubscriptionV1 {
+    /// Names, compiles builtin policy, and renders with an explicit byte limit.
+    #[cfg(test)]
+    pub(crate) fn render_builtin_with_limit(
+        self,
+        render: crate::render::RenderFromPolicyFn,
+        limit_bytes: usize,
+    ) -> Result<RenderedConfig, ConversionRenderError> {
+        crate::render::render_builtin_with_limit(self.parsed, render, limit_bytes)
+    }
+
     /// Consumes the parsed subscription and prepares a strict ACL4SSR v1 config.
     ///
     /// The returned value contains an ordered, opaque Rule Set fetch plan. This method performs no
@@ -52,29 +63,7 @@ impl PreparedSubscriptionV1 {
         self,
         target: OutputTarget,
     ) -> Result<RenderedConfig, ConversionRenderError> {
-        match render_builtin_v1(self.parsed, target) {
-            Ok(output) => {
-                let (bytes, skips, omitted_url_regex) = output.into_rendered();
-                Ok(RenderedConfig {
-                    bytes,
-                    skips,
-                    omitted_url_regex,
-                })
-            }
-            Err(error) => Err(map_builtin_error(error)),
-        }
-    }
-}
-
-fn map_builtin_error(error: BuiltinRenderError) -> ConversionRenderError {
-    match error {
-        BuiltinRenderError::OutputTooLarge { .. } => ConversionRenderError::ConversionLimit,
-        BuiltinRenderError::NoValidNodes { diagnostics } => ConversionRenderError::NoValidNodes {
-            skips: diagnostics.skip_counts(),
-        },
-        BuiltinRenderError::NodeNaming(_) | BuiltinRenderError::Serialization => {
-            ConversionRenderError::Internal
-        }
+        render_builtin_v1(self.parsed, target)
     }
 }
 
@@ -83,60 +72,6 @@ impl fmt::Debug for PreparedSubscriptionV1 {
         formatter
             .debug_struct("PreparedSubscriptionV1")
             .field("parsed", &"[REDACTED]")
-            .finish()
-    }
-}
-
-/// Bounded rendered document for the selected client target.
-pub struct RenderedConfig {
-    bytes: Vec<u8>,
-    skips: SkipCountsV1,
-    omitted_url_regex: u8,
-}
-
-impl RenderedConfig {
-    pub(crate) const fn from_parts(
-        bytes: Vec<u8>,
-        skips: SkipCountsV1,
-        omitted_url_regex: u8,
-    ) -> Self {
-        Self {
-            bytes,
-            skips,
-            omitted_url_regex,
-        }
-    }
-
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    #[must_use]
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.bytes
-    }
-
-    #[must_use]
-    pub const fn skip_counts(&self) -> SkipCountsV1 {
-        self.skips
-    }
-
-    /// URL-REGEX matchers omitted by Keep-pass. No remote config is always 0.
-    #[must_use]
-    pub const fn omitted_url_regex(&self) -> u8 {
-        self.omitted_url_regex
-    }
-}
-
-impl fmt::Debug for RenderedConfig {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("RenderedConfig")
-            .field("bytes", &"[REDACTED]")
-            .field("bytes_len", &self.bytes.len())
-            .field("skips", &self.skips)
-            .field("omitted_url_regex", &self.omitted_url_regex)
             .finish()
     }
 }
@@ -175,40 +110,6 @@ impl fmt::Display for SubscriptionPreparationError {
 
 impl std::error::Error for SubscriptionPreparationError {}
 
-#[derive(Clone, Copy)]
-pub enum SubscriptionSourceV1<'a> {
-    Direct(&'a str),
-    Remote(&'a [u8]),
-}
-
-impl fmt::Debug for SubscriptionSourceV1<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Direct(_) => "Direct([REDACTED])",
-            Self::Remote(_) => "Remote([REDACTED])",
-        })
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConversionRenderError {
-    ConversionLimit,
-    NoValidNodes { skips: SkipCountsV1 },
-    Internal,
-}
-
-impl fmt::Display for ConversionRenderError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ConversionLimit => formatter.write_str("conversion resource limit exceeded"),
-            Self::NoValidNodes { .. } => formatter.write_str("no valid nodes"),
-            Self::Internal => formatter.write_str("internal conversion error"),
-        }
-    }
-}
-
-impl std::error::Error for ConversionRenderError {}
-
 /// Parses one to five direct occurrences or already-loaded remote bodies in declaration order.
 ///
 /// A direct source is exactly one occurrence: it is nonempty and has no CR/LF or outer ASCII
@@ -238,43 +139,38 @@ pub fn prepare_subscription_v1(
         return Err(SubscriptionPreparationError::InvalidInput);
     }
 
-    let sources = sources_in_declaration_order
-        .iter()
-        .map(|source| match source {
-            SubscriptionSourceV1::Direct(value) => SubscriptionSourceInput::Direct(value),
-            SubscriptionSourceV1::Remote(body) => SubscriptionSourceInput::Remote(body),
-        })
-        .collect::<Vec<_>>();
-    let parsed = parse_subscription_source_inputs(&sources).map_err(|error| match error {
-        SubscriptionParseError::TooManySources => SubscriptionPreparationError::InvalidInput,
-        SubscriptionParseError::TooManyOccurrences { .. } => {
-            SubscriptionPreparationError::ConversionLimit
-        }
-        SubscriptionParseError::InputTooLarge { source_index } => {
-            SubscriptionPreparationError::RemoteFailure {
-                source_index,
-                reason: RemoteSourceFailureV1::InputTooLarge,
+    let parsed = parse_subscription_source_inputs(sources_in_declaration_order).map_err(
+        |error| match error {
+            SubscriptionParseError::TooManySources => SubscriptionPreparationError::InvalidInput,
+            SubscriptionParseError::TooManyOccurrences { .. } => {
+                SubscriptionPreparationError::ConversionLimit
             }
-        }
-        SubscriptionParseError::DecodedSourceTooLarge { source_index } => {
-            SubscriptionPreparationError::RemoteFailure {
-                source_index,
-                reason: RemoteSourceFailureV1::DecodedTooLarge,
+            SubscriptionParseError::InputTooLarge { source_index } => {
+                SubscriptionPreparationError::RemoteFailure {
+                    source_index,
+                    reason: RemoteSourceFailureV1::InputTooLarge,
+                }
             }
-        }
-        SubscriptionParseError::InvalidUtf8 { source_index } => {
-            SubscriptionPreparationError::RemoteFailure {
-                source_index,
-                reason: RemoteSourceFailureV1::InvalidUtf8,
+            SubscriptionParseError::DecodedSourceTooLarge { source_index } => {
+                SubscriptionPreparationError::RemoteFailure {
+                    source_index,
+                    reason: RemoteSourceFailureV1::DecodedTooLarge,
+                }
             }
-        }
-        SubscriptionParseError::InvalidLineEnding { source_index } => {
-            SubscriptionPreparationError::RemoteFailure {
-                source_index,
-                reason: RemoteSourceFailureV1::InvalidLineEnding,
+            SubscriptionParseError::InvalidUtf8 { source_index } => {
+                SubscriptionPreparationError::RemoteFailure {
+                    source_index,
+                    reason: RemoteSourceFailureV1::InvalidUtf8,
+                }
             }
-        }
-    })?;
+            SubscriptionParseError::InvalidLineEnding { source_index } => {
+                SubscriptionPreparationError::RemoteFailure {
+                    source_index,
+                    reason: RemoteSourceFailureV1::InvalidLineEnding,
+                }
+            }
+        },
+    )?;
     if !parsed
         .occurrences
         .iter()
@@ -288,12 +184,79 @@ pub fn prepare_subscription_v1(
     Ok(PreparedSubscriptionV1 { parsed })
 }
 
+#[cfg(test)]
+fn test_source(body: &[u8]) -> SubscriptionSourceV1<'_> {
+    match std::str::from_utf8(body) {
+        Ok(text)
+            if !text.is_empty()
+                && !text.starts_with([' ', '\t'])
+                && !text.ends_with([' ', '\t'])
+                && !text.contains(['\r', '\n']) =>
+        {
+            SubscriptionSourceV1::Direct(text)
+        }
+        _ => SubscriptionSourceV1::Remote(body),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn prepare_remote_sources(
+    bodies: &[&[u8]],
+) -> Result<PreparedSubscriptionV1, SubscriptionPreparationError> {
+    let sources: Vec<_> = bodies.iter().copied().map(test_source).collect();
+    prepare_subscription_v1(&sources)
+}
+
+#[cfg(test)]
+pub(crate) fn render_remote_builtin(
+    target: OutputTarget,
+    bodies: &[&[u8]],
+) -> Result<RenderedConfig, ConversionRenderError> {
+    match prepare_remote_sources(bodies) {
+        Ok(prepared) => prepared.render_builtin_v1(target),
+        Err(SubscriptionPreparationError::NoValidNodes { skips }) => {
+            Err(ConversionRenderError::NoValidNodes { skips })
+        }
+        Err(SubscriptionPreparationError::ConversionLimit) => {
+            Err(ConversionRenderError::ConversionLimit)
+        }
+        Err(error) => panic!("subscription sources prepare: {error}"),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn render_acl4ssr_target(
+    target: OutputTarget,
+    direct: &str,
+    config: &[u8],
+    unique_rule_set_bodies: &[&[u8]],
+) -> Result<crate::RenderedConfig, crate::Acl4SsrRenderError> {
+    let prepared = prepare_subscription_v1(&[SubscriptionSourceV1::Direct(direct)])
+        .expect("direct")
+        .prepare_acl4ssr_config_v1(config)
+        .expect("acl4ssr config");
+    let urls = prepared
+        .rule_set_requests()
+        .iter()
+        .map(|request| request.url().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(urls.len(), unique_rule_set_bodies.len());
+    let mut binder = prepared.rule_set_binder();
+    for url in &urls {
+        binder.push_canonical(url).expect("canonical");
+    }
+    binder
+        .finish()
+        .expect("aligned")
+        .render_v1(target, unique_rule_set_bodies)
+}
+
 /// Error already visible on a declaration prefix before a later Unique-flight failure.
 ///
 /// An empty prefix, a successful prefix, and [`SubscriptionPreparationError::NoValidNodes`]
 /// do not beat the later failure: later sources may still supply nodes.
 #[must_use]
-pub fn prefix_preparation_error_v1(
+pub(crate) fn prefix_preparation_error_v1(
     prefix: &[SubscriptionSourceV1<'_>],
 ) -> Option<SubscriptionPreparationError> {
     if prefix.is_empty() {
@@ -302,79 +265,5 @@ pub fn prefix_preparation_error_v1(
     match prepare_subscription_v1(prefix) {
         Ok(_) | Err(SubscriptionPreparationError::NoValidNodes { .. }) => None,
         Err(error) => Some(error),
-    }
-}
-
-impl UniqueFlightsV1 {
-    /// Declaration-order Direct/Remote plan from unique bodies in first-seen order.
-    #[must_use]
-    pub(crate) fn subscription_sources<'a>(
-        &self,
-        sources: &'a [String],
-        unique_bodies: &'a [Vec<u8>],
-    ) -> Option<Vec<SubscriptionSourceV1<'a>>> {
-        if sources.len() != self.occurrence_count() || unique_bodies.len() != self.flight_count() {
-            return None;
-        }
-        (0..sources.len())
-            .map(|occurrence| match self.flight_of(occurrence) {
-                None => Some(SubscriptionSourceV1::Direct(sources[occurrence].as_str())),
-                Some(index) => unique_bodies
-                    .get(index)
-                    .map(|body| SubscriptionSourceV1::Remote(body.as_slice())),
-            })
-            .collect()
-    }
-
-    /// Unique bodies in first-seen order, zipped back onto declaration sources and prepared.
-    ///
-    /// `None` is Unique-flight alignment failure (caller bug).
-    #[must_use]
-    pub fn prepare_subscription(
-        &self,
-        sources: &[String],
-        unique_bodies: &[Vec<u8>],
-    ) -> Option<Result<PreparedSubscriptionV1, SubscriptionPreparationError>> {
-        Some(prepare_subscription_v1(
-            &self.subscription_sources(sources, unique_bodies)?,
-        ))
-    }
-
-    /// First-occurrence decoded sizes to account, as `(unique_index, bytes)`.
-    #[must_use]
-    pub fn unique_decoded_accounts(
-        &self,
-        prepared: &PreparedSubscriptionV1,
-    ) -> Option<Vec<(usize, usize)>> {
-        self.accounts_for_occurrence_decoded(prepared.remote_decoded_bytes_by_source())
-    }
-
-    /// Error already visible on the declaration prefix before `failed_unique_index`.
-    pub fn prefix_error_before_unique_failure(
-        &self,
-        sources: &[String],
-        loaded: &[Option<impl AsRef<[u8]>>],
-        failed_unique_index: usize,
-    ) -> Option<Option<SubscriptionPreparationError>> {
-        let failed_source_index = self.first_occurrence_of_flight(failed_unique_index)?;
-        if failed_source_index == 0 {
-            return Some(None);
-        }
-        if failed_source_index > sources.len() {
-            return None;
-        }
-        let mut source_plan = Vec::with_capacity(failed_source_index);
-        for (occurrence, source) in sources.iter().enumerate().take(failed_source_index) {
-            match self.flight_of(occurrence) {
-                None => {
-                    source_plan.push(SubscriptionSourceV1::Direct(source.as_str()));
-                }
-                Some(unique_index) => {
-                    let body = loaded.get(unique_index)?.as_ref()?.as_ref();
-                    source_plan.push(SubscriptionSourceV1::Remote(body));
-                }
-            }
-        }
-        Some(prefix_preparation_error_v1(&source_plan))
     }
 }

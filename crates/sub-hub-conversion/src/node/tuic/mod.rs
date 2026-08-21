@@ -2,6 +2,9 @@ use std::fmt;
 
 use uuid::Uuid;
 
+mod share;
+pub(crate) use share::parse;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TuicNode {
     id: TuicId,

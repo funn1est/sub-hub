@@ -31,6 +31,12 @@ pub fn canonicalize_inbound_host(raw_host: &str) -> Option<String> {
     }
 }
 
+/// Whether a already-canonical inbound host can be used as the self-target deny.
+#[must_use]
+pub(crate) fn is_valid_inbound_host(host: &str) -> bool {
+    is_canonical_dns_name(host) || host.parse::<std::net::IpAddr>().is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::canonicalize_inbound_host;
@@ -54,5 +60,14 @@ mod tests {
         assert!(canonicalize_inbound_host("").is_none());
         assert!(canonicalize_inbound_host("-bad.example").is_none());
         assert!(canonicalize_inbound_host("example.com:443").is_none());
+    }
+
+    #[test]
+    fn inbound_deny_hosts_are_canonical_dns_or_ip() {
+        assert!(super::is_valid_inbound_host("edge.example"));
+        assert!(super::is_valid_inbound_host("127.0.0.1"));
+        assert!(super::is_valid_inbound_host("::1"));
+        assert!(!super::is_valid_inbound_host("-bad.example"));
+        assert!(!super::is_valid_inbound_host("example.com:443"));
     }
 }

@@ -1,52 +1,57 @@
 import {
   GET_TARGET_LIMIT_BYTES,
   MAX_SOURCES,
-  TARGETS,
-  decodeSubGetTarget,
   encodeSubGetTarget,
   isHttpSource,
+  isQueryKey,
   isTarget,
   parseAccessToken,
-  type PasteWarning,
+  percentDecodeValue,
   type Target,
 } from "./service-contract.ts"
-import type { PersistedWorkshop } from "./persist.ts"
+import type { PersistedWorkshop, WorkshopFields } from "./persist.ts"
 
 export {
-  ACL4SSR_FULL_FILES,
-  ACL4SSR_MINI_FILES,
-  ACL4SSR_ONLINE_FILES,
-  ACL4SSR_ONLINE_URL,
-  acl4ssrConfigLabel,
-  acl4ssrConfigUrl,
-  configPresetOf,
-  configSelectionId,
-  type Acl4ssrConfigFile,
-  type ConfigPreset,
-} from "./acl4ssr-catalog.ts"
+  runPreview,
+  runVersionProbe,
+  type PreviewState,
+  type VersionProbe,
+} from "./preview.ts"
 
-export { MAX_SOURCES, TARGETS, isTarget }
+/** GET document media type for a Preview download. */
+export { subscriptionMediaType as previewMediaType } from "./service-contract.ts"
 
 export function clashInstallUrl(subscriptionUrl: string): string {
   return `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`
 }
 
-export type SubscriptionAssemblyInput = {
-  serviceOrigin: string
-  accessToken: string
-  sources: string[]
-  target: Target
-  configUrl: string
-  appendInfo: boolean
-}
+export type SubscriptionAssemblyInput = WorkshopFields
 
 export type Assembled = {
   url: string | null
   getTarget: string | null
   overLimit: boolean
+  previewable: boolean
+  clashInstall: boolean
 }
 
-export type { PasteWarning } from "./service-contract.ts"
+export type WorkshopView = {
+  assembled: Assembled
+  originInvalid: boolean
+  tokenInvalid: boolean
+  configInvalid: boolean
+  sourceInvalid: boolean[]
+}
+
+export type PasteWarning =
+  | "unknown-keys"
+  | "duplicate-keys"
+  | "invalid-target"
+  | "invalid-token"
+  | "invalid-append-info"
+  | "invalid-insert"
+  | "empty-sources"
+  | "http-sources"
 
 export type PasteResult =
   | {
@@ -107,55 +112,25 @@ export function parseHttpsResourceUrl(raw: string): string | null {
   if (url.hash !== "") {
     return null
   }
-  if (isForbiddenOutboundHost(url.hostname)) {
-    return null
-  }
   return url.href
 }
 
-function isForbiddenOutboundHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, "")
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host === "local" ||
-    host.endsWith(".local") ||
-    host === "internal" ||
-    host.endsWith(".internal") ||
-    host === "home.arpa" ||
-    host.endsWith(".home.arpa")
-  ) {
-    return true
-  }
-  if (host.includes(":")) {
-    return true
-  }
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) {
-    return true
-  }
-  return false
-}
-
-export function originFieldValid(raw: string): boolean {
-  return raw.trim().length === 0 || parseServiceOrigin(raw) !== null
-}
-
-export function accessTokenFieldValid(raw: string): boolean {
-  return parseAccessToken(raw).ok
-}
-
-export function configFieldValid(raw: string): boolean {
-  return raw.trim().length === 0 || parseHttpsResourceUrl(raw) !== null
-}
-
-export function sourceFieldInvalid(source: string): boolean {
-  return source.includes("|") || isHttpSource(source.trim())
-}
-
-export function nonemptySources(sources: readonly string[]): string[] {
+function nonemptySources(sources: readonly string[]): string[] {
   return sources
     .map((source) => source.trim())
     .filter((source) => source.length > 0)
+}
+
+function sourceRowInvalid(source: string): boolean {
+  return source.includes("|") || isHttpSource(source.trim())
+}
+
+const emptyAssembled: Assembled = {
+  url: null,
+  getTarget: null,
+  overLimit: false,
+  previewable: false,
+  clashInstall: false,
 }
 
 export function assembleSubscription(
@@ -175,7 +150,7 @@ export function assembleSubscription(
     !isTarget(input.target) ||
     (config.length > 0 && parseHttpsResourceUrl(config) === null)
   ) {
-    return { url: null, getTarget: null, overLimit: false }
+    return emptyAssembled
   }
 
   const getTarget = encodeSubGetTarget({
@@ -185,16 +160,174 @@ export function assembleSubscription(
     configUrl: config,
     appendInfo: input.appendInfo,
   })
+  const overLimit =
+    new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES
   return {
     url: `${origin}${getTarget}`,
     getTarget,
-    overLimit:
-      new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES,
+    overLimit,
+    previewable: !overLimit,
+    clashInstall: input.target === "clash" || input.target === "mihomo",
   }
 }
 
+/** Field chrome and assemble share one Workshop job diagnosis. */
+export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
+  return {
+    assembled: assembleSubscription(input),
+    originInvalid:
+      input.serviceOrigin.trim().length > 0 &&
+      parseServiceOrigin(input.serviceOrigin) === null,
+    tokenInvalid: !parseAccessToken(input.accessToken).ok,
+    configInvalid:
+      input.configUrl.trim().length > 0 &&
+      parseHttpsResourceUrl(input.configUrl) === null,
+    sourceInvalid: input.sources.map(sourceRowInvalid),
+  }
+}
+
+type PasteDecode =
+  | {
+      ok: true
+      origin: string
+      accessToken: string
+      target?: Target
+      sources?: string[]
+      configUrl?: string
+      appendInfo: boolean
+      warnings: PasteWarning[]
+    }
+  | { ok: false; reason: "invalid-url" }
+
+/** Lenient Subscription URL salvage for Workshop paste. Unknown keys warn. */
+function decodeSubscriptionUrl(raw: string): PasteDecode {
+  const trimmed = raw.trim()
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return { ok: false, reason: "invalid-url" }
+  }
+  if (url.username !== "" || url.password !== "") {
+    return { ok: false, reason: "invalid-url" }
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, reason: "invalid-url" }
+  }
+
+  const pathname = url.pathname
+  const warnings: PasteWarning[] = []
+  let accessToken = ""
+  if (pathname === "/sub") {
+    accessToken = ""
+  } else if (pathname.startsWith("/sub/")) {
+    const rest = pathname.slice("/sub/".length)
+    if (rest.includes("/") || rest.length === 0) {
+      return { ok: false, reason: "invalid-url" }
+    }
+    const parsed = parseAccessToken(rest)
+    if (!parsed.ok) {
+      warnings.push("invalid-token")
+    } else {
+      accessToken = parsed.token
+    }
+  } else {
+    return { ok: false, reason: "invalid-url" }
+  }
+
+  const origin = `${url.protocol}//${url.host}`
+  const decoded: Extract<PasteDecode, { ok: true }> = {
+    ok: true,
+    origin,
+    accessToken,
+    configUrl: "",
+    appendInfo: true,
+    warnings,
+  }
+
+  const rawQuery = url.search.startsWith("?") ? url.search.slice(1) : ""
+  if (rawQuery.length === 0) {
+    return decoded
+  }
+
+  const seen = new Set<string>()
+  let unknown = false
+  let duplicate = false
+  const values = new Map<string, string>()
+  for (const pair of rawQuery.split("&")) {
+    const eq = pair.indexOf("=")
+    if (eq <= 0) {
+      return { ok: false, reason: "invalid-url" }
+    }
+    const key = pair.slice(0, eq)
+    const value = percentDecodeValue(pair.slice(eq + 1))
+    if (value === null) {
+      return { ok: false, reason: "invalid-url" }
+    }
+    if (!isQueryKey(key)) {
+      unknown = true
+    }
+    if (seen.has(key)) {
+      duplicate = true
+    }
+    seen.add(key)
+    if (!values.has(key)) {
+      values.set(key, value)
+    }
+  }
+  if (unknown) {
+    decoded.warnings.push("unknown-keys")
+  }
+  if (duplicate) {
+    decoded.warnings.push("duplicate-keys")
+  }
+
+  const target = values.get("target")
+  if (target !== undefined) {
+    if (isTarget(target)) {
+      decoded.target = target
+    } else {
+      decoded.warnings.push("invalid-target")
+    }
+  }
+
+  const urlParam = values.get("url")
+  if (urlParam !== undefined && urlParam.length > 0) {
+    const sources = urlParam.split("|")
+    if (sources.some((source) => source.length === 0)) {
+      decoded.warnings.push("empty-sources")
+    }
+    if (sources.some((source) => isHttpSource(source))) {
+      decoded.warnings.push("http-sources")
+    }
+    decoded.sources = sources.filter((source) => source.length > 0)
+  }
+
+  const insert = values.get("insert")
+  if (insert !== undefined && insert !== "false") {
+    decoded.warnings.push("invalid-insert")
+  }
+
+  const config = values.get("config")
+  if (config !== undefined) {
+    decoded.configUrl = config
+  }
+
+  const append = values.get("append_info")
+  if (append === "false") {
+    decoded.appendInfo = false
+  } else if (append === "true" || append === undefined) {
+    decoded.appendInfo = true
+  } else {
+    decoded.warnings.push("invalid-append-info")
+    decoded.appendInfo = true
+  }
+
+  return decoded
+}
+
 export function parseSubscriptionUrl(raw: string): PasteResult {
-  const decoded = decodeSubGetTarget(raw)
+  const decoded = decodeSubscriptionUrl(raw)
   if (!decoded.ok) {
     return decoded
   }
@@ -229,17 +362,4 @@ export function applyPaste(
     configUrl: parsed.workshop.configUrl ?? state.configUrl,
     appendInfo: parsed.workshop.appendInfo ?? state.appendInfo,
   }
-}
-
-export function canPreview(
-  assembled: Assembled
-): assembled is Assembled & { url: string } {
-  return assembled.url !== null && !assembled.overLimit
-}
-
-export function showsClashInstall(
-  assembled: Assembled,
-  target: Target
-): boolean {
-  return assembled.url !== null && (target === "clash" || target === "mihomo")
 }

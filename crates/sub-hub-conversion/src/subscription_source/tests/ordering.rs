@@ -1,5 +1,5 @@
 use super::{NodeOccurrence, NodeOrigin, parse_subscription_sources};
-use crate::share_uri::{InvalidNodeReason, NodeRejection};
+use crate::node::{InvalidNodeReason, NodeRejection};
 
 const VLESS: &str = "vless://11111111-1111-4111-8111-111111111111@example.com:443?encryption=none";
 const SHADOWSOCKS: &str = "ss://aes-128-gcm:password@example.net:8388#SS";

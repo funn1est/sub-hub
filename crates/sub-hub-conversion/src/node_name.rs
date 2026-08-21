@@ -9,8 +9,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     node::{Host, NodeNameInput, NodeProtocol, ProxyNode, ProxyNodeDraft},
-    share_uri::NodeRejection,
-    subscription_source::{NodeOccurrence, NodeOrigin, ParsedSubscriptionSources},
+    subscription_source::{NodeOccurrence, ParsedSubscriptionSources},
 };
 
 mod unicode_17;
@@ -41,32 +40,23 @@ impl NamedSubscriptionSources {
         &self.occurrences
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "node-name diagnostics stay at the naming seam for tests"
+        )
+    )]
     pub(crate) const fn diagnostics(&self) -> &NodeNameDiagnostics {
         &self.diagnostics
     }
 
     pub(crate) fn parse_skip_count(&self) -> u32 {
-        u32::try_from(
-            self.occurrences
-                .iter()
-                .filter(|occurrence| matches!(occurrence, NamedNodeOccurrence::Rejected { .. }))
-                .count(),
-        )
-        .unwrap_or(u32::MAX)
+        NodeOccurrence::rejected_count(&self.occurrences)
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum NamedNodeOccurrence {
-    Accepted {
-        origin: NodeOrigin,
-        node: Box<ProxyNode>,
-    },
-    Rejected {
-        origin: NodeOrigin,
-        rejection: NodeRejection,
-    },
-}
+pub(crate) type NamedNodeOccurrence = NodeOccurrence<ProxyNode>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum NodeNameError {
@@ -211,13 +201,13 @@ pub(crate) fn resolve_node_names(
                 if grapheme_truncated {
                     diagnostics.increment(NodeNameDiagnosticKind::GraphemeTruncated);
                 }
-                Ok(NamedNodeOccurrence::Accepted {
+                Ok(NodeOccurrence::Accepted {
                     origin,
                     node: Box::new(node.into_named(NodeNameV1(name))),
                 })
             }
             NodeOccurrence::Rejected { origin, rejection } => {
-                Ok(NamedNodeOccurrence::Rejected { origin, rejection })
+                Ok(NodeOccurrence::Rejected { origin, rejection })
             }
         })
         .collect::<Result<Vec<_>, NodeNameError>>()?;

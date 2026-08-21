@@ -1,5 +1,5 @@
-use crate::render::render_builtin_singbox_v1;
-use crate::subscription_source::parse_subscription_sources;
+use crate::OutputTarget;
+use crate::direct_subscription::render_remote_builtin;
 
 const BUILTIN_TCP_VLESS: &str = concat!(
     "{\n",
@@ -73,13 +73,13 @@ const BUILTIN_TCP_VLESS: &str = concat!(
 
 #[test]
 fn builtin_tcp_vless_matches_the_frozen_singbox_shape() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha"[..],
-    ])
-    .expect("valid");
-    let output = render_builtin_singbox_v1(parsed).expect("rendered");
+    let output = render_remote_builtin(
+        OutputTarget::Singbox,
+        &[&b"vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha"[..]],
+    )
+    .expect("rendered");
     assert_eq!(
-        std::str::from_utf8(output.config()).expect("utf8"),
+        std::str::from_utf8(output.as_bytes()).expect("utf8"),
         BUILTIN_TCP_VLESS
     );
 }

@@ -1,22 +1,30 @@
-use super::accepted_nodes;
-use crate::egern::render_egern_from_policy_v1;
-use crate::node_name::resolve_node_names;
-use crate::policy::compile_builtin_policy_v1;
-use crate::render::AdapterRenderError;
-use crate::subscription_source::parse_subscription_sources;
+use crate::{
+    ConversionRenderError, SubscriptionSourceV1, egern::render_egern_from_policy_v1,
+    prepare_subscription_v1,
+};
+
+const SOURCE: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Boundary";
+
+fn prepared() -> crate::PreparedSubscriptionV1 {
+    prepare_subscription_v1(&[SubscriptionSourceV1::Direct(SOURCE)]).expect("valid")
+}
 
 #[test]
-fn oversized_output_is_rejected() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-    ])
-    .expect("valid");
-    let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
-    let nodes = accepted_nodes(&named);
-    let policy = compile_builtin_policy_v1(&nodes);
-    let error = render_egern_from_policy_v1(&nodes, &policy, 8).expect_err("limit");
-    assert!(matches!(
-        error,
-        AdapterRenderError::OutputTooLarge { limit_bytes: 8 }
-    ));
+fn rendering_accepts_its_exact_byte_length_and_rejects_one_less() {
+    let exact = prepared()
+        .render_builtin_with_limit(render_egern_from_policy_v1, usize::MAX)
+        .expect("unbounded representative output");
+    let exact_len = exact.as_bytes().len();
+
+    let at_limit = prepared()
+        .render_builtin_with_limit(render_egern_from_policy_v1, exact_len)
+        .expect("the byte limit is inclusive");
+    assert_eq!(at_limit.as_bytes(), exact.as_bytes());
+
+    assert_eq!(
+        prepared()
+            .render_builtin_with_limit(render_egern_from_policy_v1, exact_len - 1)
+            .expect_err("one byte under the inclusive limit"),
+        ConversionRenderError::ConversionLimit
+    );
 }

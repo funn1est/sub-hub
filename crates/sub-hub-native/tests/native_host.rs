@@ -18,82 +18,60 @@ use sub_hub_native::{
 };
 use tower::ServiceExt;
 
-struct HostVector {
-    name: &'static str,
-    method: Method,
-    uri: String,
-    status: StatusCode,
-    body: &'static str,
-    allow: Option<&'static str>,
+const HOST_VISIBLE: &str = include_str!("../../../testdata/host-visible-contract.json");
+
+#[derive(serde::Deserialize)]
+struct HostVisibleFile {
+    vectors: Vec<HostVisibleVector>,
+}
+
+#[derive(serde::Deserialize)]
+struct HostVisibleVector {
+    id: String,
+    method: String,
+    path: String,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default, rename = "pathRepeat")]
+    path_repeat: Option<PathRepeat>,
+    status: u16,
+    body: String,
+    #[serde(default)]
+    allow: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct PathRepeat {
+    char: String,
+    count: usize,
+}
+
+impl HostVisibleVector {
+    fn method(&self) -> Method {
+        self.method.parse().expect("method")
+    }
+
+    fn uri(&self) -> String {
+        let mut path = self.path.clone();
+        if let Some(repeat) = &self.path_repeat {
+            path.push_str(&repeat.char.repeat(repeat.count));
+        }
+        match self.query.as_deref() {
+            Some(query) if !query.is_empty() => format!("{path}?{query}"),
+            _ => path,
+        }
+    }
 }
 
 #[tokio::test]
 async fn host_visible_application_contract_is_table_driven() {
-    let vectors = [
-        HostVector {
-            name: "version",
-            method: Method::GET,
-            uri: "/version".to_owned(),
-            status: StatusCode::OK,
-            body: "sub-hub v0.1.0 backend",
-            allow: None,
-        },
-        HostVector {
-            name: "invalid version query",
-            method: Method::GET,
-            uri: "/version?x=1".to_owned(),
-            status: StatusCode::BAD_REQUEST,
-            body: "Invalid request!",
-            allow: None,
-        },
-        HostVector {
-            name: "unknown path",
-            method: Method::GET,
-            uri: "/sub/".to_owned(),
-            status: StatusCode::NOT_FOUND,
-            body: "Not Found",
-            allow: None,
-        },
-        HostVector {
-            name: "sub method",
-            method: Method::POST,
-            uri: "/sub".to_owned(),
-            status: StatusCode::METHOD_NOT_ALLOWED,
-            body: "Method Not Allowed",
-            allow: Some("GET, HEAD"),
-        },
-        HostVector {
-            name: "version method",
-            method: Method::HEAD,
-            uri: "/version".to_owned(),
-            status: StatusCode::METHOD_NOT_ALLOWED,
-            body: "",
-            allow: Some("GET"),
-        },
-        HostVector {
-            name: "uri too long before unknown path",
-            method: Method::GET,
-            uri: format!("/{}", "x".repeat(8_192)),
-            status: StatusCode::URI_TOO_LONG,
-            body: "URI Too Long",
-            allow: None,
-        },
-        HostVector {
-            name: "head invalid request suppresses body",
-            method: Method::HEAD,
-            uri: "/sub".to_owned(),
-            status: StatusCode::BAD_REQUEST,
-            body: "",
-            allow: None,
-        },
-    ];
-
-    for vector in vectors {
+    let file: HostVisibleFile = serde_json::from_str(HOST_VISIBLE).expect("host-visible JSON");
+    for vector in file.vectors {
         let response = test_router()
             .oneshot(
                 Request::builder()
-                    .method(vector.method.clone())
-                    .uri(vector.uri.as_str())
+                    .method(vector.method())
+                    .uri(vector.uri().as_str())
                     .header(header::HOST, "subscriptions.example")
                     .body(Body::empty())
                     .expect("valid conformance request"),
@@ -105,8 +83,13 @@ async fn host_visible_application_contract_is_table_driven() {
     }
 }
 
-async fn assert_application_response(response: Response<Body>, vector: &HostVector) {
-    assert_eq!(response.status(), vector.status, "{} status", vector.name);
+async fn assert_application_response(response: Response<Body>, vector: &HostVisibleVector) {
+    assert_eq!(
+        response.status(),
+        StatusCode::from_u16(vector.status).expect("status"),
+        "{} status",
+        vector.id
+    );
     assert_eq!(
         response
             .headers()
@@ -114,7 +97,7 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVect
             .and_then(|value| value.to_str().ok()),
         Some("text/plain;charset=utf-8"),
         "{} content-type",
-        vector.name
+        vector.id
     );
     assert_eq!(
         response
@@ -123,7 +106,7 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVect
             .and_then(|value| value.to_str().ok()),
         Some("no-store"),
         "{} cache-control",
-        vector.name
+        vector.id
     );
     assert_eq!(
         response
@@ -132,7 +115,7 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVect
             .and_then(|value| value.to_str().ok()),
         Some("no-referrer"),
         "{} referrer-policy",
-        vector.name
+        vector.id
     );
     assert!(
         response
@@ -140,21 +123,21 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVect
             .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
             .is_none(),
         "{} must not emit cors without an allowlist",
-        vector.name
+        vector.id
     );
     assert_eq!(
         response
             .headers()
             .get(header::ALLOW)
             .and_then(|value| value.to_str().ok()),
-        vector.allow,
+        vector.allow.as_deref(),
         "{} allow",
-        vector.name
+        vector.id
     );
     assert!(
         response.headers().get("subscription-userinfo").is_none(),
         "{} must not emit subscription metadata",
-        vector.name
+        vector.id
     );
     assert_eq!(
         response
@@ -163,9 +146,9 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVect
             .await
             .expect("body collection succeeds")
             .to_bytes(),
-        vector.body,
+        vector.body.as_bytes(),
         "{} body",
-        vector.name
+        vector.id
     );
 }
 
@@ -761,12 +744,14 @@ async fn assert_dns_policy_bad_gateway(raw_query: &str, name: &'static str) {
 
     assert_application_response(
         response,
-        &HostVector {
-            name,
-            method: Method::GET,
-            uri: String::new(),
-            status: StatusCode::BAD_GATEWAY,
-            body: "Bad Gateway",
+        &HostVisibleVector {
+            id: name.to_owned(),
+            method: "GET".to_owned(),
+            path: String::new(),
+            query: None,
+            path_repeat: None,
+            status: StatusCode::BAD_GATEWAY.as_u16(),
+            body: "Bad Gateway".to_owned(),
             allow: None,
         },
     )

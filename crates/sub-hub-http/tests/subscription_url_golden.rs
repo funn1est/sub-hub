@@ -1,11 +1,15 @@
-use http::{Method, StatusCode};
+use std::collections::BTreeMap;
+
+use http::{Method, StatusCode, header};
 use serde::Deserialize;
 use sub_hub_http::{
-    Application, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse,
-    SelfHosts,
+    Application, CorsOrigins, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError,
+    RemoteResponse, SelfHosts,
 };
 
 const GOLDEN: &str = include_str!("../../../testdata/subscription-url/cases.json");
+const VLESS: &str =
+    "vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha";
 
 struct UnreachableRemote;
 
@@ -22,20 +26,83 @@ impl RemoteAdapter for UnreachableRemote {
 }
 
 fn handle(path: &str, query: &str) -> sub_hub_http::HttpResponse {
-    let application = Application::new(
-        UnreachableRemote,
-        SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
-    );
-    futures::executor::block_on(application.handle(HttpRequest::new(
+    handle_on(
+        Application::new(
+            UnreachableRemote,
+            SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
+        ),
         Method::GET,
         path,
-        Some(query),
-    )))
+        query,
+        None,
+    )
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn handle_on(
+    application: Application<UnreachableRemote>,
+    method: Method,
+    path: &str,
+    query: &str,
+    origin: Option<&str>,
+) -> sub_hub_http::HttpResponse {
+    let query = (!query.is_empty()).then_some(query);
+    futures::executor::block_on(
+        application.handle(HttpRequest::new(method, path, query).with_origin(origin)),
+    )
 }
 
 #[derive(Deserialize)]
 struct GoldenFile {
+    contract: Contract,
     cases: Vec<GoldenCase>,
+}
+
+#[derive(Deserialize)]
+struct Contract {
+    targets: Vec<String>,
+    #[serde(rename = "queryKeys")]
+    query_keys: Vec<String>,
+    #[serde(rename = "maxSources")]
+    max_sources: usize,
+    #[serde(rename = "getTargetLimitBytes")]
+    get_target_limit_bytes: usize,
+    #[serde(rename = "versionPath")]
+    version_path: String,
+    #[serde(rename = "versionBodyPattern")]
+    version_body_pattern: String,
+    #[serde(rename = "skippedHeader")]
+    skipped_header: String,
+    #[serde(rename = "exposedHeaders")]
+    exposed_headers: Vec<String>,
+    errors: Vec<String>,
+    filenames: BTreeMap<String, String>,
+    #[serde(rename = "percentDecode")]
+    percent_decode: Vec<PercentDecode>,
+    #[serde(rename = "skipSamples")]
+    skip_samples: Vec<SkipSample>,
+    #[serde(rename = "errorSamples")]
+    error_samples: Vec<ErrorSample>,
+}
+
+#[derive(Deserialize)]
+struct PercentDecode {
+    encoded: String,
+    decoded: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SkipSample {
+    query: String,
+    skipped: String,
+}
+
+#[derive(Deserialize)]
+struct ErrorSample {
+    id: String,
+    path: String,
+    query: String,
+    body: String,
 }
 
 #[derive(Deserialize)]
@@ -58,9 +125,13 @@ struct HttpExpect {
     body: Option<String>,
 }
 
+fn load() -> GoldenFile {
+    serde_json::from_str(GOLDEN).expect("golden JSON")
+}
+
 #[test]
 fn subscription_url_golden_matches_the_http_adapter() {
-    let file: GoldenFile = serde_json::from_str(GOLDEN).expect("golden JSON");
+    let file = load();
     assert!(!file.cases.is_empty());
     for case in file.cases {
         let response = handle(&case.path, &case.query);
@@ -79,4 +150,109 @@ fn subscription_url_golden_matches_the_http_adapter() {
             );
         }
     }
+}
+
+#[test]
+fn get_contract_tables_match_the_http_adapter() {
+    let contract = load().contract;
+    assert_eq!(
+        contract.targets,
+        ["clash", "mihomo", "quanx", "singbox", "loon", "egern"]
+    );
+    assert_eq!(contract.max_sources, 5);
+    assert_eq!(contract.get_target_limit_bytes, 8192);
+    assert!(contract.query_keys.contains(&"insert".to_owned()));
+
+    let version = handle(&contract.version_path, "");
+    assert_eq!(version.status(), StatusCode::OK);
+    let body = std::str::from_utf8(version.body()).expect("utf-8");
+    assert_eq!(
+        contract.version_body_pattern,
+        r"^sub-hub v\d+\.\d+\.\d+ backend$"
+    );
+    assert!(
+        body.starts_with("sub-hub v") && body.ends_with(" backend"),
+        "{body}"
+    );
+
+    for sample in contract.error_samples {
+        let response = handle(&sample.path, &sample.query);
+        assert_eq!(
+            std::str::from_utf8(response.body()).expect("utf-8"),
+            sample.body,
+            "{}",
+            sample.id
+        );
+        assert!(
+            contract.errors.iter().any(|error| error == &sample.body),
+            "{}",
+            sample.id
+        );
+    }
+
+    for (target, filename) in &contract.filenames {
+        let response = handle("/sub", &format!("target={target}&url={VLESS}"));
+        assert_eq!(response.status(), StatusCode::OK, "{target}");
+        let disposition = response
+            .headers()
+            .get(header::CONTENT_DISPOSITION)
+            .expect("disposition")
+            .to_str()
+            .expect("ascii");
+        assert!(
+            disposition.contains(filename),
+            "{target}: {disposition} vs {filename}"
+        );
+    }
+
+    for sample in contract.skip_samples {
+        let response = handle("/sub", &sample.query);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(&contract.skipped_header)
+                .expect("skipped")
+                .to_str()
+                .expect("ascii"),
+            sample.skipped
+        );
+    }
+
+    for sample in contract.percent_decode {
+        let response = handle("/sub", &format!("target=clash&url={}", sample.encoded));
+        match sample.decoded {
+            None => {
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+                assert_eq!(response.body(), b"Invalid request!");
+            }
+            Some(_) => {
+                assert_ne!(
+                    std::str::from_utf8(response.body()).expect("utf-8"),
+                    "Invalid request!"
+                );
+            }
+        }
+    }
+
+    let cors = CorsOrigins::parse_list("http://console.example").expect("origin");
+    let application = Application::new(
+        UnreachableRemote,
+        SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
+    )
+    .with_cors_origins(cors);
+    let response = handle_on(
+        application,
+        Method::GET,
+        "/version",
+        "",
+        Some("http://console.example"),
+    );
+    let exposed = response
+        .headers()
+        .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+        .expect("expose")
+        .to_str()
+        .expect("ascii");
+    assert_eq!(exposed, contract.exposed_headers.join(", "));
 }

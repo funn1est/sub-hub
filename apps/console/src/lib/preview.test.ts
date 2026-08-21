@@ -5,6 +5,7 @@ import {
   classifyPreviewBody,
   classifyVersionBody,
   fallbackDownloadName,
+  filenameFromDisposition,
   isLoopbackHost,
   parseSkippedHeader,
   PREVIEW_VIEW_LIMIT_BYTES,
@@ -12,7 +13,6 @@ import {
   runVersionProbe,
   truncatePreviewBody,
 } from "./preview.ts"
-import { filenameFromDisposition } from "./service-contract.ts"
 
 describe("classifyVersionBody", () => {
   it("accepts the Sub Hub version line and rejects other bodies", () => {
@@ -150,16 +150,10 @@ describe("download filename", () => {
   })
 })
 
-function assembledUrl(url: string) {
-  return { url, getTarget: "/sub", overLimit: false }
-}
-
 describe("runPreview", () => {
   it("returns a done Preview from the Subscription URL GET", async () => {
     const outcome = await runPreview({
-      assembled: assembledUrl(
-        "http://127.0.0.1:25500/sub?target=clash&url=vless://x"
-      ),
+      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
       target: "clash",
       pageHttps: false,
       fetchImpl: async () => ({
@@ -193,9 +187,7 @@ describe("runPreview", () => {
 
   it("falls back to the Mihomo download name for the clash wire token", async () => {
     const outcome = await runPreview({
-      assembled: assembledUrl(
-        "http://127.0.0.1:25500/sub?target=clash&url=vless://x"
-      ),
+      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
       target: "clash",
       pageHttps: false,
       fetchImpl: async () => ({
@@ -212,9 +204,7 @@ describe("runPreview", () => {
 
   it("classifies a thrown fetch as unreachable", async () => {
     const outcome = await runPreview({
-      assembled: assembledUrl(
-        "http://127.0.0.1:25500/sub?target=clash&url=vless://x"
-      ),
+      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
       target: "clash",
       pageHttps: true,
       fetchImpl: async () => {

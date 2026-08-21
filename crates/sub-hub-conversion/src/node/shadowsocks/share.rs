@@ -6,19 +6,16 @@ use base64::{
 };
 
 use crate::node::{
-    NodeProtocol, ProxyNodeDraft,
-    shadowsocks::{
-        SecretBytes, SecretString, ShadowsocksCipher, ShadowsocksCredential,
-        ShadowsocksCredentialRequirement, ShadowsocksNode,
-    },
+    InvalidNodeReason, NodeProtocol, NodeRejection, ProxyNodeDraft, UnsupportedCapability, percent,
+    uri::{parse_authority_uri, parse_endpoint, scan_query},
 };
 
 use super::{
-    InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_authority_uri, parse_endpoint,
-    percent, scan_query,
+    SecretBytes, SecretString, ShadowsocksCipher, ShadowsocksCredential,
+    ShadowsocksCredentialRequirement, ShadowsocksNode,
 };
 
-pub(super) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
+pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
     let uri = parse_authority_uri(input)?;
     let userinfo = uri.userinfo;
     if userinfo.is_empty() {

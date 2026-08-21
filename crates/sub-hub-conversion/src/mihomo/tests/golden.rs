@@ -1,4 +1,5 @@
-use crate::{render::render_builtin_mihomo_v1, subscription_source::parse_subscription_sources};
+use crate::OutputTarget;
+use crate::direct_subscription::render_remote_builtin;
 
 const SOURCE: &[u8] = concat!(
     "vless://00000000-0000-4000-8000-000000000001@EXAMPLE.COM:443#PROXY\n",
@@ -13,19 +14,19 @@ const GOLDEN: &[u8] = include_bytes!("../../../tests/golden/builtin_mihomo_v1.ya
 
 #[test]
 fn representative_builtin_document_matches_golden() {
-    let parsed = parse_subscription_sources(&[SOURCE]).expect("valid golden source");
-    let actual = render_builtin_mihomo_v1(parsed).expect("rendered golden source");
+    let actual =
+        render_remote_builtin(OutputTarget::Mihomo, &[SOURCE]).expect("rendered golden source");
 
-    if actual.config() != GOLDEN {
+    if actual.as_bytes() != GOLDEN {
         let offset = actual
-            .config()
+            .as_bytes()
             .iter()
             .zip(GOLDEN)
             .position(|(actual, expected)| actual != expected)
-            .unwrap_or_else(|| actual.config().len().min(GOLDEN.len()));
+            .unwrap_or_else(|| actual.as_bytes().len().min(GOLDEN.len()));
         panic!(
             "Mihomo golden mismatch at byte {offset}; actual length {}, expected length {}",
-            actual.config().len(),
+            actual.as_bytes().len(),
             GOLDEN.len(),
         );
     }

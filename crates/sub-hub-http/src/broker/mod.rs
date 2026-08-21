@@ -1,0 +1,263 @@
+mod batch;
+mod follow;
+mod hop;
+
+use std::{
+    fmt,
+    future::Future,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+use url::Url;
+
+use crate::{SelfHosts, SessionBudget, accept_outbound_url};
+
+pub(crate) use hop::HeaderObservation;
+pub use hop::{
+    HttpsHopOutcome, HttpsHopPending, RemoteResponse, begin_https_hop, begin_https_hop_lookup,
+};
+
+pub struct RemoteAttempt {
+    pub(crate) kind: ResourceKind,
+    pub(crate) url: String,
+    pub(crate) deadline_millis: u64,
+    pub(crate) max_body_bytes: usize,
+    pub(crate) capture_subscription_user_info: bool,
+}
+
+impl RemoteAttempt {
+    #[must_use]
+    pub const fn kind(&self) -> ResourceKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    #[must_use]
+    pub const fn deadline_millis(&self) -> u64 {
+        self.deadline_millis
+    }
+
+    #[must_use]
+    pub const fn max_body_bytes(&self) -> usize {
+        self.max_body_bytes
+    }
+
+    #[must_use]
+    pub const fn capture_subscription_user_info(&self) -> bool {
+        self.capture_subscription_user_info
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ResourceKind {
+    Subscription,
+    Config,
+    RuleSet,
+}
+
+impl fmt::Debug for RemoteAttempt {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RemoteAttempt")
+            .field("kind", &self.kind)
+            .field("url", &"[REDACTED]")
+            .field("deadline_millis", &self.deadline_millis)
+            .field("max_body_bytes", &self.max_body_bytes)
+            .field(
+                "capture_subscription_user_info",
+                &self.capture_subscription_user_info,
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RemoteFetchError {
+    Failure,
+    Timeout,
+}
+
+/// Closed Unique-resource fetch / Session budget outcome. HTTP maps this onto GET.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BrokerError {
+    Failure,
+    Timeout,
+    ConversionLimit,
+    Internal,
+}
+
+pub trait RemoteAdapter {
+    type FetchFuture<'a>: Future<Output = Result<RemoteResponse, RemoteFetchError>> + 'a
+    where
+        Self: 'a;
+
+    fn monotonic_millis(&self) -> u64;
+
+    fn supports_https_port(&self, _port: u16) -> bool {
+        true
+    }
+
+    fn fetch_once(&self, attempt: RemoteAttempt) -> Self::FetchFuture<'_>;
+}
+
+pub(crate) enum RemoteLoadBatch {
+    Complete(Vec<RemoteResponse>),
+    Failed {
+        loaded: Vec<Option<RemoteResponse>>,
+        failed_unique_index: usize,
+        error: BrokerError,
+    },
+}
+
+#[derive(Clone)]
+pub(crate) struct RemoteResource {
+    pub(crate) kind: ResourceKind,
+    pub(crate) url: Url,
+    pub(crate) max_body_bytes: usize,
+    pub(crate) capture_subscription_user_info: bool,
+}
+
+impl RemoteResource {
+    pub(super) fn same_identity(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.url.as_str() == other.url.as_str()
+    }
+}
+
+pub(crate) struct BrokerSession<'a, A> {
+    pub(super) adapter: &'a A,
+    pub(super) self_hosts: &'a SelfHosts,
+    pub(super) inbound_host: String,
+    pub(super) budget: SessionBudget,
+    pub(super) total_deadline_millis: u64,
+    pub(super) attempts: AtomicUsize,
+    pub(super) reserved: Vec<RemoteResource>,
+    pub(super) accounted: Vec<RemoteResource>,
+    pub(super) decoded_bytes: usize,
+}
+
+impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
+    pub(crate) fn new(adapter: &'a A, self_hosts: &'a SelfHosts, inbound_host: &str) -> Self {
+        let budget = SessionBudget::production();
+        Self {
+            adapter,
+            self_hosts,
+            inbound_host: inbound_host.to_owned(),
+            budget,
+            total_deadline_millis: adapter
+                .monotonic_millis()
+                .saturating_add(budget.session_deadline_millis),
+            attempts: AtomicUsize::new(0),
+            reserved: Vec::new(),
+            accounted: Vec::new(),
+            decoded_bytes: 0,
+        }
+    }
+
+    fn check_reservation(&self, resources: &[RemoteResource]) -> Result<(), BrokerError> {
+        for (index, resource) in resources.iter().enumerate() {
+            if self
+                .reserved
+                .iter()
+                .any(|candidate| candidate.same_identity(resource))
+                || resources[..index]
+                    .iter()
+                    .any(|candidate| candidate.same_identity(resource))
+            {
+                return Err(BrokerError::Internal);
+            }
+        }
+        self.check_reservation_capacity(resources.len())
+    }
+
+    pub(crate) fn accept_outbound(&self, raw: &str) -> Result<Url, ()> {
+        accept_outbound_url(raw, self.self_hosts, &self.inbound_host, |port| {
+            self.adapter.supports_https_port(port)
+        })
+    }
+
+    pub(crate) fn check_reservation_capacity(
+        &self,
+        additional_unique: usize,
+    ) -> Result<(), BrokerError> {
+        let unique_total = self
+            .reserved
+            .len()
+            .checked_add(additional_unique)
+            .ok_or(BrokerError::ConversionLimit)?;
+        if unique_total > self.budget.unique_remote_resources {
+            return Err(BrokerError::ConversionLimit);
+        }
+        Ok(())
+    }
+
+    fn reserve(&mut self, resources: &[RemoteResource]) -> Result<(), BrokerError> {
+        self.check_reservation(resources)?;
+        self.reserved.extend_from_slice(resources);
+        Ok(())
+    }
+
+    pub(crate) fn preflight_rule_set_plan(
+        &self,
+        resources: &[RemoteResource],
+    ) -> Result<(), BrokerError> {
+        self.check_reservation(resources)?;
+        let minimum_attempts = self
+            .attempts
+            .load(Ordering::Relaxed)
+            .checked_add(resources.len())
+            .ok_or(BrokerError::Failure)?;
+        if minimum_attempts > self.budget.session_attempts {
+            return Err(BrokerError::Failure);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn account_decoded(
+        &mut self,
+        resource: &RemoteResource,
+        decoded_bytes: usize,
+    ) -> Result<(), BrokerError> {
+        if self
+            .accounted
+            .iter()
+            .any(|candidate| candidate.same_identity(resource))
+        {
+            return Ok(());
+        }
+        self.decoded_bytes = self
+            .decoded_bytes
+            .checked_add(decoded_bytes)
+            .filter(|total| *total <= self.budget.total_decoded_bytes)
+            .ok_or(BrokerError::ConversionLimit)?;
+        self.accounted.push(resource.clone());
+        Ok(())
+    }
+
+    pub(crate) fn decoded_byte_count(&self) -> usize {
+        self.decoded_bytes
+    }
+
+    /// Concurrent Unique-flight cap from Session budget.
+    #[must_use]
+    pub(crate) const fn active_resource_limit(&self) -> usize {
+        self.budget.active_resources
+    }
+
+    /// Decoded-byte cap from Session budget.
+    #[must_use]
+    pub(crate) const fn decoded_byte_cap(&self) -> usize {
+        self.budget.total_decoded_bytes
+    }
+
+    pub(crate) async fn load_batch(
+        &mut self,
+        resources: &[RemoteResource],
+    ) -> Result<RemoteLoadBatch, BrokerError> {
+        self.reserve(resources)?;
+        Ok(self.load_remote_resources(resources).await)
+    }
+}

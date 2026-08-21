@@ -13,7 +13,7 @@ use crate::{
     },
     render::{
         AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex,
-        hysteria2_official_ports, map_compiled_rules, policy_member_token,
+        hysteria2_official_ports, keep_named, map_compiled_rules, policy_member_token,
         reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_fingerprint,
         render_host_plain, serialize_bounded, shadowsocks_method, shadowsocks_password,
     },
@@ -78,14 +78,21 @@ pub(crate) fn render_mihomo_from_policy_v1(
 }
 
 fn encode_node(node: &ProxyNode) -> Result<MihomoProxy<'_>, NodeKeep> {
-    let name = node.name().as_str();
+    keep_named(mihomo_node_tag(node.name().as_str()), |_| {
+        Some(MihomoProxy::from(node))
+    })
+    .map(|(_, proxy)| proxy)
+}
+
+fn mihomo_node_tag(name: &str) -> Option<&str> {
     if name.is_empty()
         || name.chars().any(|character| character.is_ascii_control())
         || MIHOMO_RESERVED_NODE_TAGS.contains(&name)
     {
-        return Err(NodeKeep::Name);
+        None
+    } else {
+        Some(name)
     }
-    Ok(MihomoProxy::from(node))
 }
 
 fn mihomo_symbol(member: &PolicyMemberV1) -> &str {

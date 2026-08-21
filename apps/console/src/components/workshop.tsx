@@ -79,33 +79,27 @@ import {
 } from "@/lib/i18n.ts"
 import type { Locale, PersistedWorkshop, Theme } from "@/lib/persist.ts"
 import {
-  runPreview,
-  runVersionProbe,
-  type PreviewState,
-} from "@/lib/preview.ts"
-import {
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
-  MAX_SOURCES,
-  TARGETS,
-  accessTokenFieldValid,
   acl4ssrConfigLabel,
   acl4ssrConfigUrl,
-  applyPaste,
-  assembleSubscription,
-  canPreview,
-  clashInstallUrl,
-  configFieldValid,
   configPresetOf,
   configSelectionId,
-  isTarget,
-  originFieldValid,
+  type Acl4ssrConfigFile,
+} from "@/lib/acl4ssr-catalog.ts"
+import { MAX_SOURCES, TARGETS, isTarget } from "@/lib/service-contract.ts"
+import {
+  applyPaste,
+  clashInstallUrl,
+  evaluateWorkshop,
   parseServiceOrigin,
   parseSubscriptionUrl,
-  showsClashInstall,
-  sourceFieldInvalid,
-  type Acl4ssrConfigFile,
+  previewMediaType,
+  runPreview,
+  runVersionProbe,
+  type PreviewState,
+  type VersionProbe,
 } from "@/lib/workshop.ts"
 
 type ConfigChoice = {
@@ -127,16 +121,15 @@ type WorkshopProps = {
 type VersionState =
   | { status: "idle" }
   | { status: "checking" }
-  | { status: "ok"; body: string }
-  | { status: "other" }
-  | { status: "unreachable" }
+  | VersionProbe
 
 export function Workshop({ state, onChange, banner }: WorkshopProps) {
   const copy = t(state.locale)
-  const assembled = assembleSubscription(state)
-  const originValid = originFieldValid(state.serviceOrigin)
-  const tokenValid = accessTokenFieldValid(state.accessToken)
-  const configValid = configFieldValid(state.configUrl)
+  const view = evaluateWorkshop(state)
+  const assembled = view.assembled
+  const originValid = !view.originInvalid
+  const tokenValid = !view.tokenInvalid
+  const configValid = !view.configInvalid
   const canonicalOrigin = parseServiceOrigin(state.serviceOrigin)
   const preset = configPresetOf(state.configUrl)
   const [revealToken, setRevealToken] = React.useState(false)
@@ -222,13 +215,13 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
   }
 
   const onPreview = async () => {
-    if (!canPreview(assembled)) {
+    if (assembled.url === null || !assembled.previewable) {
       return
     }
     setPreview({ status: "loading" })
     setPreview(
       await runPreview({
-        assembled,
+        url: assembled.url,
         target: state.target,
         pageHttps: window.location.protocol === "https:",
       })
@@ -239,7 +232,9 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
     if (preview.status !== "done" || preview.httpStatus !== 200) {
       return
     }
-    const blob = new Blob([preview.body], { type: "text/plain;charset=utf-8" })
+    const blob = new Blob([preview.body], {
+      type: previewMediaType(state.target),
+    })
     const objectUrl = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = objectUrl
@@ -248,8 +243,8 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
     URL.revokeObjectURL(objectUrl)
   }
 
-  const previewEnabled = canPreview(assembled)
-  const showClash = showsClashInstall(assembled, state.target)
+  const previewEnabled = assembled.previewable
+  const showClash = assembled.clashInstall
 
   return (
     <div className="console-shell relative isolate">
@@ -366,7 +361,7 @@ export function Workshop({ state, onChange, banner }: WorkshopProps) {
             >
               <FieldGroup>
                 {state.sources.map((source, index) => {
-                  const invalid = sourceFieldInvalid(source)
+                  const invalid = view.sourceInvalid[index] === true
                   return (
                     <Field key={index} data-invalid={invalid || undefined}>
                       <FieldLabel

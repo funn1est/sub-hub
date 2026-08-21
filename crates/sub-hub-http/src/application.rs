@@ -1,25 +1,21 @@
 use std::fmt;
 
 use http::Method;
-use sub_hub_conversion::{
-    ConversionRenderError, OutputTarget, RenderedConfig, SubscriptionPreparationError,
-    UniqueFlightsV1,
-};
+use sub_hub_conversion::{OutputTarget, RenderedConfig};
 use url::Url;
 
 use crate::{
-    AccessTokens, CorsOrigins, HttpRequest, HttpResponse, MAX_SUBSCRIPTION_INPUT_BYTES,
-    RemoteAdapter, ResourceKind, SelfHosts,
-    broker::{BrokerSession, RemoteLoadBatch, RemoteResource},
+    AccessTokens, CorsOrigins, HttpRequest, HttpResponse, RemoteAdapter, SelfHosts,
+    broker::BrokerSession,
+    inbound_host::is_valid_inbound_host,
     query,
-    remote_url::{accept_outbound_url, is_valid_inbound_host},
+    remote_url::accept_outbound_url,
     request::{RequestPath, classify_path, handle_version, request_target_too_long},
     response::{
         ApplicationError, attach_conversion_headers, error_response, subscription_response_for,
     },
-    userinfo::{
-        SubscriptionUserInfoV1, insert_subscription_user_info, parse_subscription_user_info,
-    },
+    unique_fill::fill_conversion,
+    userinfo::{SubscriptionUserInfoV1, insert_subscription_user_info},
 };
 
 pub struct Application<A> {
@@ -55,12 +51,9 @@ impl<A: RemoteAdapter> Application<A> {
     }
 
     pub async fn handle(&self, request: HttpRequest<'_>) -> HttpResponse {
-        let suppress_body = request.method == Method::HEAD;
+        let method = request.method.clone();
         let origin = request.origin;
-        let mut response = self.handle_with_body(request).await;
-        if suppress_body {
-            response.body.clear();
-        }
+        let mut response = self.handle_with_body(request).await.with_method(&method);
         self.cors_origins.apply(&mut response, origin);
         response
     }
@@ -140,21 +133,12 @@ impl<A: RemoteAdapter> Application<A> {
                 occurrence_urls.push(None);
             }
         }
-        let flights = UniqueFlightsV1::bind_optional(
-            occurrence_urls
-                .iter()
-                .map(|url| url.as_ref().map(Url::as_str)),
-        );
-        let unique_urls = flights
-            .unique_values(&occurrence_urls)
-            .ok_or(ApplicationError::Internal)?;
 
         Ok(SubRequestPlan {
             parsed,
             inbound_host,
             config_url,
-            flights,
-            unique_urls,
+            occurrence_urls,
         })
     }
 
@@ -162,101 +146,27 @@ impl<A: RemoteAdapter> Application<A> {
         &self,
         plan: SubRequestPlan,
     ) -> Result<HttpResponse, ApplicationError> {
-        let (prepared, broker, eligible_metadata) = self.load_prepared_subscription(&plan).await?;
-        let SubRequestPlan {
-            config_url,
-            inbound_host,
-            ..
-        } = plan;
-        let target = plan.parsed.target;
-        let Some(config_url) = config_url else {
-            return match prepared.render_builtin_v1(target) {
-                Ok(config) => Ok(finish_subscription(target, config, eligible_metadata)),
-                Err(error) => Err(map_direct_render_error(error)),
-            };
-        };
-        self.render_acl4ssr(
-            prepared,
-            broker,
-            config_url,
-            &inbound_host,
-            eligible_metadata,
-            target,
-        )
-        .await
-    }
-
-    async fn load_prepared_subscription(
-        &self,
-        plan: &SubRequestPlan,
-    ) -> Result<
-        (
-            sub_hub_conversion::PreparedSubscriptionV1,
-            BrokerSession<'_, A>,
-            Option<SubscriptionUserInfoV1>,
-        ),
-        ApplicationError,
-    > {
         let SubRequestPlan {
             parsed,
             inbound_host,
-            unique_urls,
-            flights,
-            ..
+            config_url,
+            occurrence_urls,
         } = plan;
-        let subscription_resources = unique_urls
-            .iter()
-            .cloned()
-            .map(|url| RemoteResource {
-                kind: ResourceKind::Subscription,
-                url,
-                max_body_bytes: MAX_SUBSCRIPTION_INPUT_BYTES,
-                capture_subscription_user_info: parsed.append_info,
-            })
-            .collect::<Vec<_>>();
-        let mut broker = BrokerSession::new(&self.adapter, &self.self_hosts, inbound_host);
-        let loaded_responses = match broker.load_batch(&subscription_resources).await {
-            Ok(RemoteLoadBatch::Complete(responses)) => responses,
-            Err(error) => return Err(error),
-            Ok(RemoteLoadBatch::Failed {
-                loaded,
-                failed_unique_index,
-                error,
-            }) => {
-                let earlier_error = match preparation_error_before_remote_failure(
-                    &parsed.sources,
-                    flights,
-                    &loaded,
-                    failed_unique_index,
-                ) {
-                    Ok(error) => error,
-                    Err(error) => return Err(error),
-                };
-                return Err(earlier_error.unwrap_or(error));
-            }
-        };
-        let mut loaded = Vec::with_capacity(unique_urls.len());
-        let mut loaded_metadata = Vec::with_capacity(unique_urls.len());
-        for response in loaded_responses {
-            loaded_metadata.push(if parsed.append_info {
-                parse_subscription_user_info(response.subscription_user_info)
-            } else {
-                None
-            });
-            loaded.push(response.body);
-        }
-        let prepared = flights
-            .prepare_subscription(&parsed.sources, &loaded)
-            .ok_or(ApplicationError::Internal)?
-            .map_err(map_subscription_error)?;
-        account_decoded_sources(&mut broker, &prepared, flights, &subscription_resources)?;
-        let eligible_metadata =
-            if parsed.append_info && parsed.sources.len() == 1 && unique_urls.len() == 1 {
-                loaded_metadata.into_iter().next().flatten()
-            } else {
-                None
-            };
-        Ok((prepared, broker, eligible_metadata))
+        let mut broker = BrokerSession::new(&self.adapter, &self.self_hosts, &inbound_host);
+        let filled = fill_conversion(
+            &mut broker,
+            &parsed.sources,
+            &occurrence_urls,
+            parsed.append_info,
+            config_url,
+            parsed.target,
+        )
+        .await?;
+        Ok(finish_subscription(
+            parsed.target,
+            filled.document,
+            filled.eligible_metadata,
+        ))
     }
 }
 
@@ -276,8 +186,7 @@ struct SubRequestPlan {
     parsed: query::SubQuery,
     inbound_host: String,
     config_url: Option<Url>,
-    flights: UniqueFlightsV1,
-    unique_urls: Vec<Url>,
+    occurrence_urls: Vec<Option<Url>>,
 }
 
 pub(crate) fn finish_subscription(
@@ -291,57 +200,4 @@ pub(crate) fn finish_subscription(
     insert_subscription_user_info(&mut response, metadata);
     attach_conversion_headers(&mut response, skips, omitted_url_regex);
     response
-}
-
-const fn map_direct_render_error(error: ConversionRenderError) -> ApplicationError {
-    match error {
-        ConversionRenderError::ConversionLimit => ApplicationError::ConversionLimit,
-        ConversionRenderError::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
-        ConversionRenderError::Internal => ApplicationError::Internal,
-    }
-}
-
-const fn map_subscription_error(error: SubscriptionPreparationError) -> ApplicationError {
-    match error {
-        SubscriptionPreparationError::InvalidInput => ApplicationError::InvalidRequest,
-        SubscriptionPreparationError::RemoteFailure { .. } => ApplicationError::RemoteFailure,
-        SubscriptionPreparationError::ConversionLimit => ApplicationError::ConversionLimit,
-        SubscriptionPreparationError::NoValidNodes { skips } => {
-            ApplicationError::NoValidNodes { skips }
-        }
-    }
-}
-
-fn account_decoded_sources(
-    broker: &mut BrokerSession<'_, impl RemoteAdapter>,
-    prepared: &sub_hub_conversion::PreparedSubscriptionV1,
-    flights: &UniqueFlightsV1,
-    subscription_resources: &[RemoteResource],
-) -> Result<(), ApplicationError> {
-    let accounts = flights
-        .unique_decoded_accounts(prepared)
-        .ok_or(ApplicationError::Internal)?;
-    for (unique_index, decoded) in accounts {
-        let Some(resource) = subscription_resources.get(unique_index) else {
-            return Err(ApplicationError::Internal);
-        };
-        broker.account_decoded(resource, decoded)?;
-    }
-    Ok(())
-}
-
-fn preparation_error_before_remote_failure(
-    sources: &[String],
-    flights: &UniqueFlightsV1,
-    loaded: &[Option<crate::RemoteResponse>],
-    failed_unique_index: usize,
-) -> Result<Option<ApplicationError>, ApplicationError> {
-    let loaded_bodies = loaded
-        .iter()
-        .map(|response| response.as_ref().map(|response| response.body.as_slice()))
-        .collect::<Vec<_>>();
-    let prefix = flights
-        .prefix_error_before_unique_failure(sources, &loaded_bodies, failed_unique_index)
-        .ok_or(ApplicationError::Internal)?;
-    Ok(prefix.map(map_subscription_error))
 }

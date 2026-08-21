@@ -1,16 +1,14 @@
 use uuid::Uuid;
 
 use crate::node::{
-    NodeProtocol, ProxyNodeDraft,
-    tuic::{TuicCongestion, TuicId, TuicNode, TuicPassword, TuicUdpRelay},
+    InvalidNodeReason, NodeProtocol, NodeRejection, ProxyNodeDraft, UnsupportedCapability, percent,
+    uri::{parse_authority_uri, parse_endpoint, scan_query},
+    vless::share as vless,
 };
 
-use super::{
-    InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_authority_uri, parse_endpoint,
-    percent, scan_query, vless,
-};
+use super::{TuicCongestion, TuicId, TuicNode, TuicPassword, TuicUdpRelay};
 
-pub(super) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
+pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
     let uri = parse_authority_uri(input)?;
     let (id, password) = parse_userinfo(uri.userinfo)?;
     let endpoint = parse_endpoint(uri.authority)?;

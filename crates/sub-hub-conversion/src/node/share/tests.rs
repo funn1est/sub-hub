@@ -1,4 +1,5 @@
-use super::{InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_share_uri};
+use super::parse_share_uri;
+use crate::node::{InvalidNodeReason, NodeRejection, UnsupportedCapability};
 
 mod dispatch;
 mod hysteria2;

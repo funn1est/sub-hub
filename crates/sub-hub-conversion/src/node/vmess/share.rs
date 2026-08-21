@@ -6,19 +6,20 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::node::{
-    NodeNameInput, NodeProtocol, ProxyNodeDraft,
-    vless::{ClientFingerprint, GrpcMode, VlessTransport},
-    vmess::{VmessCipher, VmessId, VmessNode, VmessSecurity},
-};
-
-use super::{
-    InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_endpoint,
+    InvalidNodeReason, NodeNameInput, NodeProtocol, NodeRejection, ProxyNodeDraft,
+    UnsupportedCapability,
+    uri::parse_endpoint,
     vless::{
-        build_tls_options, is_canonical_uuid, parse_alpn, parse_fingerprint, require_nonempty,
+        ClientFingerprint, GrpcMode, VlessTransport,
+        share::{
+            build_tls_options, is_canonical_uuid, parse_alpn, parse_fingerprint, require_nonempty,
+        },
     },
 };
 
-pub(super) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
+use super::{VmessCipher, VmessId, VmessNode, VmessSecurity};
+
+pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
     if input.contains('@') || input.contains('#') || input.contains('?') {
         return Err(NodeRejection::Invalid(InvalidNodeReason::Uri));
     }

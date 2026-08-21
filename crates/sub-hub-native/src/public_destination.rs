@@ -1,13 +1,14 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-/// Returns whether `address` is a globally reachable unicast destination.
+/// Native host adapter: whether `address` is a globally reachable unicast destination.
 ///
+/// Outbound accept is lexical HTTPS in `sub-hub-http`. This check runs after DNS.
 /// The special-purpose decisions are pinned to the IANA IPv4 and IPv6
 /// registries last updated on 2025-10-09. Entries whose `Globally Reachable`
 /// value is false, unavailable, or withdrawn are rejected. More-specific
 /// globally reachable entries remain allowed.
 #[must_use]
-pub fn is_globally_reachable(address: IpAddr) -> bool {
+pub(crate) fn is_globally_reachable(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(address) => is_globally_reachable_v4(address),
         IpAddr::V6(address) => is_globally_reachable_v6(address),

@@ -291,8 +291,14 @@ fn render_acl4ssr_profile(root: &Path, config_path: &str) -> Vec<u8> {
     let urls: Vec<String> = (0..prepared.rule_set_requests().len())
         .map(|index| format!("https://rules.example/flight/{index}"))
         .collect();
-    prepared
-        .bind_canonical_urls_v1(&urls)
+    let mut binder = prepared.rule_set_binder();
+    for url in &urls {
+        binder
+            .push_canonical(url)
+            .expect("fixed corpus flight plan is bounded and dense");
+    }
+    binder
+        .finish()
         .expect("fixed corpus flight plan is bounded and dense")
         .render_v1(OutputTarget::Mihomo, &body_refs)
         .expect("fixed corpus must render through the strict conversion seam")

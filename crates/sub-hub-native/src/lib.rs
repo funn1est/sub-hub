@@ -14,16 +14,19 @@ use std::{
     time::Instant,
 };
 use sub_hub_http::{
-    AccessTokens, Application, CorsOrigins, HttpRequest, HttpResponse, HttpsHopHeaders,
-    RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
-    canonicalize_inbound_host, interpret_https_headers, is_globally_reachable, request_origin,
+    AccessTokens, Application, CorsOrigins, HttpRequest, HttpResponse, HttpsHopOutcome,
+    OUTBOUND_ACCEPT, OUTBOUND_ACCEPT_ENCODING, OUTBOUND_CACHE_CONTROL, RemoteAdapter,
+    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, begin_https_hop_lookup,
+    canonicalize_inbound_host, request_origin,
 };
-use url::{Host, Url};
+use url::Url;
 
 mod console;
+mod public_destination;
+
+use public_destination::is_globally_reachable;
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:25500";
-const SUBSCRIPTION_USER_INFO: &str = "subscription-userinfo";
 
 #[derive(Clone)]
 pub struct NativeConfig {
@@ -299,13 +302,7 @@ async fn fetch_under_deadline(
     attempt: RemoteAttempt,
 ) -> Result<RemoteResponse, RemoteFetchError> {
     let url = Url::parse(attempt.url()).map_err(|_| RemoteFetchError::Failure)?;
-    if url.scheme() != "https" {
-        return Err(RemoteFetchError::Failure);
-    }
     let host = url.host_str().ok_or(RemoteFetchError::Failure)?.to_owned();
-    if !matches!(url.host(), Some(Host::Domain(_))) {
-        return Err(RemoteFetchError::Failure);
-    }
     let port = url
         .port_or_known_default()
         .ok_or(RemoteFetchError::Failure)?;
@@ -319,6 +316,8 @@ async fn fetch_under_deadline(
             addresses.push(address);
         }
     }
+    // Native adapter step (ADR-0022): IANA globally-reachable check after DNS.
+    // Lexical outbound accept already ran; Worker does not resolve addresses here.
     if addresses.is_empty()
         || addresses
             .iter()
@@ -330,47 +329,39 @@ async fn fetch_under_deadline(
     let client = pinned_client(&host, &addresses)?;
     let mut response = client
         .get(url)
-        .header(header::ACCEPT, "*/*")
-        .header(header::ACCEPT_ENCODING, "identity")
-        .header(header::CACHE_CONTROL, "no-store")
+        .header(header::ACCEPT, OUTBOUND_ACCEPT)
+        .header(header::ACCEPT_ENCODING, OUTBOUND_ACCEPT_ENCODING)
+        .header(header::CACHE_CONTROL, OUTBOUND_CACHE_CONTROL)
         .send()
         .await
         .map_err(|_| RemoteFetchError::Failure)?;
 
     let status = response.status();
-    let headers = interpret_https_headers(
+    let pending = match begin_https_hop_lookup(
         status,
-        response.headers().get_all(header::LOCATION),
-        response.headers().get_all(header::CONTENT_ENCODING),
-        response.headers().get_all(header::CONTENT_LENGTH),
-        response.headers().get_all(SUBSCRIPTION_USER_INFO),
+        |name| Ok(response.headers().get_all(name)),
         attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
-    )
-    .map_err(|_| RemoteFetchError::Failure)?;
-    match headers {
-        HttpsHopHeaders::Redirect { .. } | HttpsHopHeaders::Unsuccessful => {
-            Ok(RemoteResponse::from_hop(status, headers, Vec::new()))
+    )? {
+        HttpsHopOutcome::Complete(complete) => return Ok(complete),
+        HttpsHopOutcome::ReadBody(pending) => pending,
+    };
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| RemoteFetchError::Failure)?
+    {
+        let new_length = body
+            .len()
+            .checked_add(chunk.len())
+            .ok_or(RemoteFetchError::Failure)?;
+        if new_length > pending.max_body_bytes() {
+            return Err(RemoteFetchError::Failure);
         }
-        HttpsHopHeaders::Success { .. } => {
-            let mut body = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|_| RemoteFetchError::Failure)?
-            {
-                let new_length = body
-                    .len()
-                    .checked_add(chunk.len())
-                    .ok_or(RemoteFetchError::Failure)?;
-                if new_length > attempt.max_body_bytes() {
-                    return Err(RemoteFetchError::Failure);
-                }
-                body.extend_from_slice(&chunk);
-            }
-            Ok(RemoteResponse::from_hop(status, headers, body))
-        }
+        body.extend_from_slice(&chunk);
     }
+    pending.finish(body)
 }
 
 fn pinned_client(
@@ -454,11 +445,10 @@ async fn handle_request(
     State(state): State<Arc<NativeState>>,
     request: Request<Body>,
 ) -> Response<Body> {
-    let suppress_body = request.method() == http::Method::HEAD;
-    let Some(inbound_host) = one_host_header(request.headers()) else {
-        return invalid_request_response(suppress_body);
-    };
     let method = request.method().clone();
+    let Some(inbound_host) = one_host_header(request.headers()) else {
+        return into_axum_response(HttpResponse::invalid_request().with_method(&method));
+    };
     let path = request.uri().path().to_owned();
     let raw_query = request.uri().query().map(str::to_owned);
     let origin = request_origin(request.headers());
@@ -503,14 +493,6 @@ fn normalize_authority_host(raw: &str) -> Option<String> {
     }
 
     canonicalize_inbound_host(raw_host)
-}
-
-fn invalid_request_response(suppress_body: bool) -> Response<Body> {
-    let mut response = HttpResponse::invalid_request();
-    if suppress_body {
-        response.suppress_body();
-    }
-    into_axum_response(response)
 }
 
 fn into_axum_response(response: HttpResponse) -> Response<Body> {

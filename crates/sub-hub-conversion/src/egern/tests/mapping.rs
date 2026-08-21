@@ -1,12 +1,7 @@
-use super::accepted_nodes;
-use crate::egern::render_egern_from_policy_v1;
-use crate::node_name::resolve_node_names;
-use crate::policy::{
-    CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1,
-    PolicyReportV1, RuleMatcherV1, compile_builtin_policy_v1,
-};
-use crate::render::{AdapterRenderError, MAX_OUTPUT_BYTES, render_builtin_egern_v1};
-use crate::subscription_source::parse_subscription_sources;
+use crate::OutputTarget;
+use crate::SubscriptionSourceV1;
+use crate::direct_subscription::{render_acl4ssr_target, render_remote_builtin};
+use crate::prepare_subscription_v1;
 
 #[test]
 fn vmess_tcp_tls_is_exact_and_cleartext_grpc_is_skipped() {
@@ -22,16 +17,16 @@ fn vmess_tcp_tls_is_exact_and_cleartext_grpc_is_skipped() {
         )),
     ]
     .join("\n");
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_egern_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Egern, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("name: TcpTls"));
     assert!(text.contains("user_id: 01234567-89ab-cdef-0123-456789abcdef"));
     assert!(text.contains("security: auto"));
     assert!(text.contains("legacy: false"));
     assert!(text.contains("skip_tls_verify: false"));
     assert!(!text.contains("name: Grpc"));
-    assert_eq!(output.diagnostics().capability_skips(), 1);
+    assert_eq!(output.skip_counts().capability, 1);
 }
 
 #[test]
@@ -41,9 +36,9 @@ fn trojan_tcp_tls_is_exact_and_grpc_is_skipped() {
         "trojan://password@example.com:443?type=ws&path=%2Fws&host=cdn.example&security=reality&sni=edge.example&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#WsReality\n",
         "trojan://password@example.com:443?type=grpc&serviceName=svc#Grpc\n",
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_egern_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Egern, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains(concat!(
         "- trojan:\n",
         "    name: TcpTls\n",
@@ -63,7 +58,7 @@ fn trojan_tcp_tls_is_exact_and_grpc_is_skipped() {
     assert!(text.contains("public_key:"));
     assert!(!text.contains("name: Grpc"));
     assert!(!text.contains("fingerprint"));
-    assert_eq!(output.diagnostics().capability_skips(), 1);
+    assert_eq!(output.skip_counts().capability, 1);
 }
 
 #[test]
@@ -78,9 +73,9 @@ fn hysteria2_salamander_hop_and_pin_are_exact_gecko_is_skipped() {
         ),
         PIN = PIN
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_egern_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Egern, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains(concat!(
         "- hysteria2:\n",
         "    name: Plain\n",
@@ -99,7 +94,7 @@ fn hysteria2_salamander_hop_and_pin_are_exact_gecko_is_skipped() {
     assert!(text.contains("fingerprint_sha256:"));
     assert!(text.contains(PIN));
     assert!(!text.contains("name: Gecko"));
-    assert_eq!(output.diagnostics().capability_skips(), 1);
+    assert_eq!(output.skip_counts().capability, 1);
 }
 
 #[test]
@@ -113,9 +108,9 @@ fn tuic_defaults_and_quic_are_exact_and_bbr_is_skipped() {
         ),
         UUID = UUID
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_egern_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Egern, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains(concat!(
         "- tuic:\n",
         "    name: Plain\n",
@@ -129,7 +124,7 @@ fn tuic_defaults_and_quic_are_exact_and_bbr_is_skipped() {
     assert!(text.contains("name: Quic"));
     assert!(text.contains("udp_relay_mode: quic"));
     assert!(!text.contains("name: Bbr"));
-    assert_eq!(output.diagnostics().capability_skips(), 1);
+    assert_eq!(output.skip_counts().capability, 1);
 }
 
 #[test]
@@ -139,9 +134,9 @@ fn websocket_reality_is_skipped_and_grpc_vision_are_kept() {
         "vless://00000000-0000-4000-8000-000000000004@vision.example:443?security=tls&flow=xtls-rprx-vision#Vision\n",
         "vless://00000000-0000-4000-8000-000000000005@ws.example:443?type=ws&path=%2Fws&security=reality&sni=edge.example&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8#WsReality\n",
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_egern_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Egern, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("name: Grpc"));
     assert!(text.contains("name: Vision"));
     assert!(text.contains("flow: xtls-rprx-vision"));
@@ -152,56 +147,28 @@ fn websocket_reality_is_skipped_and_grpc_vision_are_kept() {
     assert!(!text.contains("fingerprint"));
     // WebSocket+Reality is already rejected by the share-URI parser, so it
     // surfaces as an upstream rejection, not an adapter capability skip.
-    assert_eq!(output.diagnostics().rejections().len(), 1);
-    assert_eq!(output.diagnostics().capability_skips(), 0);
+    assert_eq!(output.skip_counts().parse as usize, 1);
+    assert_eq!(output.skip_counts().capability, 0);
 }
 
 #[test]
 fn process_name_is_omitted_and_load_balance_uses_hash() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-    ])
-    .expect("valid");
-    let named = resolve_node_names(parsed, &["Hash"]).expect("names");
-    let nodes = accepted_nodes(&named);
-    let policy = CompiledPolicyV1::new(
-        vec![CompiledGroupV1::new(
-            "Hash".to_owned(),
-            GroupStrategyV1::LoadBalance {
-                url: String::new(),
-                interval: 30,
-            },
-            vec![PolicyMemberV1::Node("Alpha".to_owned())],
-        )],
-        vec![
-            CompiledRuleV1::new(
-                RuleMatcherV1::ProcessName("Telegram.exe".to_owned()),
-                PolicyMemberV1::Direct,
-            ),
-            CompiledRuleV1::new(
-                RuleMatcherV1::UrlRegex("example\\.com/path".to_owned()),
-                PolicyMemberV1::Direct,
-            ),
-            CompiledRuleV1::new(
-                RuleMatcherV1::IpCidr {
-                    value: "10.0.0.0/8".to_owned(),
-                    version: IpVersion::V4,
-                    no_resolve: true,
-                },
-                PolicyMemberV1::Direct,
-            ),
-            CompiledRuleV1::new(RuleMatcherV1::Match, PolicyMemberV1::Direct),
-        ],
-        PolicyReportV1::default(),
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "overwrite_original_rules=true\n",
+        "custom_proxy_group=Hash`load-balance`.*`https://www.gstatic.com/generate_204`30\n",
+        "ruleset=DIRECT,https://rules.example/rules.list\n",
+        "ruleset=DIRECT,[]FINAL\n",
     );
-    let omitted = policy
-        .rules()
-        .iter()
-        .filter(|rule| matches!(rule.matcher(), RuleMatcherV1::ProcessName(_)))
-        .count();
-    assert_eq!(omitted, 1);
-    let output = render_egern_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
-    let text = std::str::from_utf8(&output.bytes).expect("utf8");
+    let output = render_acl4ssr_target(
+        OutputTarget::Egern,
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha",
+        config.as_bytes(),
+        &[b"PROCESS-NAME,Telegram.exe\nURL-REGEX,example.com/path\nIP-CIDR,10.0.0.0/8,no-resolve\n"],
+    )
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("load_balance:"));
     assert!(text.contains("algorithm: hash"));
     assert!(text.contains("ip_cidr:"));
@@ -210,15 +177,15 @@ fn process_name_is_omitted_and_load_balance_uses_hash() {
     assert!(!text.contains("Telegram"));
     assert!(!text.contains("process"));
     assert!(!text.contains("URL-REGEX"));
-    assert!(!text.contains("example\\.com/path"));
+    assert!(!text.contains("example.com/path"));
 }
 
 #[test]
 fn shadowsocks_projects_classic_password() {
     let source = "ss://aes-128-gcm:p%40ss%3Aword@example.com:8388#Classic\n";
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_egern_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Egern, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains(concat!(
         "- shadowsocks:\n",
         "    name: Classic\n",
@@ -233,39 +200,42 @@ fn shadowsocks_projects_classic_password() {
 
 #[test]
 fn reserved_node_tags_are_skipped() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#reject\nvless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Alpha"[..],
+    let output = prepare_subscription_v1(&[
+        SubscriptionSourceV1::Direct(
+            "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#reject",
+        ),
+        SubscriptionSourceV1::Direct(
+            "vless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Alpha",
+        ),
     ])
-    .expect("valid");
-    let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
-    let nodes = accepted_nodes(&named);
-    assert_eq!(nodes.len(), 2);
-    let policy = compile_builtin_policy_v1(&nodes);
-    let output = render_egern_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
-    let text = std::str::from_utf8(&output.bytes).expect("utf8");
+    .expect("valid")
+    .render_builtin_v1(OutputTarget::Egern)
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("name: Alpha"));
     assert!(!text.contains("name: reject"));
     assert!(!text.contains("example.com"));
+    assert_eq!(output.skip_counts().name, 1);
 }
 
 #[test]
 fn group_named_direct_is_internal() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-    ])
-    .expect("valid");
-    let named = resolve_node_names(parsed, &["direct"]).expect("names");
-    let nodes = accepted_nodes(&named);
-    let policy = CompiledPolicyV1::new(
-        vec![CompiledGroupV1::new(
-            "direct".to_owned(),
-            GroupStrategyV1::Select,
-            vec![PolicyMemberV1::Node("Alpha".to_owned())],
-        )],
-        vec![],
-        PolicyReportV1::default(),
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "overwrite_original_rules=true\n",
+        "custom_proxy_group=direct`select`.*\n",
+        "ruleset=direct,[]FINAL\n",
     );
-    let error =
-        render_egern_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect_err("reserved group");
-    assert!(matches!(error, AdapterRenderError::Internal));
+    let error = render_acl4ssr_target(
+        OutputTarget::Egern,
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha",
+        config.as_bytes(),
+        &[],
+    )
+    .expect_err("reserved group");
+    assert_eq!(
+        error.keep_pass(),
+        Ok(crate::ConversionRenderError::Internal)
+    );
 }

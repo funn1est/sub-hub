@@ -1,5 +1,5 @@
 use super::{NodeOccurrence, parse_subscription_sources};
-use crate::share_uri::{InvalidNodeReason, NodeRejection};
+use crate::node::{InvalidNodeReason, NodeRejection};
 
 #[test]
 fn canonical_standard_and_url_safe_base64_containers_are_supported_with_or_without_padding() {

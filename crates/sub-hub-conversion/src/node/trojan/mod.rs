@@ -2,6 +2,9 @@ use std::fmt;
 
 use super::vless::{RealityOptions, TlsOptions, VlessTransport};
 
+mod share;
+pub(crate) use share::parse;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TrojanNode {
     password: TrojanPassword,

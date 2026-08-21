@@ -1,23 +1,21 @@
 use crate::node::{
-    Endpoint, NodeProtocol, ProxyNodeDraft,
-    trojan::{TrojanNode, TrojanPassword, TrojanSecurity},
+    Endpoint, InvalidNodeReason, NodeProtocol, NodeRejection, ProxyNodeDraft,
+    UnsupportedCapability, percent,
+    uri::{QueryPair, parse_authority_uri, parse_endpoint, scan_query},
     vless::{
         ClientFingerprint, GrpcMode, RealityOptions, RealityPublicKey, RealityShortId,
         VlessSecurityKind, VlessTransport, VlessTransportKind,
+        share::{
+            build_tls_options, nonempty_owned, parameter_value, parse_alpn, parse_fingerprint,
+            parse_grpc_mode, parse_public_key, parse_short_id, parse_transport_kind,
+            require_compatible, require_nonempty,
+        },
     },
 };
 
-use super::{
-    InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_authority_uri, parse_endpoint,
-    percent, scan_query,
-    vless::{
-        build_tls_options, nonempty_owned, parameter_value, parse_alpn, parse_fingerprint,
-        parse_grpc_mode, parse_public_key, parse_short_id, parse_transport_kind,
-        require_compatible, require_nonempty,
-    },
-};
+use super::{TrojanNode, TrojanPassword, TrojanSecurity};
 
-pub(super) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
+pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
     let uri = parse_authority_uri(input)?;
     let password = parse_password(uri.userinfo)?;
     let endpoint = parse_endpoint(uri.authority)?;
@@ -85,7 +83,7 @@ struct ParameterContext {
 }
 
 impl ParameterContext {
-    fn from_pairs(pairs: &[super::QueryPair<'_>]) -> Self {
+    fn from_pairs(pairs: &[QueryPair<'_>]) -> Self {
         let transport = parameter_value(pairs, "type")
             .map_or(Ok(VlessTransportKind::Tcp), parse_transport_kind);
         let security = parameter_value(pairs, "security")

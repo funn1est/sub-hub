@@ -1,3 +1,6 @@
+//! Outbound accept: lexical HTTPS destination policy for occurrence URLs and
+//! every followed redirect. Native DNS + IANA reachability stays a host adapter.
+
 use url::{Host, Url};
 
 use crate::{MAX_GET_TARGET_BYTES, SelfHosts, self_hosts::is_canonical_dns_name};
@@ -77,6 +80,72 @@ fn is_lexically_forbidden_host(host: &str) -> bool {
         .any(|suffix| host == *suffix || host.ends_with(&format!(".{suffix}")))
 }
 
-pub(crate) fn is_valid_inbound_host(host: &str) -> bool {
-    is_canonical_dns_name(host) || host.parse::<std::net::IpAddr>().is_ok()
+#[cfg(test)]
+mod tests {
+    use super::accept_outbound_url;
+    use crate::SelfHosts;
+
+    fn hosts() -> SelfHosts {
+        SelfHosts::new(["service.example"]).expect("valid self hostname")
+    }
+
+    fn accept(input: &str) -> Result<String, ()> {
+        accept_outbound_url(input, &hosts(), "inbound.example", |_| true)
+            .map(|url| url.as_str().to_owned())
+    }
+
+    #[test]
+    fn https_canonical_url_is_accepted() {
+        assert_eq!(
+            accept("https://upstream.example/sub"),
+            Ok("https://upstream.example/sub".to_owned())
+        );
+        assert_eq!(
+            accept("https://upstream.example:443/sub"),
+            Ok("https://upstream.example/sub".to_owned())
+        );
+    }
+
+    #[test]
+    fn lexical_policy_rejects_before_a_port_gate() {
+        for input in [
+            "http://upstream.example/sub",
+            "https://127.0.0.1/sub",
+            "https://[2606:4700:4700::1111]/sub",
+            "https://@upstream.example/sub",
+            "https://user@upstream.example/sub",
+            "https://upstream.example/sub#",
+            "https://localhost/sub",
+            "https://child.localhost/sub",
+            "https://child.local/sub",
+            "https://child.internal/sub",
+            "https://child.home.arpa/sub",
+            "https://inbound.example/sub",
+            "https://service.example/sub",
+            "https://upstream.example/sub ",
+        ] {
+            assert_eq!(accept(input), Err(()), "{input}");
+        }
+    }
+
+    #[test]
+    fn port_gate_runs_after_lexical_accept() {
+        let accepted = accept_outbound_url(
+            "https://upstream.example:8443/sub",
+            &hosts(),
+            "inbound.example",
+            |port| port == 8443,
+        )
+        .map(|url| url.as_str().to_owned());
+        assert_eq!(accepted, Ok("https://upstream.example:8443/sub".to_owned()));
+        assert_eq!(
+            accept_outbound_url(
+                "https://upstream.example:8443/sub",
+                &hosts(),
+                "inbound.example",
+                |port| port == 443
+            ),
+            Err(())
+        );
+    }
 }

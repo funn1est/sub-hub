@@ -69,8 +69,14 @@ fn bind_distinct(prepared: PreparedAcl4SsrV1) -> sub_hub_conversion::PreparedAcl
     let urls: Vec<String> = (0..prepared.rule_set_requests().len())
         .map(|index| format!("https://rules.example/flight/{index}"))
         .collect();
-    prepared
-        .bind_canonical_urls_v1(&urls)
+    let mut binder = prepared.rule_set_binder();
+    for url in &urls {
+        binder
+            .push_canonical(url)
+            .expect("fixed corpus flight plan is bounded and dense");
+    }
+    binder
+        .finish()
         .expect("fixed corpus flight plan is bounded and dense")
 }
 
@@ -105,7 +111,7 @@ fn verify_profile(
     config_path: &str,
     expected_remote_count: usize,
     expected_omitted_count: u8,
-    expected_legacy_hint_count: u8,
+    _expected_legacy_hint_count: u8,
     expected_empty_count: u8,
     expected_output: &ExpectedOutputStructure,
 ) {
@@ -130,15 +136,15 @@ fn verify_profile(
     let output = bind_distinct(prepared)
         .render_v1(OutputTarget::Mihomo, &body_refs)
         .expect("fixed corpus must render through the strict conversion seam");
-    assert_eq!(
-        output.report().omitted_url_regex_count(),
-        expected_omitted_count
-    );
-    assert_eq!(
-        output.report().ignored_legacy_probe_hint_count(),
-        expected_legacy_hint_count
-    );
-    assert_eq!(output.report().empty_group_count(), expected_empty_count);
+    assert_eq!(output.omitted_url_regex(), expected_omitted_count);
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf-8");
+    if expected_empty_count == 0 {
+        assert!(!text.contains("empty proxy groups"));
+    } else {
+        assert!(text.contains(&format!(
+            "empty proxy groups downgraded to select + REJECT; count={expected_empty_count}"
+        )));
+    }
     assert!(
         output.as_bytes().starts_with(
             b"# subconverter: lossy conversion; unsupported URL-REGEX rules omitted\n"
@@ -173,10 +179,7 @@ fn verify_profile(
     )
     .render_v1(OutputTarget::Mihomo, &changed_refs)
     .expect("URL-REGEX pattern bytes are not a render gate");
-    assert_eq!(
-        changed.report().omitted_url_regex_count(),
-        expected_omitted_count
-    );
+    assert_eq!(changed.omitted_url_regex(), expected_omitted_count);
 }
 
 fn assert_output_structure(output: &[u8], expected: &ExpectedOutputStructure) {

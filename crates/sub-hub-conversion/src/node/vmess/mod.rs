@@ -2,6 +2,9 @@ use std::fmt;
 
 use uuid::Uuid;
 
+mod share;
+pub(crate) use share::parse;
+
 use super::vless::{TlsOptions, VlessTransport};
 
 #[derive(Clone, PartialEq, Eq)]

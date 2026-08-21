@@ -10,10 +10,11 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1},
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, hysteria2_singbox_ports, keep_named,
-        keep_tagged, map_compiled_rules, plain_group_tag, plain_node_tag, policy_member_token,
-        probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
-        render_fingerprint, render_host_plain, shadowsocks_method, shadowsocks_password,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, hysteria2_has_gecko, hysteria2_has_pin,
+        hysteria2_singbox_ports, keep_named, keep_tagged, map_compiled_rules, plain_group_tag,
+        plain_node_tag, policy_member_token, probe_url_or_default, reality_public_key_base64,
+        reality_short_id_hex, reject_when_empty, render_fingerprint, render_host_plain,
+        shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -131,11 +132,7 @@ fn hysteria2_outbound<'a>(
     hysteria2: &'a crate::node::hysteria2::Hysteria2Node,
     tag: &'a str,
 ) -> Option<Hysteria2Outbound<'a>> {
-    if hysteria2.pin_sha256().is_some()
-        || hysteria2
-            .obfs()
-            .is_some_and(crate::node::hysteria2::Hysteria2Obfs::is_gecko)
-    {
+    if hysteria2_has_pin(hysteria2) || hysteria2_has_gecko(hysteria2) {
         return None;
     }
     let (server_port, server_ports) = match hysteria2_singbox_ports(hysteria2.ports()) {

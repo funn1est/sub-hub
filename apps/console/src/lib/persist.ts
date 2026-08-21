@@ -5,15 +5,20 @@ export const PERSIST_KEY = "sub-hub.console.v1"
 export type Locale = "zh" | "en"
 export type Theme = "system" | "light" | "dark"
 
-export type PersistedWorkshop = {
-  locale: Locale
-  theme: Theme
+/** Conversion fields the Workshop job assembles, pastes, and previews. */
+export type WorkshopFields = {
   serviceOrigin: string
   accessToken: string
   sources: string[]
   target: Target
   configUrl: string
   appendInfo: boolean
+}
+
+/** Workshop conversion record plus Console chrome. */
+export type PersistedWorkshop = WorkshopFields & {
+  locale: Locale
+  theme: Theme
 }
 
 type StorageLike = {

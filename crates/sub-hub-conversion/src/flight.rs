@@ -1,12 +1,11 @@
-//! Unique-flight identity for remote subscription sources and Rule Sets.
+//! Unique-flight table: first-seen remote identity after canonical URL binding.
 //!
-//! Conversion owns the first-seen table. Hosts fetch those unique URLs and
-//! return bodies in first-seen order.
+//! Conversion owns this table. The public fill plan is [`crate::UniqueFlightFillV1`].
 
 use std::fmt;
 
 /// First-seen unique remote identity after canonical URL binding.
-pub struct UniqueFlightsV1 {
+pub(crate) struct UniqueFlightsV1 {
     unique_urls: Vec<String>,
     flight_by_occurrence: Vec<Option<usize>>,
 }
@@ -14,13 +13,14 @@ pub struct UniqueFlightsV1 {
 impl UniqueFlightsV1 {
     /// Every occurrence is a remote URL (Rule Set requests).
     #[must_use]
-    pub fn bind(occurrence_urls: &[String]) -> Self {
+    #[cfg(test)]
+    pub(crate) fn bind(occurrence_urls: &[String]) -> Self {
         Self::bind_optional(occurrence_urls.iter().map(|url| Some(url.as_str())))
     }
 
     /// `None` occurrence is not a remote flight (a direct subscription source).
     #[must_use]
-    pub fn bind_optional<'a, I>(occurrence_canonical: I) -> Self
+    pub(crate) fn bind_optional<'a, I>(occurrence_canonical: I) -> Self
     where
         I: IntoIterator<Item = Option<&'a str>>,
     {
@@ -70,7 +70,6 @@ impl UniqueFlightsV1 {
 
     /// First-seen unique canonical URLs, aligned with unique fetch bodies.
     #[must_use]
-    #[cfg(test)]
     pub(crate) fn unique_urls(&self) -> &[String] {
         &self.unique_urls
     }
@@ -130,7 +129,10 @@ impl UniqueFlightsV1 {
 
     /// First-seen occurrence values, one per unique flight.
     #[must_use]
-    pub fn unique_values<T: Clone>(&self, occurrence_values: &[Option<T>]) -> Option<Vec<T>> {
+    pub(crate) fn unique_values<T: Clone>(
+        &self,
+        occurrence_values: &[Option<T>],
+    ) -> Option<Vec<T>> {
         if occurrence_values.len() != self.occurrence_count() {
             return None;
         }
@@ -141,23 +143,6 @@ impl UniqueFlightsV1 {
                     .get(occurrence)
                     .and_then(Option::as_ref)
                     .cloned()
-            })
-            .collect()
-    }
-
-    /// First-seen occurrence values when every occurrence is remote.
-    #[must_use]
-    pub(crate) fn unique_required_values<T: Clone>(
-        &self,
-        occurrence_values: &[T],
-    ) -> Option<Vec<T>> {
-        if occurrence_values.len() != self.occurrence_count() {
-            return None;
-        }
-        (0..self.flight_count())
-            .map(|flight| {
-                let occurrence = self.first_occurrence_of_flight(flight)?;
-                occurrence_values.get(occurrence).cloned()
             })
             .collect()
     }
@@ -188,14 +173,14 @@ impl UniqueFlightsV1 {
     pub(crate) fn decoded_budget(
         &self,
         unique_body_lengths: &[usize],
-        accounted_unique: &[bool],
+        already_accounted_unique: usize,
         already_decoded_bytes: usize,
         cap: usize,
     ) -> Result<DecodedBudget, ()> {
-        if unique_body_lengths.len() != accounted_unique.len() {
+        let unique_loaded = unique_body_lengths.len();
+        if already_accounted_unique > unique_loaded {
             return Err(());
         }
-        let unique_loaded = unique_body_lengths.len();
         let occurrence_count = self.covered_occurrence_count(unique_loaded);
         let mut decoded_bytes = already_decoded_bytes;
         let mut counted = vec![false; unique_loaded];
@@ -204,7 +189,7 @@ impl UniqueFlightsV1 {
             if unique_index >= unique_loaded {
                 return Err(());
             }
-            if counted[unique_index] || accounted_unique[unique_index] {
+            if counted[unique_index] || unique_index < already_accounted_unique {
                 continue;
             }
             counted[unique_index] = true;
@@ -304,5 +289,23 @@ mod tests {
             flights.accounts_for_occurrence_decoded(&[None, Some(10), Some(10), None]),
             Some(vec![(0, 10)])
         );
+    }
+
+    #[test]
+    fn decoded_budget_skips_a_first_seen_unique_prefix() {
+        let flights = UniqueFlightsV1::bind(&[
+            "https://rules.example/a".to_owned(),
+            "https://rules.example/a".to_owned(),
+            "https://rules.example/b".to_owned(),
+        ]);
+        assert_eq!(
+            flights.decoded_budget(&[8, 4], 1, 8, 16),
+            Ok(super::DecodedBudget::Within)
+        );
+        assert_eq!(
+            flights.decoded_budget(&[8, 9], 1, 8, 16),
+            Ok(super::DecodedBudget::Crossing(2))
+        );
+        assert!(flights.decoded_budget(&[8], 2, 8, 16).is_err());
     }
 }

@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { Miniflare, createFetchMock } from "miniflare";
+
+const HOST_VISIBLE = JSON.parse(
+  readFileSync(
+    resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../testdata/host-visible-contract.json",
+    ),
+    "utf8",
+  ),
+);
 
 const VLESS = concat(
   "vless://01234567-89ab-cdef-0123-456789abcdef",
@@ -98,76 +111,29 @@ test("host-visible application contract is table driven", async (t) => {
   const mf = runtime();
   t.after(() => mf.dispose());
 
-  const vectors = [
-    {
-      name: "version",
-      url: "https://worker.example/version",
-      method: "GET",
-      status: 200,
-      body: "sub-hub v0.1.0 backend",
-      headers: { ...BASE_HEADERS },
-    },
-    {
-      name: "invalid version query",
-      url: "https://worker.example/version?x=1",
-      method: "GET",
-      status: 400,
-      body: "Invalid request!",
-      headers: { ...BASE_HEADERS },
-    },
-    {
-      name: "unknown path",
-      url: "https://worker.example/sub/",
-      method: "GET",
-      status: 404,
-      body: "Not Found",
-      headers: { ...BASE_HEADERS },
-    },
-    {
-      name: "sub method",
-      url: "https://worker.example/sub",
-      method: "POST",
-      status: 405,
-      body: "Method Not Allowed",
-      headers: { allow: "GET, HEAD", ...BASE_HEADERS },
-    },
-    {
-      name: "version method",
-      url: "https://worker.example/version",
-      method: "HEAD",
-      status: 405,
-      body: "",
-      headers: { allow: "GET", ...BASE_HEADERS },
-    },
-    {
-      name: "uri too long before unknown path",
-      url: `https://worker.example/${"x".repeat(8_192)}`,
-      method: "GET",
-      status: 414,
-      body: "URI Too Long",
-      headers: { ...BASE_HEADERS },
-    },
-    {
-      name: "head invalid request suppresses body",
-      url: "https://worker.example/sub",
-      method: "HEAD",
-      status: 400,
-      body: "",
-      headers: { ...BASE_HEADERS },
-    },
-  ];
-
-  for (const vector of vectors) {
-    const response = await mf.dispatchFetch(vector.url, {
-      method: vector.method,
-    });
-    assert.equal(response.status, vector.status, `${vector.name} status`);
+  for (const vector of HOST_VISIBLE.vectors) {
+    let path = vector.path;
+    if (vector.pathRepeat !== undefined) {
+      path += vector.pathRepeat.char.repeat(vector.pathRepeat.count);
+    }
+    if (vector.query) {
+      path += `?${vector.query}`;
+    }
+    const headers = { ...BASE_HEADERS };
+    if (vector.allow !== undefined) {
+      headers.allow = vector.allow;
+    }
+    const response = await mf.dispatchFetch(
+      `https://worker.example${path}`,
+      { method: vector.method },
+    );
+    assert.equal(response.status, vector.status, `${vector.id} status`);
     assert.deepEqual(
       applicationHeaders(response),
-      vector.headers,
-      `${vector.name} application headers`,
+      headers,
+      `${vector.id} application headers`,
     );
-    assert.equal(await response.text(), vector.body, `${vector.name} body`);
+    assert.equal(await response.text(), vector.body, `${vector.id} body`);
   }
 });
 

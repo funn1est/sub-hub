@@ -2,6 +2,9 @@ use std::fmt;
 
 use uuid::Uuid;
 
+pub(crate) mod share;
+pub(crate) use share::parse;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct VlessNode {
     id: VlessId,

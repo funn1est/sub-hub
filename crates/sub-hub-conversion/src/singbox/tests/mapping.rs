@@ -1,12 +1,7 @@
-use super::accepted_nodes;
-use crate::node_name::resolve_node_names;
-use crate::policy::{
-    CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1,
-    PolicyReportV1, RuleMatcherV1, compile_builtin_policy_v1,
-};
-use crate::render::{AdapterRenderError, MAX_OUTPUT_BYTES, render_builtin_singbox_v1};
-use crate::singbox::render_singbox_from_policy_v1;
-use crate::subscription_source::parse_subscription_sources;
+use crate::OutputTarget;
+use crate::SubscriptionSourceV1;
+use crate::direct_subscription::{render_acl4ssr_target, render_remote_builtin};
+use crate::prepare_subscription_v1;
 
 #[test]
 fn grpc_and_vision_without_reality_are_kept() {
@@ -14,9 +9,9 @@ fn grpc_and_vision_without_reality_are_kept() {
         "vless://00000000-0000-4000-8000-000000000003@[2001:db8::1]:9443?type=grpc&serviceName=svc%2Fprod&security=reality&sni=reality.example&fp=safari&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sid=0a1b#Reality\n",
         "vless://00000000-0000-4000-8000-000000000004@vision.example:443?security=tls&flow=xtls-rprx-vision#Vision\n",
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_singbox_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("\"tag\": \"Reality\""));
     assert!(text.contains("\"type\": \"grpc\""));
     assert!(text.contains("\"service_name\": \"svc/prod\""));
@@ -26,7 +21,7 @@ fn grpc_and_vision_without_reality_are_kept() {
     assert!(text.contains("\"flow\": \"xtls-rprx-vision\""));
     assert!(text.contains("\"fingerprint\": \"chrome\""));
     assert!(text.contains("\"fingerprint\": \"safari\""));
-    assert_eq!(output.diagnostics().capability_skips(), 0);
+    assert_eq!(output.skip_counts().capability, 0);
 }
 
 #[test]
@@ -48,9 +43,9 @@ fn vmess_tcp_and_grpc_are_kept() {
             .as_bytes()
         )
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_singbox_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("\"type\": \"vmess\""));
     assert!(text.contains("\"tag\": \"Alpha\""));
     assert!(text.contains("\"security\": \"auto\""));
@@ -59,7 +54,7 @@ fn vmess_tcp_and_grpc_are_kept() {
     assert!(text.contains("\"type\": \"grpc\""));
     assert!(!text.contains("packet_encoding"));
     assert!(!text.contains("multiplex"));
-    assert_eq!(output.diagnostics().capability_skips(), 0);
+    assert_eq!(output.skip_counts().capability, 0);
 }
 
 #[test]
@@ -68,9 +63,9 @@ fn trojan_tcp_tls_and_grpc_are_kept() {
         "trojan://password@EXAMPLE.COM:443#Alpha\n",
         "trojan://password@example.com:443?type=grpc&serviceName=svc&security=tls#Grpc\n",
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_singbox_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("\"type\": \"trojan\""));
     assert!(text.contains("\"tag\": \"Alpha\""));
     assert!(text.contains("\"password\": \"password\""));
@@ -80,7 +75,7 @@ fn trojan_tcp_tls_and_grpc_are_kept() {
     assert!(text.contains("\"tag\": \"Grpc\""));
     assert!(text.contains("\"type\": \"grpc\""));
     assert!(!text.contains("multiplex"));
-    assert_eq!(output.diagnostics().capability_skips(), 0);
+    assert_eq!(output.skip_counts().capability, 0);
 }
 
 #[test]
@@ -95,9 +90,9 @@ fn hysteria2_salamander_and_hop_are_kept_gecko_and_pin_skipped() {
         ),
         PIN = PIN
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_singbox_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("\"type\": \"hysteria2\""));
     assert!(text.contains("\"tag\": \"Plain\""));
     assert!(text.contains("\"password\": \"password\""));
@@ -111,7 +106,7 @@ fn hysteria2_salamander_and_hop_are_kept_gecko_and_pin_skipped() {
     assert!(!text.contains("\"tag\": \"Pin\""));
     assert!(!text.contains("certificate_public_key_sha256"));
     assert!(!text.contains("insecure"));
-    assert_eq!(output.diagnostics().capability_skips(), 2);
+    assert_eq!(output.skip_counts().capability, 2);
 }
 
 #[test]
@@ -124,9 +119,9 @@ fn tuic_v5_defaults_and_options_are_kept() {
         ),
         UUID = UUID
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_singbox_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("\"type\": \"tuic\""));
     assert!(text.contains("\"tag\": \"Plain\""));
     assert!(text.contains(&format!("\"uuid\": \"{UUID}\"")));
@@ -142,7 +137,7 @@ fn tuic_v5_defaults_and_options_are_kept() {
     assert!(!text.contains("insecure"));
     assert!(!text.contains("disable_sni"));
     assert!(!text.contains("udp_over_stream"));
-    assert_eq!(output.diagnostics().capability_skips(), 0);
+    assert_eq!(output.skip_counts().capability, 0);
 }
 
 #[test]
@@ -151,9 +146,9 @@ fn websocket_tls_and_shadowsocks_project_supported_fields() {
         "vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443?type=ws&path=%2Fws&host=cdn.example&security=tls&sni=edge.example&alpn=h2%2Chttp%2F1.1&fp=firefox#WS\n",
         "ss://aes-128-gcm:p%40ss%3Aword@example.com:8388#Classic\n",
     );
-    let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid");
-    let output = render_builtin_singbox_v1(parsed).expect("rendered");
-    let text = std::str::from_utf8(output.config()).expect("utf8");
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("\"type\": \"ws\""));
     assert!(text.contains("\"path\": \"/ws\""));
     assert!(text.contains("\"Host\": \"cdn.example\""));
@@ -166,86 +161,57 @@ fn websocket_tls_and_shadowsocks_project_supported_fields() {
 
 #[test]
 fn reserved_node_tags_are_skipped_and_empty_members_become_reject() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#direct\nvless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Alpha"[..],
+    let output = prepare_subscription_v1(&[
+        SubscriptionSourceV1::Direct(
+            "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#direct",
+        ),
+        SubscriptionSourceV1::Direct(
+            "vless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Alpha",
+        ),
     ])
-    .expect("valid");
-    let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
-    let nodes = accepted_nodes(&named);
-    assert_eq!(nodes.len(), 2);
-    let policy = compile_builtin_policy_v1(&nodes);
-    let output = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
-    let text = std::str::from_utf8(&output.bytes).expect("utf8");
+    .expect("valid")
+    .render_builtin_v1(OutputTarget::Singbox)
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("\"tag\": \"Alpha\""));
     assert!(!text.contains("\"server\": \"example.com\""));
+    assert_eq!(output.skip_counts().name, 1);
 }
 
 #[test]
 fn only_reserved_node_tags_are_no_valid_nodes() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#reject"[..],
-    ])
-    .expect("valid");
-    let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
-    let nodes = accepted_nodes(&named);
-    let policy = compile_builtin_policy_v1(&nodes);
-    let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
-        .expect_err("no valid nodes");
-    assert!(matches!(error, AdapterRenderError::NoValidNodes { .. }));
+    let error = prepare_subscription_v1(&[SubscriptionSourceV1::Direct(
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#reject",
+    )])
+    .expect("valid")
+    .render_builtin_v1(OutputTarget::Singbox)
+    .expect_err("no valid nodes");
+    assert!(matches!(
+        error,
+        crate::ConversionRenderError::NoValidNodes { .. }
+    ));
 }
 
 #[test]
 fn fallback_and_load_balance_are_normalized_and_geoip_cn_is_omitted() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-    ])
-    .expect("valid");
-    let named = resolve_node_names(parsed, &["Fallback", "Hash"]).expect("names");
-    let nodes = accepted_nodes(&named);
-    let policy = CompiledPolicyV1::new(
-        vec![
-            CompiledGroupV1::new(
-                "Fallback".to_owned(),
-                GroupStrategyV1::Fallback {
-                    url: "https://www.gstatic.com/generate_204".to_owned(),
-                    interval: 60,
-                },
-                vec![PolicyMemberV1::Node("Alpha".to_owned())],
-            ),
-            CompiledGroupV1::new(
-                "Hash".to_owned(),
-                GroupStrategyV1::LoadBalance {
-                    url: String::new(),
-                    interval: 30,
-                },
-                vec![PolicyMemberV1::Node("Alpha".to_owned())],
-            ),
-        ],
-        vec![
-            CompiledRuleV1::new(RuleMatcherV1::GeoIpCn, PolicyMemberV1::Direct),
-            CompiledRuleV1::new(
-                RuleMatcherV1::UrlRegex("example\\.com/path".to_owned()),
-                PolicyMemberV1::Direct,
-            ),
-            CompiledRuleV1::new(
-                RuleMatcherV1::DomainSuffix("example.com".to_owned()),
-                PolicyMemberV1::Group("Fallback".to_owned()),
-            ),
-            CompiledRuleV1::new(
-                RuleMatcherV1::Match,
-                PolicyMemberV1::Group("Fallback".to_owned()),
-            ),
-        ],
-        PolicyReportV1::default(),
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "overwrite_original_rules=true\n",
+        "custom_proxy_group=Fallback`fallback`.*`https://www.gstatic.com/generate_204`60\n",
+        "custom_proxy_group=Hash`load-balance`.*`https://www.gstatic.com/generate_204`30\n",
+        "ruleset=DIRECT,[]GEOIP,CN\n",
+        "ruleset=Fallback,https://rules.example/rules.list\n",
+        "ruleset=Fallback,[]FINAL\n",
     );
-    let omitted = policy
-        .rules()
-        .iter()
-        .filter(|rule| matches!(rule.matcher(), RuleMatcherV1::GeoIpCn))
-        .count();
-    assert_eq!(omitted, 1);
-    let output = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES).expect("ok");
-    let text = std::str::from_utf8(&output.bytes).expect("utf8");
+    let output = render_acl4ssr_target(
+        OutputTarget::Singbox,
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha",
+        config.as_bytes(),
+        &[b"URL-REGEX,example.com/path\nDOMAIN-SUFFIX,example.com\n"],
+    )
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("\"type\": \"urltest\""));
     assert!(text.contains("\"tag\": \"Fallback\""));
     assert!(text.contains("\"interval\": \"60s\""));
@@ -253,7 +219,7 @@ fn fallback_and_load_balance_are_normalized_and_geoip_cn_is_omitted() {
     assert!(text.contains("\"tag\": \"Hash\""));
     assert!(!text.contains("geoip"));
     assert!(!text.contains("URL-REGEX"));
-    assert!(!text.contains("example\\.com/path"));
+    assert!(!text.contains("example.com/path"));
     assert!(text.contains("\"domain_suffix\""));
     assert!(text.contains("example.com"));
     assert!(text.contains("\"final\": \"Fallback\""));
@@ -263,22 +229,22 @@ fn fallback_and_load_balance_are_normalized_and_geoip_cn_is_omitted() {
 
 #[test]
 fn group_named_direct_is_internal() {
-    let parsed = parse_subscription_sources(&[
-        &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"[..],
-    ])
-    .expect("valid");
-    let named = resolve_node_names(parsed, &["direct"]).expect("names");
-    let nodes = accepted_nodes(&named);
-    let policy = CompiledPolicyV1::new(
-        vec![CompiledGroupV1::new(
-            "direct".to_owned(),
-            GroupStrategyV1::Select,
-            vec![PolicyMemberV1::Node("Alpha".to_owned())],
-        )],
-        vec![],
-        PolicyReportV1::default(),
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "overwrite_original_rules=true\n",
+        "custom_proxy_group=direct`select`.*\n",
+        "ruleset=direct,[]FINAL\n",
     );
-    let error = render_singbox_from_policy_v1(&nodes, &policy, MAX_OUTPUT_BYTES)
-        .expect_err("reserved group");
-    assert!(matches!(error, AdapterRenderError::Internal));
+    let error = render_acl4ssr_target(
+        OutputTarget::Singbox,
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha",
+        config.as_bytes(),
+        &[],
+    )
+    .expect_err("reserved group");
+    assert_eq!(
+        error.keep_pass(),
+        Ok(crate::ConversionRenderError::Internal)
+    );
 }

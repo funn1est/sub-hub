@@ -1,13 +1,15 @@
 import {
+  EXPOSED_HEADERS,
+  SKIPPED_HEADER,
   VERSION_BODY,
   VERSION_PATH,
+  fallbackDownloadName,
   isKnownServiceError,
-  readSubGetHeaders,
+  parseSkippedHeader,
   type KnownServiceError,
   type SkipCounts,
   type Target,
 } from "./service-contract.ts"
-import type { Assembled } from "./workshop.ts"
 
 export {
   VERSION_BODY,
@@ -15,6 +17,62 @@ export {
   parseSkippedHeader,
   type SkipCounts,
 } from "./service-contract.ts"
+
+export function parseSkippedFromHeaders(
+  headers: readonly { name: string; value: string }[]
+): SkipCounts | null {
+  const value =
+    headers.find((header) => header.name === SKIPPED_HEADER)?.value ?? null
+  return parseSkippedHeader(value)
+}
+
+export type SubGetHeaders = {
+  skipped: SkipCounts | null
+  filename: string | null
+  exposed: { name: string; value: string }[]
+}
+
+export function filenameFromDisposition(header: string | null): string | null {
+  if (header === null || header.length === 0) {
+    return null
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header)
+  if (quoted) {
+    return quoted[1]
+  }
+  const unquoted = /filename=([^;]+)/i.exec(header)
+  if (unquoted) {
+    return unquoted[1].trim()
+  }
+  return null
+}
+
+function pickExposedHeaders(headers: {
+  get: (name: string) => string | null
+}): { name: string; value: string }[] {
+  const picked: { name: string; value: string }[] = []
+  for (const name of EXPOSED_HEADERS) {
+    const value = headers.get(name)
+    if (value !== null && value.length > 0) {
+      picked.push({ name, value })
+    }
+  }
+  return picked
+}
+
+export function readSubGetHeaders(
+  headers: { get: (name: string) => string | null },
+  target: Target
+): SubGetHeaders {
+  const exposed = pickExposedHeaders(headers)
+  return {
+    skipped: parseSkippedFromHeaders(exposed),
+    filename:
+      filenameFromDisposition(headers.get("content-disposition")) ??
+      fallbackDownloadName(target),
+    exposed,
+  }
+}
 
 export const PREVIEW_VIEW_LIMIT_BYTES = 256 * 1024
 
@@ -142,14 +200,14 @@ export type PreviewFetch = (url: string) => Promise<{
 }>
 
 export async function runPreview(input: {
-  assembled: Assembled & { url: string }
+  url: string
   target: Target
   pageHttps: boolean
   fetchImpl?: PreviewFetch
 }): Promise<PreviewOutcome> {
   const fetchImpl = input.fetchImpl ?? fetch
   try {
-    const response = await fetchImpl(input.assembled.url)
+    const response = await fetchImpl(input.url)
     const body = await response.text()
     const truncated = truncatePreviewBody(body)
     const headers = readSubGetHeaders(response.headers, input.target)
@@ -167,9 +225,9 @@ export async function runPreview(input: {
   } catch {
     let serviceOrigin: string
     try {
-      serviceOrigin = new URL(input.assembled.url).origin
+      serviceOrigin = new URL(input.url).origin
     } catch {
-      serviceOrigin = input.assembled.url
+      serviceOrigin = input.url
     }
     return {
       status: "unreachable",

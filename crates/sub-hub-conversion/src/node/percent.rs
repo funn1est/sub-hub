@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-pub(super) fn decode(input: &str) -> Result<Cow<'_, str>, ()> {
+pub(crate) fn decode(input: &str) -> Result<Cow<'_, str>, ()> {
     let source = input.as_bytes();
     if !source.contains(&b'%') {
         return Ok(Cow::Borrowed(input));

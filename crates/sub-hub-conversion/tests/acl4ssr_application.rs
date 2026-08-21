@@ -17,27 +17,30 @@ fn bind_canonical(
     prepared: PreparedAcl4SsrV1,
     urls: &[&str],
 ) -> Result<sub_hub_conversion::PreparedAcl4SsrRuleSetsV1, Acl4SsrRenderError> {
-    let urls = urls.iter().map(|url| (*url).to_owned()).collect::<Vec<_>>();
-    prepared.bind_canonical_urls_v1(&urls)
+    let mut binder = prepared.rule_set_binder();
+    for url in urls {
+        binder.push_canonical(url)?;
+    }
+    binder.finish()
 }
 
 trait DistinctRuleSetFlights {
     fn render_mihomo_v1(
         self,
         bodies: &[&[u8]],
-    ) -> Result<sub_hub_conversion::Acl4SsrOutputV1, Acl4SsrRenderError>;
+    ) -> Result<sub_hub_conversion::RenderedConfig, Acl4SsrRenderError>;
 }
 
 impl DistinctRuleSetFlights for PreparedAcl4SsrV1 {
     fn render_mihomo_v1(
         self,
         bodies: &[&[u8]],
-    ) -> Result<sub_hub_conversion::Acl4SsrOutputV1, Acl4SsrRenderError> {
+    ) -> Result<sub_hub_conversion::RenderedConfig, Acl4SsrRenderError> {
         let urls: Vec<String> = (0..self.rule_set_requests().len())
             .map(|index| format!("https://rules.example/flight/{index}"))
             .collect();
-        self.bind_canonical_urls_v1(&urls)?
-            .render_v1(OutputTarget::Mihomo, bodies)
+        let refs = urls.iter().map(String::as_str).collect::<Vec<_>>();
+        bind_canonical(self, &refs)?.render_v1(OutputTarget::Mihomo, bodies)
     }
 }
 
@@ -59,8 +62,12 @@ fn generic_acl4ssr_config_renders_groups_and_inline_final_rule() {
     let output = prepared
         .render_mihomo_v1(&[])
         .expect("generic ACL4SSR output");
-    assert_eq!(output.report().omitted_url_regex_count(), 0);
-    assert_eq!(output.report().empty_group_count(), 0);
+    assert_eq!(output.omitted_url_regex(), 0);
+    assert!(
+        !std::str::from_utf8(output.as_bytes())
+            .unwrap()
+            .contains("empty proxy groups")
+    );
     assert_eq!(
         output.as_bytes(),
         concat!(
@@ -199,17 +206,19 @@ fn duplicate_rule_set_occurrences_still_consume_the_semantic_rule_budget() {
         "overwrite_original_rules=true\n",
     );
     let body = "DOMAIN,a\n".repeat(100_001);
-    let error = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap()
-        .bind_canonical_urls_v1(&[
-            "https://rules.example/shared.list".to_owned(),
-            "https://rules.example/shared.list".to_owned(),
-        ])
-        .unwrap()
-        .render_v1(OutputTarget::Mihomo, &[body.as_bytes()])
-        .unwrap_err();
+    let error = bind_canonical(
+        prepare_direct()
+            .unwrap()
+            .prepare_acl4ssr_config_v1(config.as_bytes())
+            .unwrap(),
+        &[
+            "https://rules.example/shared.list",
+            "https://rules.example/shared.list",
+        ],
+    )
+    .unwrap()
+    .render_v1(OutputTarget::Mihomo, &[body.as_bytes()])
+    .unwrap_err();
     assert_eq!(error, Acl4SsrRenderError::ConversionLimit);
 }
 
@@ -232,18 +241,20 @@ fn canonical_url_identity_assigns_first_seen_flights() {
         "https://cdn.example/shared.list".to_owned(),
         "https://cdn.example/shared.list".to_owned(),
     ];
-    let bound = prepared.bind_canonical_urls_v1(&urls).unwrap();
+    let bound = bind_canonical(prepared, &[urls[0].as_str(), urls[1].as_str()]).unwrap();
     assert_eq!(
-        bound.unique_values(&urls).expect("aligned"),
-        vec!["https://cdn.example/shared.list".to_owned()]
+        bound.unique_urls(),
+        &["https://cdn.example/shared.list".to_owned()]
     );
     assert_eq!(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes())
-            .unwrap()
-            .bind_canonical_urls_v1(&["https://cdn.example/a".to_owned()])
-            .unwrap_err(),
+        bind_canonical(
+            prepare_direct()
+                .unwrap()
+                .prepare_acl4ssr_config_v1(config.as_bytes())
+                .unwrap(),
+            &["https://cdn.example/a"],
+        )
+        .unwrap_err(),
         Acl4SsrRenderError::RuleSetAlignment
     );
 }
@@ -290,7 +301,11 @@ fn group_expansion_is_ordered_deduplicated_and_empty_groups_are_downgraded() {
         .unwrap()
         .render_mihomo_v1(&[])
         .unwrap();
-    assert_eq!(output.report().empty_group_count(), 1);
+    assert!(
+        std::str::from_utf8(output.as_bytes())
+            .unwrap()
+            .contains("empty proxy groups downgraded to select + REJECT; count=1")
+    );
     assert_eq!(
         std::str::from_utf8(output.as_bytes()).unwrap(),
         concat!(
@@ -340,7 +355,7 @@ fn generic_url_regex_and_malformed_rule_sets_fail_closed() {
     let omitted = prepare()
         .render_mihomo_v1(&[b"URL-REGEX,secret,opaque,pattern"])
         .expect("generic URL-REGEX is compiled and omitted on Mihomo");
-    assert_eq!(omitted.report().omitted_url_regex_count(), 1);
+    assert_eq!(omitted.omitted_url_regex(), 1);
     assert!(
         omitted.as_bytes().starts_with(
             b"# subconverter: lossy conversion; unsupported URL-REGEX rules omitted\n"
@@ -349,12 +364,11 @@ fn generic_url_regex_and_malformed_rule_sets_fail_closed() {
     let omitted_text = std::str::from_utf8(omitted.as_bytes()).unwrap();
     assert!(!omitted_text.contains("- URL-REGEX,"));
     assert!(!omitted_text.contains("secret,opaque,pattern"));
-    let loon = prepare()
-        .bind_canonical_urls_v1(&["https://rules.example/rules.list".to_owned()])
+    let loon = bind_canonical(prepare(), &["https://rules.example/rules.list"])
         .unwrap()
         .render_v1(OutputTarget::Loon, &[b"URL-REGEX,example.com/path"])
         .expect("Loon emits URL-REGEX");
-    assert_eq!(loon.report().omitted_url_regex_count(), 0);
+    assert_eq!(loon.omitted_url_regex(), 0);
     assert!(
         std::str::from_utf8(loon.as_bytes())
             .unwrap()
@@ -487,7 +501,6 @@ fn non_url_test_tolerance_is_ignored_on_any_config() {
         .expect("legacy probe hints are ignored, not rejected")
         .render_mihomo_v1(&[])
         .unwrap();
-    assert_eq!(output.report().ignored_legacy_probe_hint_count(), 1);
     let yaml = std::str::from_utf8(output.as_bytes()).unwrap();
     assert!(yaml.contains("name: Q\n  type: fallback\n"));
     assert!(!yaml.contains("tolerance:"));
@@ -531,15 +544,17 @@ fn a_loaded_rule_set_prefix_can_be_validated_before_a_later_transport_failure() 
         "ruleset=P,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let mut prepared = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap()
-        .bind_canonical_urls_v1(&[
-            "https://rules.example/first".to_owned(),
-            "https://rules.example/second".to_owned(),
-        ])
-        .unwrap();
+    let mut prepared = bind_canonical(
+        prepare_direct()
+            .unwrap()
+            .prepare_acl4ssr_config_v1(config.as_bytes())
+            .unwrap(),
+        &[
+            "https://rules.example/first",
+            "https://rules.example/second",
+        ],
+    )
+    .unwrap();
     assert_eq!(
         prepared
             .check_loaded_prefix(&[b"# semantic empty"], None)
@@ -562,15 +577,17 @@ fn a_loaded_rule_set_prefix_can_be_validated_before_a_later_transport_failure() 
         "ruleset=P,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let mut prepared = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config_with_earlier_inline.as_bytes())
-        .unwrap()
-        .bind_canonical_urls_v1(&[
-            "https://rules.example/first".to_owned(),
-            "https://rules.example/second".to_owned(),
-        ])
-        .unwrap();
+    let mut prepared = bind_canonical(
+        prepare_direct()
+            .unwrap()
+            .prepare_acl4ssr_config_v1(config_with_earlier_inline.as_bytes())
+            .unwrap(),
+        &[
+            "https://rules.example/first",
+            "https://rules.example/second",
+        ],
+    )
+    .unwrap();
     let maximum_remote_rules = "DOMAIN,a\n".repeat(200_000);
     assert_eq!(
         prepared

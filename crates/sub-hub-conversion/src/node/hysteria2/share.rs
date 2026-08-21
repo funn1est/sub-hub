@@ -4,16 +4,15 @@ use std::{
 };
 
 use crate::node::{
-    Endpoint, Host, NodeProtocol, ProxyNodeDraft,
-    hysteria2::{Hysteria2Auth, Hysteria2Node, Hysteria2Obfs, Hysteria2PortAtom, Hysteria2Ports},
+    Endpoint, Host, InvalidNodeReason, NodeProtocol, NodeRejection, ProxyNodeDraft,
+    UnsupportedCapability, percent,
+    uri::{parse_authority_uri_optional, scan_query},
+    vless::share as vless,
 };
 
-use super::{
-    InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_authority_uri_optional, percent,
-    scan_query, vless,
-};
+use super::{Hysteria2Auth, Hysteria2Node, Hysteria2Obfs, Hysteria2PortAtom, Hysteria2Ports};
 
-pub(super) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
+pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
     let uri = parse_authority_uri_optional(input)?;
     let auth = parse_auth(uri.userinfo)?;
     let (endpoint, ports) = parse_hysteria2_authority(uri.authority)?;

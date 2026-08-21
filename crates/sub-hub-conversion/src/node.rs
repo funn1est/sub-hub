@@ -1,10 +1,17 @@
 mod endpoint;
 pub(crate) mod hysteria2;
+mod percent;
+mod rejection;
 pub(crate) mod shadowsocks;
+mod share;
 pub(crate) mod trojan;
 pub(crate) mod tuic;
+mod uri;
 pub(crate) mod vless;
 pub(crate) mod vmess;
+
+pub(crate) use rejection::{InvalidNodeReason, NodeRejection, UnsupportedCapability};
+pub(crate) use share::parse_share_uri;
 
 use std::fmt;
 

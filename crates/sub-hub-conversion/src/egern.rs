@@ -9,11 +9,11 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, hysteria2_official_ports,
-        keep_named, keep_tagged, map_compiled_rules, plain_group_tag, plain_node_tag,
-        policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
-        reject_when_empty, render_host_plain, serialize_bounded, shadowsocks_method,
-        shadowsocks_password, shared_probe_url,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, hysteria2_has_gecko,
+        hysteria2_official_ports, keep_named, keep_tagged, map_compiled_rules, plain_group_tag,
+        plain_node_tag, policy_member_token, probe_url_or_default, reality_public_key_base64,
+        reality_short_id_hex, reject_when_empty, render_host_plain, serialize_bounded,
+        shadowsocks_method, shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -135,10 +135,7 @@ fn hysteria2_proxy(
     hysteria2: &crate::node::hysteria2::Hysteria2Node,
     tag: &str,
 ) -> Option<Hysteria2Proxy> {
-    if hysteria2
-        .obfs()
-        .is_some_and(crate::node::hysteria2::Hysteria2Obfs::is_gecko)
-    {
+    if hysteria2_has_gecko(hysteria2) {
         return None;
     }
     let pin = hysteria2.pin_sha256().map(|pin| encode_hex(pin));

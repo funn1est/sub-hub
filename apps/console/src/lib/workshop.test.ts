@@ -7,15 +7,16 @@ import {
   ACL4SSR_ONLINE_FILES,
   ACL4SSR_ONLINE_URL,
   acl4ssrConfigUrl,
-  applyPaste,
-  assembleSubscription,
-  canPreview,
-  clashInstallUrl,
   configPresetOf,
   configSelectionId,
+} from "./acl4ssr-catalog.ts"
+import {
+  applyPaste,
+  assembleSubscription,
+  clashInstallUrl,
+  evaluateWorkshop,
   parseServiceOrigin,
   parseSubscriptionUrl,
-  showsClashInstall,
   type SubscriptionAssemblyInput,
 } from "./workshop.ts"
 import { defaultPersisted } from "./persist.ts"
@@ -165,11 +166,14 @@ describe("assembleSubscription", () => {
         input({ sources: ["http://insecure.example/sub"] })
       ).url
     ).toBeNull()
+  })
+
+  it("does not copy Conversion Service outbound host policy", () => {
     expect(
       assembleSubscription(
         input({ configUrl: "https://127.0.0.1/acl.ini" })
       ).url
-    ).toBeNull()
+    ).not.toBeNull()
   })
 })
 
@@ -349,7 +353,7 @@ describe("clashInstallUrl", () => {
   })
 })
 
-describe("applyPaste, canPreview, showsClashInstall", () => {
+describe("applyPaste and evaluateWorkshop", () => {
   it("merges a successful paste onto the Workshop record", () => {
     const next = applyPaste(defaultPersisted(), {
       ok: true,
@@ -369,37 +373,33 @@ describe("applyPaste, canPreview, showsClashInstall", () => {
     expect(next.locale).toBe("en")
   })
 
-  it("gates Preview on a complete under-limit Subscription URL", () => {
-    expect(canPreview(assembleSubscription(input()))).toBe(true)
-    expect(canPreview(assembleSubscription(input({ serviceOrigin: "" })))).toBe(
+  it("diagnoses fields with the same rules assemble uses", () => {
+    const ready = evaluateWorkshop(input())
+    expect(ready.assembled.previewable).toBe(true)
+    expect(ready.assembled.clashInstall).toBe(true)
+    expect(ready.originInvalid).toBe(false)
+    expect(ready.sourceInvalid).toEqual([false])
+
+    expect(evaluateWorkshop(input({ serviceOrigin: "" })).assembled.previewable).toBe(
       false
     )
     expect(
-      canPreview(assembleSubscription(input({ sources: ["a".repeat(8171)] })))
+      evaluateWorkshop(input({ sources: ["a".repeat(8171)] })).assembled
+        .previewable
     ).toBe(false)
-    expect(showsClashInstall(assembleSubscription(input()), "clash")).toBe(true)
     expect(
-      showsClashInstall(assembleSubscription(input({ target: "loon" })), "loon")
+      evaluateWorkshop(input({ target: "loon" })).assembled.clashInstall
     ).toBe(false)
+    expect(
+      evaluateWorkshop(input({ serviceOrigin: "not a url" })).originInvalid
+    ).toBe(true)
+    expect(
+      evaluateWorkshop(input({ sources: ["http://insecure.example/sub"] }))
+        .sourceInvalid
+    ).toEqual([true])
     expect(configSelectionId({ kind: "none" }, false)).toBe("none")
     expect(configSelectionId({ kind: "custom" }, false)).toBe("custom")
     expect(configSelectionId({ kind: "none" }, true)).toBe("custom")
-  })
-
-  it("Preview GETs the assembled Subscription URL", () => {
-    const assembled = assembleSubscription(input())
-    expect(canPreview(assembled)).toBe(true)
-    expect(assembled.url).toBe(
-      "http://127.0.0.1:25500/sub?target=clash&url=" + VLESS_ENCODED
-    )
-    expect(canPreview(assembleSubscription(input({ serviceOrigin: "" })))).toBe(
-      false
-    )
-    expect(
-      canPreview(
-        assembleSubscription(input({ sources: ["http://insecure.example/sub"] }))
-      )
-    ).toBe(false)
   })
 })
 

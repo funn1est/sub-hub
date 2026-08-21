@@ -1,85 +1,34 @@
-mod error;
-mod hysteria2;
-mod percent;
-mod shadowsocks;
-mod trojan;
-mod tuic;
-mod vless;
-mod vmess;
-
 use std::{
     borrow::Cow,
     collections::BTreeSet,
     net::{Ipv4Addr, Ipv6Addr},
 };
 
-use crate::node::{Endpoint, Host, NodeNameInput, ProxyNodeDraft};
+use super::{
+    Endpoint, Host, NodeNameInput, percent,
+    rejection::{InvalidNodeReason, NodeRejection},
+};
 
-pub(crate) use error::{InvalidNodeReason, NodeRejection, UnsupportedCapability};
-
-struct AuthorityUri<'a> {
-    userinfo: &'a str,
-    authority: &'a str,
-    query: Option<&'a str>,
-    name_input: NodeNameInput,
+pub(crate) struct AuthorityUri<'a> {
+    pub(crate) userinfo: &'a str,
+    pub(crate) authority: &'a str,
+    pub(crate) query: Option<&'a str>,
+    pub(crate) name_input: NodeNameInput,
 }
 
-struct OptionalAuthUri<'a> {
-    userinfo: Option<&'a str>,
-    authority: &'a str,
-    query: Option<&'a str>,
-    name_input: NodeNameInput,
+pub(crate) struct OptionalAuthUri<'a> {
+    pub(crate) userinfo: Option<&'a str>,
+    pub(crate) authority: &'a str,
+    pub(crate) query: Option<&'a str>,
+    pub(crate) name_input: NodeNameInput,
 }
 
-struct QueryPair<'a> {
-    key: &'a str,
-    value: Cow<'a, str>,
+pub(crate) struct QueryPair<'a> {
+    pub(crate) key: &'a str,
+    pub(crate) value: Cow<'a, str>,
 }
 
-pub(crate) fn parse_share_uri(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
-    if input.trim() != input {
-        Err(NodeRejection::Invalid(InvalidNodeReason::Uri))
-    } else if let Some(input) = input.strip_prefix("vless://") {
-        vless::parse(input)
-    } else if let Some(input) = input.strip_prefix("ss://") {
-        shadowsocks::parse(input)
-    } else if let Some(input) = input.strip_prefix("trojan://") {
-        trojan::parse(input)
-    } else if let Some(input) = input.strip_prefix("vmess://") {
-        vmess::parse(input)
-    } else if let Some(input) = input.strip_prefix("hysteria2://") {
-        hysteria2::parse(input)
-    } else if let Some(input) = input.strip_prefix("hy2://") {
-        hysteria2::parse(input)
-    } else if let Some(input) = input.strip_prefix("tuic://") {
-        tuic::parse(input)
-    } else if let Some((scheme, payload)) = input.split_once("://") {
-        if payload.is_empty()
-            || !is_valid_scheme(scheme)
-            || scheme.eq_ignore_ascii_case("vless")
-            || scheme.eq_ignore_ascii_case("ss")
-            || scheme.eq_ignore_ascii_case("trojan")
-            || scheme.eq_ignore_ascii_case("vmess")
-            || scheme.eq_ignore_ascii_case("hysteria2")
-            || scheme.eq_ignore_ascii_case("hy2")
-            || scheme.eq_ignore_ascii_case("tuic")
-        {
-            Err(NodeRejection::Invalid(InvalidNodeReason::Uri))
-        } else {
-            Err(NodeRejection::Unsupported(UnsupportedCapability::Protocol))
-        }
-    } else {
-        Err(NodeRejection::Invalid(InvalidNodeReason::Uri))
-    }
-}
-
-fn is_valid_scheme(input: &str) -> bool {
-    let mut bytes = input.bytes();
-    bytes.next().is_some_and(|byte| byte.is_ascii_alphabetic())
-        && bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.'))
-}
-
-fn parse_endpoint(input: &str) -> Result<Endpoint, NodeRejection> {
+pub(crate) fn parse_endpoint(input: &str) -> Result<Endpoint, NodeRejection> {
     let invalid = || NodeRejection::Invalid(InvalidNodeReason::Endpoint);
     let (host, port) = if let Some(bracketed) = input.strip_prefix('[') {
         let (address, suffix) = bracketed.split_once(']').ok_or_else(invalid)?;
@@ -109,7 +58,7 @@ fn parse_endpoint(input: &str) -> Result<Endpoint, NodeRejection> {
     Endpoint::new(host, port).ok_or_else(invalid)
 }
 
-fn parse_authority_uri(input: &str) -> Result<AuthorityUri<'_>, NodeRejection> {
+pub(crate) fn parse_authority_uri(input: &str) -> Result<AuthorityUri<'_>, NodeRejection> {
     let uri = parse_authority_uri_optional(input)?;
     let userinfo = uri
         .userinfo
@@ -122,7 +71,9 @@ fn parse_authority_uri(input: &str) -> Result<AuthorityUri<'_>, NodeRejection> {
     })
 }
 
-fn parse_authority_uri_optional(input: &str) -> Result<OptionalAuthUri<'_>, NodeRejection> {
+pub(crate) fn parse_authority_uri_optional(
+    input: &str,
+) -> Result<OptionalAuthUri<'_>, NodeRejection> {
     let invalid = || NodeRejection::Invalid(InvalidNodeReason::Uri);
     let (before_fragment, name_input) = if let Some((before, fragment)) = input.split_once('#') {
         if fragment.contains('#') {
@@ -173,7 +124,7 @@ fn parse_authority_uri_optional(input: &str) -> Result<OptionalAuthUri<'_>, Node
     })
 }
 
-fn scan_query(input: &str) -> Result<Vec<QueryPair<'_>>, NodeRejection> {
+pub(crate) fn scan_query(input: &str) -> Result<Vec<QueryPair<'_>>, NodeRejection> {
     let mut seen = BTreeSet::new();
     let mut pairs = Vec::new();
 
@@ -199,6 +150,3 @@ fn scan_query(input: &str) -> Result<Vec<QueryPair<'_>>, NodeRejection> {
 
     Ok(pairs)
 }
-
-#[cfg(test)]
-mod tests;

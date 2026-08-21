@@ -1,5 +1,8 @@
 use std::fmt;
 
+mod share;
+pub(crate) use share::parse;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ShadowsocksNode {
     cipher: ShadowsocksCipher,

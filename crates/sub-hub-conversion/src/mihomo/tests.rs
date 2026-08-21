@@ -1,4 +1,5 @@
-use crate::{render::render_builtin_mihomo_v1, subscription_source::parse_subscription_sources};
+use crate::OutputTarget;
+use crate::direct_subscription::render_remote_builtin;
 
 mod diagnostics;
 mod golden;
@@ -7,19 +8,19 @@ mod mapping;
 mod privacy;
 
 fn rendered_yaml(source: &[u8]) -> serde_yaml_ng::Value {
-    let parsed = parse_subscription_sources(&[source]).expect("valid subscription source");
-    let output = render_builtin_mihomo_v1(parsed).expect("builtin Mihomo output");
-    serde_yaml_ng::from_slice(output.config()).expect("valid YAML")
+    let output =
+        render_remote_builtin(OutputTarget::Mihomo, &[source]).expect("builtin Mihomo output");
+    serde_yaml_ng::from_slice(output.as_bytes()).expect("valid YAML")
 }
 
 #[test]
 fn builtin_topology_wraps_a_single_vless_node() {
     let source = b"vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha";
-    let parsed = parse_subscription_sources(&[source]).expect("valid subscription source");
-    let output = render_builtin_mihomo_v1(parsed).expect("builtin Mihomo output");
+    let output =
+        render_remote_builtin(OutputTarget::Mihomo, &[source]).expect("builtin Mihomo output");
 
     assert_eq!(
-        std::str::from_utf8(output.config()).expect("UTF-8 YAML"),
+        std::str::from_utf8(output.as_bytes()).expect("UTF-8 YAML"),
         concat!(
             "mode: rule\n",
             "proxies:\n",

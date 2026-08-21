@@ -1,7 +1,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sub_hub_conversion::{
     OutputTarget, RemoteSourceFailureV1, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, UniqueFlightsV1, prefix_preparation_error_v1, prepare_subscription_v1,
+    SubscriptionSourceV1, UniqueFlightFillV1, UniqueFlightPrefix, prepare_subscription_v1,
 };
 
 const ALPHA: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
@@ -93,14 +93,28 @@ fn source_count_and_direct_occurrence_framing_are_strict() {
 }
 
 #[test]
+fn unique_from_occurrences_yields_first_seen_identities() {
+    let remote_a = "https://upstream.example/a";
+    let remote_b = "https://upstream.example/b";
+    let fill =
+        UniqueFlightFillV1::bind_optional([None, Some(remote_a), Some(remote_a), Some(remote_b)]);
+    let occurrences = [None, Some("A"), Some("A"), Some("B")];
+    assert_eq!(
+        fill.unique_from_occurrences(&occurrences).as_deref(),
+        Some(&["A", "B"][..])
+    );
+    assert_eq!(fill.unique_from_occurrences(&[None, Some("A")]), None);
+}
+
+#[test]
 fn unique_flights_zip_direct_and_unique_remote_bodies() {
     let alpha = ALPHA.to_owned();
     let remote = "https://upstream.example/a".to_owned();
-    let flights =
-        UniqueFlightsV1::bind_optional([None, Some(remote.as_str()), Some(remote.as_str())]);
-    let sources = vec![alpha, remote.clone(), remote];
+    let fill =
+        UniqueFlightFillV1::bind_optional([None, Some(remote.as_str()), Some(remote.as_str())]);
+    let sources = vec![alpha, remote.clone(), remote.clone()];
     let bodies = vec![BETA.as_bytes().to_vec()];
-    let prepared = flights
+    let prepared = fill
         .prepare_subscription(&sources, &bodies)
         .expect("aligned")
         .expect("parsed");
@@ -108,10 +122,8 @@ fn unique_flights_zip_direct_and_unique_remote_bodies() {
         prepared.remote_decoded_bytes_by_source(),
         &[None, Some(BETA.len()), Some(BETA.len())]
     );
-    assert_eq!(
-        flights.unique_decoded_accounts(&prepared),
-        Some(vec![(0, BETA.len())])
-    );
+    assert_eq!(fill.unique_urls(), &[remote]);
+    assert_eq!(fill.unique_decoded_bytes(&prepared), Some(vec![BETA.len()]));
     let bytes = prepared
         .render_builtin_v1(OutputTarget::Mihomo)
         .expect("builtin")
@@ -123,18 +135,29 @@ fn unique_flights_zip_direct_and_unique_remote_bodies() {
 
 #[test]
 fn prefix_error_beats_a_later_unique_flight_failure() {
-    assert_eq!(prefix_preparation_error_v1(&[]), None);
+    let remote = "https://upstream.example/a";
+    let fill = UniqueFlightFillV1::bind_optional([None, Some(remote)]);
+    let loaded: &[Option<&[u8]>] = &[];
+
     assert_eq!(
-        prefix_preparation_error_v1(&[SubscriptionSourceV1::Direct(ALPHA)]),
-        None
+        fill.prefix_error_before_unique_failure(&[ALPHA.to_owned(), remote.to_owned()], loaded, 0),
+        UniqueFlightPrefix::Continue
     );
     assert_eq!(
-        prefix_preparation_error_v1(&[SubscriptionSourceV1::Direct("")]),
-        Some(SubscriptionPreparationError::InvalidInput)
+        fill.prefix_error_before_unique_failure(&[String::new(), remote.to_owned()], loaded, 0),
+        UniqueFlightPrefix::Error(SubscriptionPreparationError::InvalidInput)
     );
     assert_eq!(
-        prefix_preparation_error_v1(&[SubscriptionSourceV1::Direct("not-a-share-uri")]),
-        None
+        fill.prefix_error_before_unique_failure(
+            &["not-a-share-uri".to_owned(), remote.to_owned()],
+            loaded,
+            0
+        ),
+        UniqueFlightPrefix::Continue
+    );
+    assert_eq!(
+        fill.prefix_error_before_unique_failure(&[ALPHA.to_owned(), remote.to_owned()], loaded, 9),
+        UniqueFlightPrefix::Misaligned
     );
 }
 

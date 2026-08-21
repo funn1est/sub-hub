@@ -1,4 +1,6 @@
 use super::rendered_yaml;
+use crate::OutputTarget;
+use crate::direct_subscription::render_remote_builtin;
 
 #[test]
 fn vless_websocket_tls_projects_every_supported_capability() {
@@ -349,15 +351,13 @@ fn tuic_v5_defaults_and_options_project_supported_fields() {
 #[test]
 fn yaml_scalars_round_trip_names_and_secrets_that_require_escaping() {
     let source = b"ss://aes-128-gcm:line%0Abreak@EXAMPLE.COM:8388#%3A%20%5Bnode%5D%20%23";
-    let parsed = crate::subscription_source::parse_subscription_sources(&[source])
-        .expect("valid subscription source");
-    let output = crate::render::render_builtin_mihomo_v1(parsed).expect("rendered output");
+    let output = render_remote_builtin(OutputTarget::Mihomo, &[source]).expect("rendered output");
     let actual: serde_yaml_ng::Value =
-        serde_yaml_ng::from_slice(output.config()).expect("valid YAML");
+        serde_yaml_ng::from_slice(output.as_bytes()).expect("valid YAML");
 
     assert_eq!(actual["proxies"][0]["name"], ": [node] #");
     assert_eq!(actual["proxies"][0]["password"], "line\nbreak");
     assert_eq!(actual["proxies"][0]["server"], "example.com");
-    assert!(output.config().ends_with(b"\n"));
-    assert!(!output.config().ends_with(b"\n\n"));
+    assert!(output.as_bytes().ends_with(b"\n"));
+    assert!(!output.as_bytes().ends_with(b"\n\n"));
 }

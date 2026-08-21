@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -8,96 +10,95 @@ import {
   QUERY_KEYS,
   SKIPPED_HEADER,
   TARGETS,
+  VERSION_BODY,
   VERSION_PATH,
+  encodeSubGetTarget,
   fallbackDownloadName,
   isQueryKey,
   isTarget,
-  decodeSubGetTarget,
-  encodeSubGetTarget,
-  parseSkippedFromHeaders,
   parseSkippedHeader,
+  percentDecodeValue,
+  subscriptionMediaType,
+  type Target,
 } from "./service-contract.ts"
+import { parseSkippedFromHeaders } from "./preview.ts"
+import { parseSubscriptionUrl } from "./workshop.ts"
+
+type GoldenContract = {
+  targets: string[]
+  queryKeys: string[]
+  maxSources: number
+  getTargetLimitBytes: number
+  versionPath: string
+  versionBodyPattern: string
+  skippedHeader: string
+  exposedHeaders: string[]
+  errors: string[]
+  filenames: Record<string, string>
+  percentDecode: Array<{ encoded: string; decoded: string | null }>
+  skipSamples: Array<{
+    skipped: string
+    counts: { parse: number; capability: number; name: number }
+  }>
+}
+
+async function loadContract(): Promise<GoldenContract> {
+  const raw = await readFile(
+    resolve(
+      import.meta.dirname,
+      "../../../../testdata/subscription-url/cases.json"
+    ),
+    "utf8"
+  )
+  return (JSON.parse(raw) as { contract: GoldenContract }).contract
+}
 
 describe("Conversion Service GET contract", () => {
-  it("lists the closed target tokens including the clash alias", () => {
-    expect(TARGETS).toEqual([
-      "clash",
-      "mihomo",
-      "quanx",
-      "singbox",
-      "loon",
-      "egern",
-    ])
+  it("matches the shared golden tables", async () => {
+    const contract = await loadContract()
+    expect(TARGETS).toEqual(contract.targets)
     expect(isTarget("clash")).toBe(true)
     expect(isTarget("clashmeta")).toBe(false)
-  })
-
-  it("pins the HTTP query keys, source cap, and GET target byte limit", () => {
-    expect(QUERY_KEYS).toEqual([
-      "target",
-      "url",
-      "config",
-      "append_info",
-      "insert",
-    ])
-    expect(isQueryKey("insert")).toBe(true)
-    expect(MAX_SOURCES).toBe(5)
-    expect(GET_TARGET_LIMIT_BYTES).toBe(8192)
-  })
-
-  it("pins the exact English error bodies", () => {
-    expect(KNOWN_SERVICE_ERRORS).toEqual([
-      "Invalid target!",
-      "Invalid request!",
-      "No nodes were found!",
-      "Resource limit exceeded!",
-      "Unauthorized!",
-      "Not Found",
-      "Method Not Allowed",
-      "URI Too Long",
-      "Bad Gateway",
-      "Gateway Timeout",
-      "Internal Server Error",
-    ])
-  })
-
-  it("treats clash as the Mihomo wire alias and keeps append_info off the interval header", () => {
-    expect(fallbackDownloadName("clash")).toBe(fallbackDownloadName("mihomo"))
-    expect(QUERY_KEYS).toContain("append_info")
-    expect(EXPOSED_HEADERS).toContain("subscription-userinfo")
-    expect(EXPOSED_HEADERS).toContain("profile-update-interval")
-  })
-
-  it("pins CORS-exposed headers and skip grammar", () => {
-    expect(EXPOSED_HEADERS).toEqual([
-      "content-disposition",
-      "profile-update-interval",
-      "subscription-userinfo",
-      "x-subconverter-result",
-      "x-subconverter-omitted-rules",
-      SKIPPED_HEADER,
-    ])
-    expect(VERSION_PATH).toBe("/version")
-    expect(parseSkippedHeader("parse=1;capability=4;name=0")).toEqual({
-      parse: 1,
-      capability: 4,
-      name: 0,
-    })
-    expect(
-      parseSkippedFromHeaders([
-        { name: SKIPPED_HEADER, value: "parse=1;capability=4;name=0" },
-      ])
-    ).toEqual({ parse: 1, capability: 4, name: 0 })
-  })
-
-  it("treats insert as a known query key that is never reassembled", () => {
+    expect(QUERY_KEYS).toEqual(contract.queryKeys)
     expect(isQueryKey("insert")).toBe(true)
     expect(isQueryKey("filename")).toBe(false)
-  })
-
-  it("names download fallbacks per wire target", () => {
-    expect(fallbackDownloadName("mihomo")).toBe("sub-hub-mihomo.yaml")
-    expect(fallbackDownloadName("clash")).toBe("sub-hub-mihomo.yaml")
+    expect(MAX_SOURCES).toBe(contract.maxSources)
+    expect(GET_TARGET_LIMIT_BYTES).toBe(contract.getTargetLimitBytes)
+    expect(KNOWN_SERVICE_ERRORS).toEqual(contract.errors)
+    expect(SKIPPED_HEADER).toBe(contract.skippedHeader)
+    expect(EXPOSED_HEADERS).toEqual(contract.exposedHeaders)
+    expect(VERSION_PATH).toBe(contract.versionPath)
+    expect(VERSION_BODY.source).toBe(contract.versionBodyPattern)
+    expect(fallbackDownloadName("clash")).toBe(fallbackDownloadName("mihomo"))
+    expect(subscriptionMediaType("singbox")).toBe(
+      "application/json;charset=utf-8"
+    )
+    expect(subscriptionMediaType("mihomo")).toBe("text/plain;charset=utf-8")
+    for (const [target, filename] of Object.entries(contract.filenames)) {
+      expect(fallbackDownloadName(target as Target)).toBe(filename)
+    }
+    for (const sample of contract.skipSamples) {
+      expect(parseSkippedHeader(sample.skipped)).toEqual(sample.counts)
+      expect(
+        parseSkippedFromHeaders([
+          { name: SKIPPED_HEADER, value: sample.skipped },
+        ])
+      ).toEqual(sample.counts)
+    }
+    for (const sample of contract.percentDecode) {
+      expect(percentDecodeValue(sample.encoded)).toBe(sample.decoded)
+      const decoded = parseSubscriptionUrl(
+        `http://127.0.0.1:25500/sub?target=clash&url=${sample.encoded}`
+      )
+      if (sample.decoded === null) {
+        expect(decoded.ok).toBe(false)
+      } else {
+        expect(decoded.ok).toBe(true)
+        if (decoded.ok) {
+          expect(decoded.workshop.sources).toEqual([sample.decoded])
+        }
+      }
+    }
   })
 
   it("encodes request-target without insert and decodes plus as literal", () => {
@@ -112,15 +113,15 @@ describe("Conversion Service GET contract", () => {
       "/sub?target=clash&url=ss%3A%2F%2Faes-128-gcm%3Ap%2Bss%40example.com%3A8388%23Plus"
     )
     expect(getTarget).not.toContain("insert")
-    const decoded = decodeSubGetTarget(`http://127.0.0.1:25500${getTarget}`)
+    const decoded = parseSubscriptionUrl(`http://127.0.0.1:25500${getTarget}`)
     expect(decoded.ok).toBe(true)
     if (decoded.ok) {
-      expect(decoded.sources).toEqual([
+      expect(decoded.workshop.sources).toEqual([
         "ss://aes-128-gcm:p+ss@example.com:8388#Plus",
       ])
     }
     expect(
-      decodeSubGetTarget(
+      parseSubscriptionUrl(
         "http://127.0.0.1:25500/sub/?target=clash&url=vless://x"
       ).ok
     ).toBe(false)

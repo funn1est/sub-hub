@@ -14,7 +14,8 @@ use super::{
     },
 };
 use crate::{
-    MAX_RULE_SET_BYTES, UniqueFlightsV1,
+    MAX_RULE_SET_BYTES,
+    flight::UniqueFlightsV1,
     policy::{
         CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
         PolicyMemberV1, PolicyReportV1, RuleMatcherV1,

@@ -1,10 +1,10 @@
 mod error;
 
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 
 use crate::{
-    MAX_SUBSCRIPTION_INPUT_BYTES, MAX_SUBSCRIPTION_SOURCES, node::ProxyNodeDraft,
-    share_uri::parse_share_uri,
+    MAX_SUBSCRIPTION_INPUT_BYTES, MAX_SUBSCRIPTION_SOURCES,
+    node::{ProxyNodeDraft, parse_share_uri},
 };
 use base64::{
     Engine as _,
@@ -25,32 +25,47 @@ pub(crate) struct ParsedSubscriptionSources {
 
 impl ParsedSubscriptionSources {
     pub(crate) fn parse_skip_count(&self) -> u32 {
-        u32::try_from(
-            self.occurrences
-                .iter()
-                .filter(|occurrence| matches!(occurrence, NodeOccurrence::Rejected { .. }))
-                .count(),
-        )
-        .unwrap_or(u32::MAX)
+        NodeOccurrence::rejected_count(&self.occurrences)
     }
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum SubscriptionSourceInput<'a> {
+pub enum SubscriptionSourceV1<'a> {
     Direct(&'a str),
     Remote(&'a [u8]),
 }
 
+impl fmt::Debug for SubscriptionSourceV1<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Direct(_) => "Direct([REDACTED])",
+            Self::Remote(_) => "Remote([REDACTED])",
+        })
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum NodeOccurrence {
+pub(crate) enum NodeOccurrence<N = ProxyNodeDraft> {
     Accepted {
         origin: NodeOrigin,
-        node: Box<ProxyNodeDraft>,
+        node: Box<N>,
     },
     Rejected {
         origin: NodeOrigin,
-        rejection: crate::share_uri::NodeRejection,
+        rejection: crate::node::NodeRejection,
     },
+}
+
+impl<N> NodeOccurrence<N> {
+    pub(crate) fn rejected_count(occurrences: &[Self]) -> u32 {
+        u32::try_from(
+            occurrences
+                .iter()
+                .filter(|occurrence| matches!(occurrence, Self::Rejected { .. }))
+                .count(),
+        )
+        .unwrap_or(u32::MAX)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -67,13 +82,13 @@ pub(crate) fn parse_subscription_sources(
     let sources = bodies_in_declaration_order
         .iter()
         .copied()
-        .map(SubscriptionSourceInput::Remote)
+        .map(SubscriptionSourceV1::Remote)
         .collect::<Vec<_>>();
     parse_subscription_source_inputs(&sources)
 }
 
 pub(crate) fn parse_subscription_source_inputs(
-    sources_in_declaration_order: &[SubscriptionSourceInput<'_>],
+    sources_in_declaration_order: &[SubscriptionSourceV1<'_>],
 ) -> Result<ParsedSubscriptionSources, SubscriptionParseError> {
     if sources_in_declaration_order.len() > MAX_SUBSCRIPTION_SOURCES {
         return Err(SubscriptionParseError::TooManySources);
@@ -85,7 +100,7 @@ pub(crate) fn parse_subscription_source_inputs(
 
     for (source_index, source) in sources_in_declaration_order.iter().enumerate() {
         match source {
-            SubscriptionSourceInput::Direct(source) => {
+            SubscriptionSourceV1::Direct(source) => {
                 remote_decoded_bytes.push(None);
                 let origin = NodeOrigin {
                     source: source_index,
@@ -94,7 +109,7 @@ pub(crate) fn parse_subscription_source_inputs(
                 };
                 push_occurrence(source, origin, &mut occurrences, &mut total_occurrences)?;
             }
-            SubscriptionSourceInput::Remote(body) => {
+            SubscriptionSourceV1::Remote(body) => {
                 if body.len() > MAX_INPUT_BYTES {
                     return Err(SubscriptionParseError::InputTooLarge { source_index });
                 }
