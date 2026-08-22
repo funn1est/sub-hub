@@ -6,7 +6,7 @@ proptest! {
 
     #[test]
     fn arbitrary_bounded_bytes_are_deterministic_and_never_panic(
-        sources in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..=2_048), 0..=5),
+        sources in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..=2_048), 0..=8),
     ) {
         let bodies = sources.iter().map(Vec::as_slice).collect::<Vec<_>>();
 

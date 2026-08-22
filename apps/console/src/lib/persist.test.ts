@@ -52,6 +52,24 @@ describe("persist", () => {
     expect(loaded).not.toHaveProperty("previewBody")
   })
 
+  it("round-trips more than five sources without truncating", () => {
+    const six = {
+      ...sample,
+      sources: [
+        "vless://u@h:443#A",
+        "ss://p@h:8388#B",
+        "vless://u@h:443#C",
+        "vless://u@h:443#D",
+        "vless://u@h:443#E",
+        "vless://u@h:443#F",
+      ],
+    }
+    const loaded = loadPersisted({
+      getItem: () => serializePersisted(six),
+    })
+    expect(loaded.sources).toEqual(six.sources)
+  })
+
   it("falls back to defaults when the stored blob is missing or invalid", () => {
     const empty = loadPersisted(
       { getItem: () => null },

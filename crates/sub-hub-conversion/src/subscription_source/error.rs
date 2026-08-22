@@ -4,7 +4,6 @@ use super::NodeOrigin;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SubscriptionParseError {
-    TooManySources,
     InputTooLarge { source_index: usize },
     DecodedSourceTooLarge { source_index: usize },
     InvalidUtf8 { source_index: usize },
@@ -16,7 +15,6 @@ impl SubscriptionParseError {
     #[cfg(test)]
     pub(crate) const fn code(&self) -> &'static str {
         match self {
-            Self::TooManySources => "too_many_sources",
             Self::InputTooLarge { .. } => "input_too_large",
             Self::DecodedSourceTooLarge { .. } => "decoded_source_too_large",
             Self::InvalidUtf8 { .. } => "invalid_utf8",
@@ -29,7 +27,6 @@ impl SubscriptionParseError {
 impl fmt::Display for SubscriptionParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TooManySources => formatter.write_str("too many subscription sources"),
             Self::InputTooLarge { .. } => formatter.write_str("subscription input is too large"),
             Self::DecodedSourceTooLarge { .. } => {
                 formatter.write_str("decoded subscription source is too large")

@@ -6,7 +6,6 @@ import {
   EXPOSED_HEADERS,
   GET_TARGET_LIMIT_BYTES,
   KNOWN_SERVICE_ERRORS,
-  MAX_SOURCES,
   QUERY_KEYS,
   SKIPPED_HEADER,
   TARGETS,
@@ -30,7 +29,6 @@ import { parseSubscriptionUrl } from "./workshop.ts"
 type GoldenContract = {
   targets: string[]
   queryKeys: string[]
-  maxSources: number
   getTargetLimitBytes: number
   versionPath: string
   versionBodyPattern: string
@@ -68,7 +66,6 @@ describe("Conversion Service GET contract", () => {
     expect(QUERY_KEYS).toEqual(contract.queryKeys)
     expect(isQueryKey("insert")).toBe(true)
     expect(isQueryKey("filename")).toBe(false)
-    expect(MAX_SOURCES).toBe(contract.maxSources)
     expect(GET_TARGET_LIMIT_BYTES).toBe(contract.getTargetLimitBytes)
     expect(KNOWN_SERVICE_ERRORS).toEqual(contract.errors)
     expect(SKIPPED_HEADER).toBe(contract.skippedHeader)

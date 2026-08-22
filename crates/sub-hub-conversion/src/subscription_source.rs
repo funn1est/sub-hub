@@ -3,7 +3,7 @@ mod error;
 use std::{borrow::Cow, fmt};
 
 use crate::{
-    MAX_SUBSCRIPTION_INPUT_BYTES, MAX_SUBSCRIPTION_SOURCES,
+    MAX_SUBSCRIPTION_INPUT_BYTES,
     node::{ProxyNodeDraft, parse_share_uri},
 };
 use base64::{
@@ -90,10 +90,6 @@ pub(crate) fn parse_subscription_sources(
 pub(crate) fn parse_subscription_source_inputs(
     sources_in_declaration_order: &[SubscriptionSourceV1<'_>],
 ) -> Result<ParsedSubscriptionSources, SubscriptionParseError> {
-    if sources_in_declaration_order.len() > MAX_SUBSCRIPTION_SOURCES {
-        return Err(SubscriptionParseError::TooManySources);
-    }
-
     let mut occurrences = Vec::new();
     let mut remote_decoded_bytes = Vec::with_capacity(sources_in_declaration_order.len());
     let mut total_occurrences = 0;

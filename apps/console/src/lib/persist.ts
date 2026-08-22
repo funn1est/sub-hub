@@ -1,4 +1,4 @@
-import { MAX_SOURCES, isTarget, type Target } from "./service-contract.ts"
+import { isTarget, type Target } from "./service-contract.ts"
 
 export const PERSIST_KEY = "sub-hub.console.v1"
 
@@ -81,7 +81,7 @@ export function serializePersisted(state: PersistedWorkshop): string {
     theme: state.theme,
     serviceOrigin: state.serviceOrigin,
     accessToken: state.accessToken,
-    sources: state.sources.slice(0, MAX_SOURCES),
+    sources: state.sources,
     target: state.target,
     configUrl: state.configUrl,
     appendInfo: state.appendInfo,
@@ -112,7 +112,6 @@ export function parsePersisted(
   const sources = Array.isArray(value.sources)
     ? value.sources
         .filter((item): item is string => typeof item === "string")
-        .slice(0, MAX_SOURCES)
     : defaults.sources
 
   return {

@@ -725,9 +725,6 @@ fn decoded_source_framing_preserves_order_and_rejects_invalid_shapes() {
     let beta = yaml.find("- name: Beta\n").expect("Beta node");
     assert!(alpha < beta);
 
-    let six_sources = std::iter::repeat_n(ENCODED_VLESS, 6)
-        .collect::<Vec<_>>()
-        .join("%7C");
     let invalid_values = [
         String::new(),
         format!("%7C{ENCODED_VLESS}"),
@@ -735,7 +732,6 @@ fn decoded_source_framing_preserves_order_and_rejects_invalid_shapes() {
         format!("{ENCODED_VLESS}%7C%7C{ENCODED_VLESS_BETA}"),
         format!("%20{ENCODED_VLESS}"),
         format!("{ENCODED_VLESS}%09"),
-        six_sources,
         "HTTPS%3A%2F%2Fexample.com%2Fsubscription".to_owned(),
         format!("{ENCODED_VLESS}%7CHtTp%3A%2F%2Fexample.com%2Fsubscription"),
     ];
@@ -765,6 +761,29 @@ fn five_duplicate_sources_are_accepted_without_http_layer_deduplication() {
         assert!(yaml.contains(&format!("- name: {name}\n")), "{name}");
     }
     assert_eq!(yaml.matches("  server: example.com\n").count(), 5);
+}
+
+#[test]
+fn six_duplicate_sources_are_accepted_without_a_source_count_cap() {
+    let sources = std::iter::repeat_n(ENCODED_VLESS, 6)
+        .collect::<Vec<_>>()
+        .join("|");
+    let query = format!("target=clash&url={sources}");
+    let response = handle(HttpRequest::new(Method::GET, "/sub", Some(&query)));
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let yaml = std::str::from_utf8(response.body()).expect("UTF-8 Mihomo YAML");
+    for name in [
+        "Alpha",
+        "Alpha~00001",
+        "Alpha~00002",
+        "Alpha~00003",
+        "Alpha~00004",
+        "Alpha~00005",
+    ] {
+        assert!(yaml.contains(&format!("- name: {name}\n")), "{name}");
+    }
+    assert_eq!(yaml.matches("  server: example.com\n").count(), 6);
 }
 
 #[test]

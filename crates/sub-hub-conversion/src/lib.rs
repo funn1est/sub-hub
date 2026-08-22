@@ -29,8 +29,6 @@ mod unique_fill;
 
 mod target;
 
-/// One conversion request may name this many subscription sources.
-pub const MAX_SUBSCRIPTION_SOURCES: usize = 5;
 /// Raw remote subscription body size accepted before container decode.
 pub const MAX_SUBSCRIPTION_INPUT_BYTES: usize = 2_796_206;
 /// One Rule Set body size accepted during materialization and fetch.

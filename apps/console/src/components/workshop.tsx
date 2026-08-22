@@ -72,7 +72,7 @@ import {
   acl4ssrConfigLabel,
   type Acl4ssrConfigFile,
 } from "@/lib/acl4ssr-catalog.ts"
-import { MAX_SOURCES, TARGETS, isTarget } from "@/lib/service-contract.ts"
+import { TARGETS, isTarget } from "@/lib/service-contract.ts"
 import type {
   ConfigSelectionId,
   VersionState,
@@ -304,19 +304,17 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
               </Field>
             )
           })}
-          {fields.sources.length < MAX_SOURCES ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={() =>
-                session.actions.patch({ sources: [...fields.sources, ""] })
-              }
-            >
-              <PlusIcon data-icon="inline-start" />
-              {copy.addSource}
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() =>
+              session.actions.patch({ sources: [...fields.sources, ""] })
+            }
+          >
+            <PlusIcon data-icon="inline-start" />
+            {copy.addSource}
+          </Button>
           {view.pasteWarnings.map((warning) => (
             <Alert key={warning}>
               <CircleAlertIcon />

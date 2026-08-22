@@ -67,10 +67,7 @@ fn direct_preparation_enforces_occurrence_shape_and_count() {
     }
 
     assert!(render_direct(&[VALID_DIRECT; 5]).is_ok());
-    assert_eq!(
-        render_direct(&[VALID_DIRECT; 6]).unwrap_err(),
-        UniqueFlightFillFailure::InvalidInput
-    );
+    assert!(render_direct(&[VALID_DIRECT; 6]).is_ok());
 }
 
 #[test]

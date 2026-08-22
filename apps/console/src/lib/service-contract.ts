@@ -22,7 +22,6 @@ export const TARGETS = [
 
 export type Target = (typeof TARGETS)[number]
 
-export const MAX_SOURCES = 5
 /** HTTP 414 when GET/HEAD request-target length is greater than this. */
 export const GET_TARGET_LIMIT_BYTES = 8192
 

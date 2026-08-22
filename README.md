@@ -25,11 +25,13 @@ The current compatibility surface contains only:
 
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
 `quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), or `egern`
-(Egern YAML). Its `url` value accepts one to five ordered inputs separated by
+(Egern YAML). Its `url` value accepts one or more ordered inputs separated by
 `|`: supported share URIs (VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess,
 Hysteria2 `hysteria2://` / `hy2://`, TUIC v5
 `tuic://uuid:password@host:port`) or HTTPS subscription URLs whose raw/Base64
-contents contain those URIs. An optional HTTPS `config` value selects a strict
+contents contain those URIs. A GET/HEAD request-target over 8 KiB returns 414.
+Remote, decode, and node budgets still fail closed as
+`Resource limit exceeded!`. An optional HTTPS `config` value selects a strict
 ACL4SSR INI configuration and its remote Rule Sets. Absent or empty `config=`
 uses the default PROXY/AUTO policy; that is not a remote Rule frontend.
 `URL-REGEX` is emitted for Loon and omitted on the other targets. Quantumult X

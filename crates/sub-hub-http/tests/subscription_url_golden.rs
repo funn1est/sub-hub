@@ -63,8 +63,6 @@ struct Contract {
     targets: Vec<String>,
     #[serde(rename = "queryKeys")]
     query_keys: Vec<String>,
-    #[serde(rename = "maxSources")]
-    max_sources: usize,
     #[serde(rename = "getTargetLimitBytes")]
     get_target_limit_bytes: usize,
     #[serde(rename = "versionPath")]
@@ -168,7 +166,6 @@ fn get_contract_tables_match_the_http_adapter() {
     assert_eq!(contract.targets.len(), contract.filenames.len());
     assert_eq!(contract.media_types.len(), contract.targets.len());
     assert_eq!(contract.dispositions.len(), contract.targets.len());
-    assert_eq!(contract.max_sources, 5);
     assert_eq!(contract.get_target_limit_bytes, 8192);
     assert!(contract.query_keys.contains(&"insert".to_owned()));
 
@@ -195,38 +192,6 @@ fn get_contract_tables_match_the_http_adapter() {
             contract.errors.iter().any(|error| error == &sample.body),
             "{}",
             sample.id
-        );
-    }
-
-    for target in &contract.targets {
-        let response = handle("/sub", &format!("target={target}&url={VLESS}"));
-        assert_eq!(response.status(), StatusCode::OK, "{target}");
-        let filename = contract.filenames.get(target).expect("filename");
-        let media_type = contract.media_types.get(target).expect("media type");
-        let expected_disposition = contract.dispositions.get(target).expect("disposition");
-        assert!(
-            expected_disposition.contains(filename.as_str()),
-            "{target}: disposition must name {filename}"
-        );
-        assert_eq!(
-            response
-                .headers()
-                .get(header::CONTENT_DISPOSITION)
-                .expect("disposition")
-                .to_str()
-                .expect("ascii"),
-            expected_disposition,
-            "{target}"
-        );
-        assert_eq!(
-            response
-                .headers()
-                .get(header::CONTENT_TYPE)
-                .expect("content-type")
-                .to_str()
-                .expect("ascii"),
-            media_type,
-            "{target}"
         );
     }
 
@@ -287,4 +252,40 @@ fn get_contract_tables_match_the_http_adapter() {
         .to_str()
         .expect("ascii");
     assert_eq!(exposed, contract.exposed_headers.join(", "));
+}
+
+#[test]
+fn get_contract_target_headers_match_the_http_adapter() {
+    let contract = load().contract;
+    for target in &contract.targets {
+        let response = handle("/sub", &format!("target={target}&url={VLESS}"));
+        assert_eq!(response.status(), StatusCode::OK, "{target}");
+        let filename = contract.filenames.get(target).expect("filename");
+        let media_type = contract.media_types.get(target).expect("media type");
+        let expected_disposition = contract.dispositions.get(target).expect("disposition");
+        assert!(
+            expected_disposition.contains(filename.as_str()),
+            "{target}: disposition must name {filename}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_DISPOSITION)
+                .expect("disposition")
+                .to_str()
+                .expect("ascii"),
+            expected_disposition,
+            "{target}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .expect("content-type")
+                .to_str()
+                .expect("ascii"),
+            media_type,
+            "{target}"
+        );
+    }
 }

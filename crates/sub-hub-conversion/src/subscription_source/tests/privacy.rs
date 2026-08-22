@@ -3,7 +3,6 @@ use super::{NodeOccurrence, NodeOrigin, SubscriptionParseError, parse_subscripti
 #[test]
 fn source_error_codes_are_closed_and_low_cardinality() {
     let cases = [
-        (SubscriptionParseError::TooManySources, "too_many_sources"),
         (
             SubscriptionParseError::InputTooLarge { source_index: 7 },
             "input_too_large",

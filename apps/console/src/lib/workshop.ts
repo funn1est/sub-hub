@@ -1,6 +1,5 @@
 import {
   GET_TARGET_LIMIT_BYTES,
-  MAX_SOURCES,
   encodeSubGetTarget,
   isHttpSource,
   isQueryKey,
@@ -145,7 +144,6 @@ export function assembleSubscription(
     origin === null ||
     !token.ok ||
     sources.length === 0 ||
-    sources.length > MAX_SOURCES ||
     sources.some((source) => source.includes("|") || isHttpSource(source)) ||
     !isTarget(input.target) ||
     (config.length > 0 && parseHttpsResourceUrl(config) === null)

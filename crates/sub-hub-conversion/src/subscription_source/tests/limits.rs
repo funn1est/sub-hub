@@ -10,16 +10,11 @@ const VALID_URI: &str =
     "vless://11111111-1111-4111-8111-111111111111@example.com:443?encryption=none";
 
 #[test]
-fn at_most_five_subscription_sources_are_accepted() {
-    let five: [&[u8]; 5] = [b""; 5];
-    let parsed =
-        parse_subscription_sources(&five).expect("five sources are within the request cap");
-    assert!(parsed.occurrences.is_empty());
-
+fn source_count_is_not_a_separate_request_cap() {
     let six: [&[u8]; 6] = [b""; 6];
-    let error = parse_subscription_sources(&six)
-        .expect_err("source count is bounded even when every source is empty");
-    assert_eq!(error, SubscriptionParseError::TooManySources);
+    let parsed =
+        parse_subscription_sources(&six).expect("source count is bounded by other resource limits");
+    assert!(parsed.occurrences.is_empty());
 }
 
 #[test]

@@ -60,7 +60,7 @@ export const messages = {
       "This origin did not allow the Console to read /version. Set SUB_HUB_CORS_ORIGINS on the Conversion Service to this Console origin.",
     sources: "Sources",
     sourcesDescription:
-      "One to five ordered rows. Each row is one share URI or one https:// subscription URL. Duplicates are kept. Paste a Subscription URL to fill the form.",
+      "Ordered rows. Each row is one share URI or one https:// subscription URL. Duplicates are kept. Paste a Subscription URL to fill the form.",
     sourceN: "Source",
     addSource: "Add source",
     removeSource: "Remove",
@@ -157,7 +157,7 @@ export const messages = {
       "这个 origin 未允许 Console 读取 /version。请在 Conversion Service 上把本 Console origin 写入 SUB_HUB_CORS_ORIGINS。",
     sources: "源",
     sourcesDescription:
-      "1 到 5 行，按顺序。每行是一条 share URI 或一个 https:// 订阅 URL。重复会保留。粘贴 Subscription URL 可回填表单。",
+      "按顺序，每行一条 share URI 或一个 https:// 订阅 URL。重复会保留。粘贴 Subscription URL 可回填表单。",
     sourceN: "源",
     addSource: "添加源",
     removeSource: "删除",

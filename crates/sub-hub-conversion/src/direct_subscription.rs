@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::{
-    MAX_SUBSCRIPTION_SOURCES, OutputTarget,
+    OutputTarget,
     render::{ConversionRenderError, RenderedConfig, render_builtin_v1},
     skip::SkipCountsV1,
     subscription_source::{
@@ -110,7 +110,7 @@ impl fmt::Display for SubscriptionPreparationError {
 
 impl std::error::Error for SubscriptionPreparationError {}
 
-/// Parses one to five direct occurrences or already-loaded remote bodies in declaration order.
+/// Parses one or more direct occurrences or already-loaded remote bodies in declaration order.
 ///
 /// A direct source is exactly one occurrence: it is nonempty and has no CR/LF or outer ASCII
 /// SP/HTAB. A remote source uses the frozen raw/Base64 multiline container grammar. Bad individual
@@ -124,7 +124,6 @@ pub(crate) fn prepare_subscription_v1(
     sources_in_declaration_order: &[SubscriptionSourceV1<'_>],
 ) -> Result<PreparedSubscriptionV1, SubscriptionPreparationError> {
     if sources_in_declaration_order.is_empty()
-        || sources_in_declaration_order.len() > MAX_SUBSCRIPTION_SOURCES
         || sources_in_declaration_order.iter().any(|source| {
             matches!(
                 source,
@@ -141,7 +140,6 @@ pub(crate) fn prepare_subscription_v1(
 
     let parsed = parse_subscription_source_inputs(sources_in_declaration_order).map_err(
         |error| match error {
-            SubscriptionParseError::TooManySources => SubscriptionPreparationError::InvalidInput,
             SubscriptionParseError::TooManyOccurrences { .. } => {
                 SubscriptionPreparationError::ConversionLimit
             }
@@ -305,6 +303,14 @@ mod tests {
             prepared.remote_decoded_bytes_by_source(),
             &[None, Some(BETA.len()), Some(ALPHA.len()), Some(ALPHA.len())]
         );
+    }
+
+    #[test]
+    fn six_direct_sources_prepare_without_a_source_count_cap() {
+        const ALPHA: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
+        let sources = [SubscriptionSourceV1::Direct(ALPHA); 6];
+        let prepared = prepare_subscription_v1(&sources).expect("six direct sources");
+        assert_eq!(prepared.remote_decoded_bytes_by_source(), &[None; 6]);
     }
 
     #[test]

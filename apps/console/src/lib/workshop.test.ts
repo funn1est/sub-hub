@@ -115,6 +115,23 @@ describe("assembleSubscription", () => {
     )
   })
 
+  it("assembles more than five sources without a source-count cap", () => {
+    const sources = [
+      "vless://u@h:443#A",
+      "ss://p@h:8388#B",
+      "vless://u@h:443#C",
+      "vless://u@h:443#D",
+      "vless://u@h:443#E",
+      "vless://u@h:443#F",
+    ]
+    const assembled = assembleSubscription(input({ sources }))
+    expect(assembled.getTarget).toBe(
+      `/sub?target=clash&url=${encodeURIComponent(sources.join("|"))}`
+    )
+    expect(assembled.overLimit).toBe(false)
+    expect(assembled.previewable).toBe(true)
+  })
+
   it("appends config then append_info=false in that key order", () => {
     const assembled = assembleSubscription(
       input({
