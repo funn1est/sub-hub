@@ -125,6 +125,15 @@
   }
   html {
     @apply font-sans antialiased;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html,
+  body,
+  #root {
+    max-width: 100%;
+    overflow-x: clip;
   }
   body {
     @apply bg-background text-foreground;
@@ -138,6 +147,8 @@
 
 .console-shell {
   min-height: 100svh;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .console-shell-bg {

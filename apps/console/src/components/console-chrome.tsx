@@ -29,8 +29,8 @@ export function ConsoleChromeBar({
 }: ConsoleChromeBarProps) {
   const copy = t(locale)
   return (
-    <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-6 py-3">
+    <header className="sticky top-0 z-10 border-b bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
+      <div className="mx-auto flex w-full max-w-3xl min-w-0 items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <img
             src="/icon.svg"

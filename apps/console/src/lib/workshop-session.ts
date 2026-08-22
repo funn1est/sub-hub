@@ -17,6 +17,7 @@ import {
   configSelectionId,
   type Acl4ssrConfigFile,
 } from "./acl4ssr-catalog.ts"
+import { writeTextWithFallback } from "./clipboard.ts"
 import type { WorkshopFields } from "./persist.ts"
 import {
   applyPaste,
@@ -315,9 +316,7 @@ export function createWorkshopSession(options: {
       if (url === null) {
         return
       }
-      const write =
-        ports.writeClipboard ??
-        ((text: string) => navigator.clipboard.writeText(text))
+      const write = ports.writeClipboard ?? writeClipboardInBrowser
       try {
         await write(url)
         ports.notify?.("copied")
@@ -362,12 +361,48 @@ function withSourceFloor(fields: WorkshopFields): WorkshopFields {
   return fields.sources.length > 0 ? fields : { ...fields, sources: [""] }
 }
 
+function writeClipboardInBrowser(text: string): Promise<void> {
+  const clipboard = navigator.clipboard
+  return writeTextWithFallback(text, {
+    writeText:
+      clipboard === undefined ? undefined : clipboard.writeText.bind(clipboard),
+    execCommandCopy,
+  })
+}
+
+function execCommandCopy(text: string): boolean {
+  const textarea = document.createElement("textarea")
+  textarea.value = text
+  textarea.setAttribute("readonly", "")
+  textarea.style.position = "fixed"
+  textarea.style.top = "0"
+  textarea.style.left = "0"
+  textarea.style.width = "1px"
+  textarea.style.height = "1px"
+  textarea.style.padding = "0"
+  textarea.style.border = "none"
+  textarea.style.opacity = "0"
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  textarea.setSelectionRange(0, text.length)
+  try {
+    return document.execCommand("copy")
+  } finally {
+    document.body.removeChild(textarea)
+  }
+}
+
 function saveFileInBrowser(file: SavedPreviewFile): void {
   const blob = new Blob([file.body], { type: file.mediaType })
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = objectUrl
   link.download = file.filename
+  link.rel = "noopener"
+  link.style.display = "none"
+  document.body.appendChild(link)
   link.click()
-  URL.revokeObjectURL(objectUrl)
+  document.body.removeChild(link)
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2500)
 }

@@ -29,6 +29,7 @@ import {
   ComboboxLabel,
   ComboboxList,
   ComboboxSeparator,
+  ComboboxTrigger,
 } from "@/components/ui/combobox.tsx"
 import {
   Card,
@@ -89,6 +90,13 @@ type ConfigChoiceGroup = {
   items: ConfigChoice[]
 }
 
+const urlField = {
+  inputMode: "url" as const,
+  autoCapitalize: "none" as const,
+  autoCorrect: "off" as const,
+  spellCheck: false,
+}
+
 type WorkshopProps = {
   session: WorkshopSession
   locale: Locale
@@ -117,7 +125,7 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
 
   return (
     <main
-      className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-6 py-6"
+      className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-5 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6"
       onKeyDown={(event) => {
         if (
           (event.metaKey || event.ctrlKey) &&
@@ -144,7 +152,7 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
             descriptionClassName={showServiceFields ? undefined : "break-all"}
           />
           <CardAction>
-            <div className="flex items-center gap-2">
+            <div className="flex max-w-full flex-wrap items-center gap-2">
               {fields.accessToken.trim().length > 0 ? (
                 <Badge variant="outline">{copy.tokenSet}</Badge>
               ) : null}
@@ -175,9 +183,10 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
                     id="service-origin"
                     value={fields.serviceOrigin}
                     autoComplete="url"
-                    spellCheck={false}
+                    enterKeyHint="next"
                     aria-invalid={view.originInvalid || undefined}
                     placeholder="http://127.0.0.1:25500"
+                    {...urlField}
                     onChange={(event) =>
                       session.actions.patch({
                         serviceOrigin: event.target.value,
@@ -198,7 +207,10 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
                     type={revealToken ? "text" : "password"}
                     value={fields.accessToken}
                     autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
                     spellCheck={false}
+                    enterKeyHint="next"
                     aria-invalid={view.tokenInvalid || undefined}
                     onChange={(event) =>
                       session.actions.patch({
@@ -248,8 +260,9 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
                   <InputGroupInput
                     id={`source-${index}`}
                     value={source}
-                    spellCheck={false}
+                    enterKeyHint="next"
                     aria-invalid={invalid || undefined}
+                    {...urlField}
                     onChange={(event) => {
                       const next = fields.sources.slice()
                       next[index] = event.target.value
@@ -328,7 +341,7 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
                 }
               }}
               spacing={2}
-              className="flex-wrap"
+              className="w-full max-w-full flex-wrap"
             >
               {TARGETS.map((target) => (
                 <ToggleGroupItem key={target} value={target}>
@@ -350,13 +363,27 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
               }}
               itemToStringValue={(item) => item.label}
             >
-              <ComboboxInput
+              <ComboboxTrigger
                 id="config-preset"
-                className="w-full"
-                autoComplete="off"
-                spellCheck={false}
-              />
+                render={
+                  <Button
+                    variant="outline"
+                    className="w-full min-w-0 justify-between font-normal"
+                  />
+                }
+              >
+                <span className="min-w-0 truncate">{selectedConfig.label}</span>
+              </ComboboxTrigger>
               <ComboboxContent>
+                <ComboboxInput
+                  placeholder={copy.configSearch}
+                  showTrigger={false}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="search"
+                />
                 <ComboboxEmpty>{copy.configEmpty}</ComboboxEmpty>
                 <ComboboxList>
                   {(group: ConfigChoiceGroup, index: number) => (
@@ -386,9 +413,10 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
                 <InputGroupInput
                   id="config-url"
                   value={fields.configUrl}
-                  spellCheck={false}
+                  enterKeyHint="done"
                   aria-invalid={view.configInvalid || undefined}
                   placeholder="https://"
+                  {...urlField}
                   onChange={(event) =>
                     session.actions.editCustomConfigUrl(event.target.value)
                   }
@@ -432,7 +460,7 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
                 value={assembled.url ?? ""}
                 rows={3}
                 placeholder={copy.previewBlocked}
-                className="font-mono text-xs"
+                className="font-mono text-base break-all md:text-sm"
                 onFocus={(event) => event.currentTarget.select()}
               />
             </Field>
@@ -444,7 +472,7 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
             ) : null}
           </FieldGroup>
         </CardContent>
-        <CardFooter className="flex-wrap gap-2">
+        <CardFooter>
           <Button
             type="button"
             onClick={() => void session.actions.copy()}
@@ -561,7 +589,11 @@ function VersionBadge({
     )
   }
   if (state.status === "ok") {
-    return <Badge variant="secondary">{state.body}</Badge>
+    return (
+      <Badge variant="secondary" className="max-w-full truncate">
+        {state.body}
+      </Badge>
+    )
   }
   return <Badge variant="destructive">{copy.versionIssue}</Badge>
 }
@@ -713,7 +745,7 @@ function PreviewCard({
             {preview.truncated ? (
               <p className="text-sm text-muted-foreground">{copy.truncated}</p>
             ) : null}
-            <ScrollArea className="h-80 rounded-lg border bg-muted/30">
+            <ScrollArea className="h-[min(20rem,50svh)] rounded-lg border bg-muted/30">
               <pre className="p-3 font-mono text-xs break-all whitespace-pre-wrap">
                 {preview.viewText}
               </pre>

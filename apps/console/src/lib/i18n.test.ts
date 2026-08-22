@@ -14,9 +14,8 @@ describe("known Conversion Service errors", () => {
       ),
       "utf8"
     )
-    const errors = (
-      JSON.parse(raw) as { contract: { errors: string[] } }
-    ).contract.errors
+    const errors = (JSON.parse(raw) as { contract: { errors: string[] } })
+      .contract.errors
     expect(KNOWN_SERVICE_ERRORS).toEqual(errors)
 
     for (const body of KNOWN_SERVICE_ERRORS) {
@@ -27,6 +26,17 @@ describe("known Conversion Service errors", () => {
       expect(zh).not.toBe(en)
       expect(zh).not.toBe(body)
     }
+  })
+})
+
+describe("remote config copy", () => {
+  it("names the field as remote config, not an ACL4SSR-only control", () => {
+    expect(messages.en.config).toBe("Remote config")
+    expect(messages.zh.config).toBe("远端配置")
+    expect(messages.en.config).not.toMatch(/ACL4SSR/i)
+    expect(messages.zh.config).not.toMatch(/ACL4SSR/i)
+    expect(messages.en.configHint).toContain("config=")
+    expect(messages.zh.configHint).toContain("config=")
   })
 })
 
