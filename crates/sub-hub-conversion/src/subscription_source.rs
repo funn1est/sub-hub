@@ -30,7 +30,7 @@ impl ParsedSubscriptionSources {
 }
 
 #[derive(Clone, Copy)]
-pub enum SubscriptionSourceV1<'a> {
+pub(crate) enum SubscriptionSourceV1<'a> {
     Direct(&'a str),
     Remote(&'a [u8]),
 }

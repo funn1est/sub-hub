@@ -12,9 +12,10 @@ use crate::{
     remote_url::accept_outbound_url,
     request::{RequestPath, classify_path, handle_version, request_target_too_long},
     response::{
-        ApplicationError, attach_conversion_headers, error_response, subscription_response_for,
+        ApplicationError, attach_conversion_headers, error_response, map_fill_outcome,
+        subscription_response_for,
     },
-    unique_fill::fill_conversion,
+    unique_fill::run,
     userinfo::{SubscriptionUserInfoV1, insert_subscription_user_info},
 };
 
@@ -153,7 +154,7 @@ impl<A: RemoteAdapter> Application<A> {
             occurrence_urls,
         } = plan;
         let mut broker = BrokerSession::new(&self.adapter, &self.self_hosts, &inbound_host);
-        let filled = fill_conversion(
+        let filled = run(
             &mut broker,
             &parsed.sources,
             &occurrence_urls,
@@ -161,7 +162,8 @@ impl<A: RemoteAdapter> Application<A> {
             config_url,
             parsed.target,
         )
-        .await?;
+        .await
+        .map_err(map_fill_outcome)?;
         Ok(finish_subscription(
             parsed.target,
             filled.document,

@@ -9,19 +9,14 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use sub_hub_conversion::{
-    OutputTarget, SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
-};
+use sub_hub_conversion::OutputTarget;
 
-fn prepare_direct(
-    uris: &[&str],
-) -> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
-    let sources: Vec<_> = uris
-        .iter()
-        .copied()
-        .map(SubscriptionSourceV1::Direct)
-        .collect();
-    prepare_subscription_v1(&sources)
+mod common;
+
+fn render_direct(uri: &str) -> Vec<u8> {
+    common::render_direct(&[uri], OutputTarget::Singbox)
+        .expect("fixed subscription must be valid")
+        .into_bytes()
 }
 
 const SING_BOX_BINARY_ENV: &str = "SUB_HUB_SING_BOX_BIN";
@@ -47,11 +42,7 @@ fn configured_official_sing_box_accepts_builtin_document() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct(&[VALID_DIRECT])
-        .expect("fixed subscription must be valid")
-        .render_builtin_v1(OutputTarget::Singbox)
-        .expect("builtin sing-box render must succeed")
-        .into_bytes();
+    let rendered = render_direct(VALID_DIRECT);
     fs::write(&sandbox.config_file, rendered)
         .unwrap_or_else(|_| panic!("failed to prepare the sing-box acceptance fixture"));
     verify_sing_box_config(&binary, &sandbox, "builtin document");
@@ -66,11 +57,7 @@ fn configured_official_sing_box_accepts_builtin_trojan() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct(&[VALID_TROJAN])
-        .expect("fixed Trojan subscription must be valid")
-        .render_builtin_v1(OutputTarget::Singbox)
-        .expect("builtin Trojan sing-box render must succeed")
-        .into_bytes();
+    let rendered = render_direct(VALID_TROJAN);
     fs::write(&sandbox.config_file, rendered)
         .unwrap_or_else(|_| panic!("failed to prepare the Trojan sing-box acceptance fixture"));
     verify_sing_box_config(&binary, &sandbox, "builtin Trojan");
@@ -85,11 +72,7 @@ fn configured_official_sing_box_accepts_builtin_vmess() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct(&[VALID_VMESS])
-        .expect("fixed VMess subscription must be valid")
-        .render_builtin_v1(OutputTarget::Singbox)
-        .expect("builtin VMess sing-box render must succeed")
-        .into_bytes();
+    let rendered = render_direct(VALID_VMESS);
     fs::write(&sandbox.config_file, rendered)
         .unwrap_or_else(|_| panic!("failed to prepare the VMess sing-box acceptance fixture"));
     verify_sing_box_config(&binary, &sandbox, "builtin VMess");
@@ -104,11 +87,7 @@ fn configured_official_sing_box_accepts_builtin_hysteria2() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct(&[VALID_HYSTERIA2])
-        .expect("fixed Hysteria2 subscription must be valid")
-        .render_builtin_v1(OutputTarget::Singbox)
-        .expect("builtin Hysteria2 sing-box render must succeed")
-        .into_bytes();
+    let rendered = render_direct(VALID_HYSTERIA2);
     fs::write(&sandbox.config_file, rendered)
         .unwrap_or_else(|_| panic!("failed to prepare the Hysteria2 sing-box acceptance fixture"));
     verify_sing_box_config(&binary, &sandbox, "builtin Hysteria2");
@@ -123,11 +102,7 @@ fn configured_official_sing_box_accepts_builtin_tuic() {
         .unwrap_or_else(|_| panic!("failed to create the isolated sing-box test sandbox"));
 
     verify_sing_box_version(&binary, &sandbox);
-    let rendered = prepare_direct(&[VALID_TUIC])
-        .expect("fixed TUIC subscription must be valid")
-        .render_builtin_v1(OutputTarget::Singbox)
-        .expect("builtin TUIC sing-box render must succeed")
-        .into_bytes();
+    let rendered = render_direct(VALID_TUIC);
     fs::write(&sandbox.config_file, rendered)
         .unwrap_or_else(|_| panic!("failed to prepare the TUIC sing-box acceptance fixture"));
     verify_sing_box_config(&binary, &sandbox, "builtin TUIC");

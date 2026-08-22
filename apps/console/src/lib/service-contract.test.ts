@@ -21,7 +21,10 @@ import {
   subscriptionMediaType,
   type Target,
 } from "./service-contract.ts"
-import { parseSkippedFromHeaders } from "./preview.ts"
+import {
+  filenameFromDisposition,
+  parseSkippedFromHeaders,
+} from "./preview.ts"
 import { parseSubscriptionUrl } from "./workshop.ts"
 
 type GoldenContract = {
@@ -35,11 +38,14 @@ type GoldenContract = {
   exposedHeaders: string[]
   errors: string[]
   filenames: Record<string, string>
+  mediaTypes: Record<string, string>
+  dispositions: Record<string, string>
   percentDecode: Array<{ encoded: string; decoded: string | null }>
   skipSamples: Array<{
     skipped: string
     counts: { parse: number; capability: number; name: number }
   }>
+  skipRejects: string[]
 }
 
 async function loadContract(): Promise<GoldenContract> {
@@ -70,12 +76,16 @@ describe("Conversion Service GET contract", () => {
     expect(VERSION_PATH).toBe(contract.versionPath)
     expect(VERSION_BODY.source).toBe(contract.versionBodyPattern)
     expect(fallbackDownloadName("clash")).toBe(fallbackDownloadName("mihomo"))
-    expect(subscriptionMediaType("singbox")).toBe(
-      "application/json;charset=utf-8"
-    )
-    expect(subscriptionMediaType("mihomo")).toBe("text/plain;charset=utf-8")
-    for (const [target, filename] of Object.entries(contract.filenames)) {
-      expect(fallbackDownloadName(target as Target)).toBe(filename)
+    for (const target of contract.targets) {
+      expect(subscriptionMediaType(target as Target)).toBe(
+        contract.mediaTypes[target]
+      )
+      expect(fallbackDownloadName(target as Target)).toBe(
+        contract.filenames[target]
+      )
+      expect(filenameFromDisposition(contract.dispositions[target])).toBe(
+        contract.filenames[target]
+      )
     }
     for (const sample of contract.skipSamples) {
       expect(parseSkippedHeader(sample.skipped)).toEqual(sample.counts)
@@ -84,6 +94,9 @@ describe("Conversion Service GET contract", () => {
           { name: SKIPPED_HEADER, value: sample.skipped },
         ])
       ).toEqual(sample.counts)
+    }
+    for (const rejected of contract.skipRejects) {
+      expect(parseSkippedHeader(rejected)).toBeNull()
     }
     for (const sample of contract.percentDecode) {
       expect(percentDecodeValue(sample.encoded)).toBe(sample.decoded)

@@ -10,9 +10,9 @@ use crate::{
     },
 };
 
-pub use crate::subscription_source::SubscriptionSourceV1;
+pub(crate) use crate::subscription_source::SubscriptionSourceV1;
 
-pub struct PreparedSubscriptionV1 {
+pub(crate) struct PreparedSubscriptionV1 {
     parsed: ParsedSubscriptionSources,
 }
 
@@ -77,7 +77,7 @@ impl fmt::Debug for PreparedSubscriptionV1 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RemoteSourceFailureV1 {
+pub(crate) enum RemoteSourceFailureV1 {
     InputTooLarge,
     DecodedTooLarge,
     InvalidUtf8,
@@ -85,7 +85,7 @@ pub enum RemoteSourceFailureV1 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SubscriptionPreparationError {
+pub(crate) enum SubscriptionPreparationError {
     InvalidInput,
     RemoteFailure {
         source_index: usize,
@@ -120,7 +120,7 @@ impl std::error::Error for SubscriptionPreparationError {}
 ///
 /// Returns a closed, secret-safe error for invalid request/direct framing, a whole-remote failure,
 /// the request-wide 10,000-occurrence limit, or an all-empty/all-rejected request.
-pub fn prepare_subscription_v1(
+pub(crate) fn prepare_subscription_v1(
     sources_in_declaration_order: &[SubscriptionSourceV1<'_>],
 ) -> Result<PreparedSubscriptionV1, SubscriptionPreparationError> {
     if sources_in_declaration_order.is_empty()
@@ -241,12 +241,9 @@ pub(crate) fn render_acl4ssr_target(
         .map(|request| request.url().to_owned())
         .collect::<Vec<_>>();
     assert_eq!(urls.len(), unique_rule_set_bodies.len());
-    let mut binder = prepared.rule_set_binder();
-    for url in &urls {
-        binder.push_canonical(url).expect("canonical");
-    }
-    binder
-        .finish()
+    let refs = urls.iter().map(String::as_str).collect::<Vec<_>>();
+    prepared
+        .bind_rule_sets(&refs)
         .expect("aligned")
         .render_v1(target, unique_rule_set_bodies)
 }
@@ -265,5 +262,97 @@ pub(crate) fn prefix_preparation_error_v1(
     match prepare_subscription_v1(prefix) {
         Ok(_) | Err(SubscriptionPreparationError::NoValidNodes { .. }) => None,
         Err(error) => Some(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        RemoteSourceFailureV1, SubscriptionPreparationError, SubscriptionSourceV1,
+        prepare_subscription_v1,
+    };
+
+    #[test]
+    fn prepared_debug_redacts_direct_source_secrets() {
+        const UUID: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        const HOST: &str = "private-canary.example";
+        const NAME: &str = "secret-canary-name";
+        let source = format!("vless://{UUID}@{HOST}:443#{NAME}");
+        let prepared = prepare_subscription_v1(&[SubscriptionSourceV1::Direct(&source)])
+            .expect("valid direct subscription");
+        let debug = format!("{prepared:?}");
+        for secret in [UUID, HOST, NAME] {
+            assert!(!debug.contains(secret), "{debug}");
+        }
+    }
+
+    #[test]
+    fn remote_decoded_byte_accounting_is_aligned_with_source_order() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        const ALPHA: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
+        const BETA: &str = "vless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Beta";
+        let encoded = STANDARD.encode(BETA);
+        let prepared = prepare_subscription_v1(&[
+            SubscriptionSourceV1::Direct(ALPHA),
+            SubscriptionSourceV1::Remote(encoded.as_bytes()),
+            SubscriptionSourceV1::Remote(ALPHA.as_bytes()),
+            SubscriptionSourceV1::Remote(ALPHA.as_bytes()),
+        ])
+        .expect("valid mixed sources");
+
+        assert_eq!(
+            prepared.remote_decoded_bytes_by_source(),
+            &[None, Some(BETA.len()), Some(ALPHA.len()), Some(ALPHA.len())]
+        );
+    }
+
+    #[test]
+    fn whole_remote_failures_retain_a_closed_reason_and_source_ordinal() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        const ALPHA: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
+        for (body, reason) in [
+            (vec![0xff], RemoteSourceFailureV1::InvalidUtf8),
+            (
+                b"trojan://example\rnext".to_vec(),
+                RemoteSourceFailureV1::InvalidLineEnding,
+            ),
+            (vec![b'a'; 2_796_207], RemoteSourceFailureV1::InputTooLarge),
+        ] {
+            assert_eq!(
+                prepare_subscription_v1(&[
+                    SubscriptionSourceV1::Direct(ALPHA),
+                    SubscriptionSourceV1::Remote(&body),
+                ])
+                .unwrap_err(),
+                SubscriptionPreparationError::RemoteFailure {
+                    source_index: 1,
+                    reason,
+                }
+            );
+        }
+
+        let decoded_too_large = vec![b'a'; 2 * 1024 * 1024 + 1];
+        let encoded_too_large = STANDARD.encode(decoded_too_large);
+        assert_eq!(
+            prepare_subscription_v1(&[SubscriptionSourceV1::Remote(encoded_too_large.as_bytes())])
+                .unwrap_err(),
+            SubscriptionPreparationError::RemoteFailure {
+                source_index: 0,
+                reason: RemoteSourceFailureV1::DecodedTooLarge,
+            }
+        );
+    }
+
+    #[test]
+    fn preparation_errors_are_secret_safe() {
+        let error =
+            prepare_subscription_v1(&[SubscriptionSourceV1::Direct(" secret-canary.example ")])
+                .unwrap_err();
+        assert_eq!(error, SubscriptionPreparationError::InvalidInput);
+        for formatted in [format!("{error:?}"), error.to_string()] {
+            assert!(!formatted.contains("secret-canary"));
+        }
     }
 }

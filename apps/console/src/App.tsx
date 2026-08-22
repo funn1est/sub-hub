@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useRegisterSW } from "virtual:pwa-register/react"
 
+import { ConsoleChromeBar } from "@/components/console-chrome.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
 import { Workshop } from "@/components/workshop.tsx"
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert.tsx"
@@ -104,36 +105,42 @@ export function App() {
 
   return (
     <ThemeProvider theme={chrome.theme}>
-      <Workshop
-        session={session}
-        locale={chrome.locale}
-        theme={chrome.theme}
-        onLocaleChange={(locale) => {
-          bootSession.setNotifyLocale(locale)
-          setChrome((current) => ({ ...current, locale }))
-        }}
-        onThemeChange={(theme) =>
-          setChrome((current) => ({ ...current, theme }))
-        }
-        banner={
-          needRefresh ? (
-            <Alert>
-              <AlertTitle>{copy.pwaUpdate}</AlertTitle>
-              <AlertAction>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    void updateServiceWorker(true)
-                    setNeedRefresh(false)
-                  }}
-                >
-                  {copy.pwaReload}
-                </Button>
-              </AlertAction>
-            </Alert>
-          ) : null
-        }
-      />
+      <div className="console-shell relative isolate">
+        <div className="console-shell-bg" aria-hidden />
+        <ConsoleChromeBar
+          locale={chrome.locale}
+          theme={chrome.theme}
+          onLocaleChange={(locale) => {
+            bootSession.setNotifyLocale(locale)
+            setChrome((current) => ({ ...current, locale }))
+          }}
+          onThemeChange={(theme) =>
+            setChrome((current) => ({ ...current, theme }))
+          }
+        />
+        <Workshop
+          session={session}
+          locale={chrome.locale}
+          banner={
+            needRefresh ? (
+              <Alert>
+                <AlertTitle>{copy.pwaUpdate}</AlertTitle>
+                <AlertAction>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      void updateServiceWorker(true)
+                      setNeedRefresh(false)
+                    }}
+                  >
+                    {copy.pwaReload}
+                  </Button>
+                </AlertAction>
+              </Alert>
+            ) : null
+          }
+        />
+      </div>
     </ThemeProvider>
   )
 }

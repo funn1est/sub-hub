@@ -14,10 +14,9 @@ use std::{
     time::Instant,
 };
 use sub_hub_http::{
-    AccessTokens, Application, CorsOrigins, HttpRequest, HttpResponse, HttpsHopOutcome,
-    OUTBOUND_ACCEPT, OUTBOUND_ACCEPT_ENCODING, OUTBOUND_CACHE_CONTROL, RemoteAdapter,
-    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, begin_https_hop_lookup,
-    canonicalize_inbound_host, request_origin,
+    AccessTokens, Application, CorsOrigins, HopHeaderBag, HttpRequest, HttpResponse, RemoteAdapter,
+    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, canonicalize_inbound_host,
+    complete_https_hop, outbound_request_headers, request_origin,
 };
 use url::Url;
 
@@ -316,7 +315,7 @@ async fn fetch_under_deadline(
             addresses.push(address);
         }
     }
-    // Native adapter step (ADR-0022): IANA globally-reachable check after DNS.
+    // Native adapter step: IANA globally-reachable check after DNS.
     // Lexical outbound accept already ran; Worker does not resolve addresses here.
     if addresses.is_empty()
         || addresses
@@ -327,41 +326,41 @@ async fn fetch_under_deadline(
     }
 
     let client = pinned_client(&host, &addresses)?;
-    let mut response = client
-        .get(url)
-        .header(header::ACCEPT, OUTBOUND_ACCEPT)
-        .header(header::ACCEPT_ENCODING, OUTBOUND_ACCEPT_ENCODING)
-        .header(header::CACHE_CONTROL, OUTBOUND_CACHE_CONTROL)
+    let mut request = client.get(url);
+    for (name, value) in outbound_request_headers() {
+        request = request.header(name, value);
+    }
+    let mut response = request
         .send()
         .await
         .map_err(|_| RemoteFetchError::Failure)?;
 
-    let status = response.status();
-    let pending = match begin_https_hop_lookup(
-        status,
-        |name| Ok(response.headers().get_all(name)),
+    let headers = HopHeaderBag::from_lookup(|name| Ok(response.headers().get_all(name)))?;
+    complete_https_hop(
+        response.status(),
+        headers,
         attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
-    )? {
-        HttpsHopOutcome::Complete(complete) => return Ok(complete),
-        HttpsHopOutcome::ReadBody(pending) => pending,
-    };
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| RemoteFetchError::Failure)?
-    {
-        let new_length = body
-            .len()
-            .checked_add(chunk.len())
-            .ok_or(RemoteFetchError::Failure)?;
-        if new_length > pending.max_body_bytes() {
-            return Err(RemoteFetchError::Failure);
-        }
-        body.extend_from_slice(&chunk);
-    }
-    pending.finish(body)
+        |max_body_bytes| async move {
+            let mut body = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|_| RemoteFetchError::Failure)?
+            {
+                let new_length = body
+                    .len()
+                    .checked_add(chunk.len())
+                    .ok_or(RemoteFetchError::Failure)?;
+                if new_length > max_body_bytes {
+                    return Err(RemoteFetchError::Failure);
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(body)
+        },
+    )
+    .await
 }
 
 fn pinned_client(

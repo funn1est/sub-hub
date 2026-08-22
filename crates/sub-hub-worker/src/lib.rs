@@ -2,10 +2,9 @@ use std::{fmt, future::Future, pin::Pin, sync::OnceLock};
 
 use http::{HeaderName, StatusCode};
 use sub_hub_http::{
-    AccessTokens, Application, CorsOrigins, HttpRequest as ApplicationRequest, HttpsHopOutcome,
-    OUTBOUND_ACCEPT, OUTBOUND_ACCEPT_ENCODING, OUTBOUND_CACHE_CONTROL, RemoteAdapter,
-    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, begin_https_hop_lookup,
-    canonicalize_inbound_host, request_origin,
+    AccessTokens, Application, CorsOrigins, HopHeaderBag, HttpRequest as ApplicationRequest,
+    RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
+    canonicalize_inbound_host, complete_https_hop, outbound_request_headers, request_origin,
 };
 use worker::wasm_bindgen::JsCast;
 use worker::web_sys;
@@ -181,30 +180,11 @@ fn is_timeout_or_abort_text(text: &str) -> bool {
 
 fn outbound_request(attempt: &RemoteAttempt) -> Result<Request, RemoteFetchError> {
     let headers = Headers::new();
-    headers
-        .set(
-            "Accept",
-            OUTBOUND_ACCEPT
-                .to_str()
-                .map_err(|_| RemoteFetchError::Failure)?,
-        )
-        .map_err(|_| RemoteFetchError::Failure)?;
-    headers
-        .set(
-            "Accept-Encoding",
-            OUTBOUND_ACCEPT_ENCODING
-                .to_str()
-                .map_err(|_| RemoteFetchError::Failure)?,
-        )
-        .map_err(|_| RemoteFetchError::Failure)?;
-    headers
-        .set(
-            "Cache-Control",
-            OUTBOUND_CACHE_CONTROL
-                .to_str()
-                .map_err(|_| RemoteFetchError::Failure)?,
-        )
-        .map_err(|_| RemoteFetchError::Failure)?;
+    for (name, value) in outbound_request_headers() {
+        headers
+            .set(name, value.to_str().map_err(|_| RemoteFetchError::Failure)?)
+            .map_err(|_| RemoteFetchError::Failure)?;
+    }
     headers
         .set("User-Agent", OUTBOUND_USER_AGENT)
         .map_err(|_| RemoteFetchError::Failure)?;
@@ -228,23 +208,20 @@ async fn fetch_and_read(
         .map_err(|error| map_fetch_error(&error))?;
     let status =
         StatusCode::from_u16(response.status_code()).map_err(|_| RemoteFetchError::Failure)?;
-    let pending = match begin_https_hop_lookup(
+    let headers = HopHeaderBag::from_lookup(|name| header_values(response.headers(), name))?;
+    complete_https_hop(
         status,
-        |name| header_values(response.headers(), name),
+        headers,
         attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
-    )? {
-        HttpsHopOutcome::Complete(complete) => return Ok(complete),
-        HttpsHopOutcome::ReadBody(pending) => pending,
-    };
-    let body = response
-        .bytes()
-        .await
-        .map_err(|error| map_fetch_error(&error))?;
-    if body.len() > pending.max_body_bytes() {
-        return Err(RemoteFetchError::Failure);
-    }
-    pending.finish(body)
+        |_| async move {
+            response
+                .bytes()
+                .await
+                .map_err(|error| map_fetch_error(&error))
+        },
+    )
+    .await
 }
 
 fn application_from_environment(

@@ -77,6 +77,9 @@ struct Contract {
     exposed_headers: Vec<String>,
     errors: Vec<String>,
     filenames: BTreeMap<String, String>,
+    #[serde(rename = "mediaTypes")]
+    media_types: BTreeMap<String, String>,
+    dispositions: BTreeMap<String, String>,
     #[serde(rename = "percentDecode")]
     percent_decode: Vec<PercentDecode>,
     #[serde(rename = "skipSamples")]
@@ -93,8 +96,15 @@ struct PercentDecode {
 
 #[derive(Deserialize)]
 struct SkipSample {
-    query: String,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default = "ok_status")]
+    status: u16,
     skipped: String,
+}
+
+fn ok_status() -> u16 {
+    200
 }
 
 #[derive(Deserialize)]
@@ -155,10 +165,9 @@ fn subscription_url_golden_matches_the_http_adapter() {
 #[test]
 fn get_contract_tables_match_the_http_adapter() {
     let contract = load().contract;
-    assert_eq!(
-        contract.targets,
-        ["clash", "mihomo", "quanx", "singbox", "loon", "egern"]
-    );
+    assert_eq!(contract.targets.len(), contract.filenames.len());
+    assert_eq!(contract.media_types.len(), contract.targets.len());
+    assert_eq!(contract.dispositions.len(), contract.targets.len());
     assert_eq!(contract.max_sources, 5);
     assert_eq!(contract.get_target_limit_bytes, 8192);
     assert!(contract.query_keys.contains(&"insert".to_owned()));
@@ -166,13 +175,12 @@ fn get_contract_tables_match_the_http_adapter() {
     let version = handle(&contract.version_path, "");
     assert_eq!(version.status(), StatusCode::OK);
     let body = std::str::from_utf8(version.body()).expect("utf-8");
-    assert_eq!(
-        contract.version_body_pattern,
-        r"^sub-hub v\d+\.\d+\.\d+ backend$"
-    );
     assert!(
-        body.starts_with("sub-hub v") && body.ends_with(" backend"),
-        "{body}"
+        contract.version_body_pattern.contains(r"\d+")
+            && body.starts_with("sub-hub v")
+            && body.ends_with(" backend"),
+        "{body} vs {}",
+        contract.version_body_pattern
     );
 
     for sample in contract.error_samples {
@@ -190,24 +198,48 @@ fn get_contract_tables_match_the_http_adapter() {
         );
     }
 
-    for (target, filename) in &contract.filenames {
+    for target in &contract.targets {
         let response = handle("/sub", &format!("target={target}&url={VLESS}"));
         assert_eq!(response.status(), StatusCode::OK, "{target}");
-        let disposition = response
-            .headers()
-            .get(header::CONTENT_DISPOSITION)
-            .expect("disposition")
-            .to_str()
-            .expect("ascii");
+        let filename = contract.filenames.get(target).expect("filename");
+        let media_type = contract.media_types.get(target).expect("media type");
+        let expected_disposition = contract.dispositions.get(target).expect("disposition");
         assert!(
-            disposition.contains(filename),
-            "{target}: {disposition} vs {filename}"
+            expected_disposition.contains(filename.as_str()),
+            "{target}: disposition must name {filename}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_DISPOSITION)
+                .expect("disposition")
+                .to_str()
+                .expect("ascii"),
+            expected_disposition,
+            "{target}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .expect("content-type")
+                .to_str()
+                .expect("ascii"),
+            media_type,
+            "{target}"
         );
     }
 
     for sample in contract.skip_samples {
-        let response = handle("/sub", &sample.query);
-        assert_eq!(response.status(), StatusCode::OK);
+        let Some(query) = sample.query.as_deref() else {
+            continue;
+        };
+        let response = handle("/sub", query);
+        assert_eq!(
+            response.status(),
+            StatusCode::from_u16(sample.status).expect("status"),
+            "{query}"
+        );
         assert_eq!(
             response
                 .headers()

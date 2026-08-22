@@ -1,18 +1,30 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sub_hub_conversion::{
-    OutputTarget, RemoteSourceFailureV1, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, UniqueFlightFillV1, UniqueFlightPrefix, prepare_subscription_v1,
+    OutputTarget, SkipCountsV1, UniqueFlightDrive, UniqueFlightFillFailure, UniqueFlightSessionV1,
 };
+
+mod common;
 
 const ALPHA: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
 const BETA: &str = "vless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#Beta";
+const REMOTE: &str = "https://upstream.example/sub";
+const REMOTE_BETA: &str = "https://upstream.example/beta";
+const REMOTE_ALPHA: &str = "https://upstream.example/alpha";
+const REMOTE_FIRST: &str = "https://upstream.example/first";
+const REMOTE_SECOND: &str = "https://upstream.example/second";
 
-fn render(sources: &[SubscriptionSourceV1<'_>]) -> Vec<u8> {
-    prepare_subscription_v1(sources)
-        .expect("valid subscription sources")
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin Mihomo config")
-        .into_bytes()
+fn render_remote(url: &str, body: &[u8]) -> Vec<u8> {
+    common::drive_session(
+        common::start_occurrences(&[url.to_owned()], [Some(url)], None, OutputTarget::Mihomo),
+        |_| body.to_vec(),
+    )
+    .expect("valid remote subscription")
+    .document
+    .into_bytes()
+}
+
+fn yaml(bytes: &[u8]) -> &str {
+    std::str::from_utf8(bytes).expect("UTF-8 Mihomo YAML")
 }
 
 #[test]
@@ -20,214 +32,99 @@ fn remote_raw_and_base64_containers_share_the_public_seam() {
     let raw = format!("\t{ALPHA}\r\n\r\n{BETA} \n");
     let encoded = STANDARD.encode(&raw);
 
-    let from_raw = render(&[SubscriptionSourceV1::Remote(raw.as_bytes())]);
-    let from_base64 = render(&[SubscriptionSourceV1::Remote(encoded.as_bytes())]);
+    let from_raw = render_remote(REMOTE, raw.as_bytes());
+    let from_base64 = render_remote(REMOTE, encoded.as_bytes());
 
     assert_eq!(from_raw, from_base64);
-    let yaml = std::str::from_utf8(&from_raw).expect("UTF-8 Mihomo YAML");
-    assert!(yaml.find("- name: Alpha\n").unwrap() < yaml.find("- name: Beta\n").unwrap());
+    let text = yaml(&from_raw);
+    assert!(text.find("- name: Alpha\n").unwrap() < text.find("- name: Beta\n").unwrap());
 }
 
 #[test]
 fn mixed_sources_preserve_declaration_order_and_duplicate_occurrences() {
-    let yaml = render(&[
-        SubscriptionSourceV1::Remote(BETA.as_bytes()),
-        SubscriptionSourceV1::Direct(ALPHA),
-        SubscriptionSourceV1::Remote(ALPHA.as_bytes()),
-    ]);
-    let yaml = std::str::from_utf8(&yaml).expect("UTF-8 Mihomo YAML");
+    let sources = vec![
+        REMOTE_BETA.to_owned(),
+        ALPHA.to_owned(),
+        REMOTE_ALPHA.to_owned(),
+    ];
+    let bytes = common::drive_session(
+        common::start_occurrences(
+            &sources,
+            [Some(REMOTE_BETA), None, Some(REMOTE_ALPHA)],
+            None,
+            OutputTarget::Mihomo,
+        ),
+        |url| match url {
+            REMOTE_BETA => BETA.as_bytes().to_vec(),
+            REMOTE_ALPHA => ALPHA.as_bytes().to_vec(),
+            other => panic!("unexpected unique URL {other}"),
+        },
+    )
+    .expect("valid mixed sources")
+    .document
+    .into_bytes();
+    let text = yaml(&bytes);
 
-    let beta = yaml.find("- name: Beta\n").expect("remote occurrence");
-    let alpha = yaml.find("- name: Alpha\n").expect("direct occurrence");
-    let duplicate = yaml
+    let beta = text.find("- name: Beta\n").expect("remote occurrence");
+    let alpha = text.find("- name: Alpha\n").expect("direct occurrence");
+    let duplicate = text
         .find("- name: Alpha~00001\n")
         .expect("duplicate remote occurrence");
     assert!(beta < alpha && alpha < duplicate);
 }
 
 #[test]
-fn remote_decoded_byte_accounting_is_aligned_with_source_order() {
-    let encoded = STANDARD.encode(BETA);
-    let prepared = prepare_subscription_v1(&[
-        SubscriptionSourceV1::Direct(ALPHA),
-        SubscriptionSourceV1::Remote(encoded.as_bytes()),
-        SubscriptionSourceV1::Remote(ALPHA.as_bytes()),
-        SubscriptionSourceV1::Remote(ALPHA.as_bytes()),
-    ])
-    .expect("valid mixed sources");
-
-    assert_eq!(
-        prepared.remote_decoded_bytes_by_source(),
-        &[None, Some(BETA.len()), Some(ALPHA.len()), Some(ALPHA.len())]
-    );
-}
-
-#[test]
-fn source_count_and_direct_occurrence_framing_are_strict() {
-    assert_eq!(
-        prepare_subscription_v1(&[]).unwrap_err(),
-        SubscriptionPreparationError::InvalidInput
-    );
-
-    let direct = SubscriptionSourceV1::Direct(ALPHA);
-    assert!(prepare_subscription_v1(&[direct; 5]).is_ok());
-    assert_eq!(
-        prepare_subscription_v1(&[direct; 6]).unwrap_err(),
-        SubscriptionPreparationError::InvalidInput
-    );
-
-    for invalid in [
-        "",
-        " vless://example",
-        "vless://example ",
-        "\tvless://example",
-        "vless://example\t",
-        "vless://example\nss://example",
-        "vless://example\rss://example",
-    ] {
-        assert_eq!(
-            prepare_subscription_v1(&[SubscriptionSourceV1::Direct(invalid)]).unwrap_err(),
-            SubscriptionPreparationError::InvalidInput
-        );
-    }
-}
-
-#[test]
-fn unique_from_occurrences_yields_first_seen_identities() {
-    let remote_a = "https://upstream.example/a";
-    let remote_b = "https://upstream.example/b";
-    let fill =
-        UniqueFlightFillV1::bind_optional([None, Some(remote_a), Some(remote_a), Some(remote_b)]);
-    let occurrences = [None, Some("A"), Some("A"), Some("B")];
-    assert_eq!(
-        fill.unique_from_occurrences(&occurrences).as_deref(),
-        Some(&["A", "B"][..])
-    );
-    assert_eq!(fill.unique_from_occurrences(&[None, Some("A")]), None);
-}
-
-#[test]
-fn unique_flights_zip_direct_and_unique_remote_bodies() {
-    let alpha = ALPHA.to_owned();
-    let remote = "https://upstream.example/a".to_owned();
-    let fill =
-        UniqueFlightFillV1::bind_optional([None, Some(remote.as_str()), Some(remote.as_str())]);
-    let sources = vec![alpha, remote.clone(), remote.clone()];
-    let bodies = vec![BETA.as_bytes().to_vec()];
-    let prepared = fill
-        .prepare_subscription(&sources, &bodies)
-        .expect("aligned")
-        .expect("parsed");
-    assert_eq!(
-        prepared.remote_decoded_bytes_by_source(),
-        &[None, Some(BETA.len()), Some(BETA.len())]
-    );
-    assert_eq!(fill.unique_urls(), &[remote]);
-    assert_eq!(fill.unique_decoded_bytes(&prepared), Some(vec![BETA.len()]));
-    let bytes = prepared
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin")
-        .into_bytes();
-    let yaml = std::str::from_utf8(&bytes).expect("utf-8");
-    assert!(yaml.contains("- name: Alpha\n"));
-    assert!(yaml.contains("- name: Beta\n"));
-}
-
-#[test]
-fn prefix_error_beats_a_later_unique_flight_failure() {
-    let remote = "https://upstream.example/a";
-    let fill = UniqueFlightFillV1::bind_optional([None, Some(remote)]);
-    let loaded: &[Option<&[u8]>] = &[];
-
-    assert_eq!(
-        fill.prefix_error_before_unique_failure(&[ALPHA.to_owned(), remote.to_owned()], loaded, 0),
-        UniqueFlightPrefix::Continue
-    );
-    assert_eq!(
-        fill.prefix_error_before_unique_failure(&[String::new(), remote.to_owned()], loaded, 0),
-        UniqueFlightPrefix::Error(SubscriptionPreparationError::InvalidInput)
-    );
-    assert_eq!(
-        fill.prefix_error_before_unique_failure(
-            &["not-a-share-uri".to_owned(), remote.to_owned()],
-            loaded,
-            0
-        ),
-        UniqueFlightPrefix::Continue
-    );
-    assert_eq!(
-        fill.prefix_error_before_unique_failure(&[ALPHA.to_owned(), remote.to_owned()], loaded, 9),
-        UniqueFlightPrefix::Misaligned
-    );
-}
-
-#[test]
-fn whole_remote_failures_retain_a_closed_reason_and_source_ordinal() {
-    for (body, reason) in [
-        (vec![0xff], RemoteSourceFailureV1::InvalidUtf8),
-        (
-            b"trojan://example\rnext".to_vec(),
-            RemoteSourceFailureV1::InvalidLineEnding,
-        ),
-        (vec![b'a'; 2_796_207], RemoteSourceFailureV1::InputTooLarge),
-    ] {
-        assert_eq!(
-            prepare_subscription_v1(&[
-                SubscriptionSourceV1::Direct(ALPHA),
-                SubscriptionSourceV1::Remote(&body),
-            ])
-            .unwrap_err(),
-            SubscriptionPreparationError::RemoteFailure {
-                source_index: 1,
-                reason,
-            }
-        );
-    }
-
-    let decoded_too_large = vec![b'a'; 2 * 1024 * 1024 + 1];
-    let encoded_too_large = STANDARD.encode(decoded_too_large);
-    assert_eq!(
-        prepare_subscription_v1(&[SubscriptionSourceV1::Remote(encoded_too_large.as_bytes(),)])
-            .unwrap_err(),
-        SubscriptionPreparationError::RemoteFailure {
-            source_index: 0,
-            reason: RemoteSourceFailureV1::DecodedTooLarge,
-        }
-    );
-}
-
-#[test]
 fn occurrence_limit_is_request_wide_across_direct_and_remote_sources() {
     let first_remote = "bad\n".repeat(9_998);
+    let sources = vec![
+        ALPHA.to_owned(),
+        REMOTE_FIRST.to_owned(),
+        REMOTE_SECOND.to_owned(),
+    ];
+    let start = || {
+        common::start_occurrences(
+            &sources,
+            [None, Some(REMOTE_FIRST), Some(REMOTE_SECOND)],
+            None,
+            OutputTarget::Mihomo,
+        )
+    };
 
-    assert!(
-        prepare_subscription_v1(&[
-            SubscriptionSourceV1::Direct(ALPHA),
-            SubscriptionSourceV1::Remote(first_remote.as_bytes()),
-            SubscriptionSourceV1::Remote(b"bad"),
-        ])
-        .is_ok()
-    );
+    common::drive_session(start(), |url| match url {
+        REMOTE_FIRST => first_remote.as_bytes().to_vec(),
+        REMOTE_SECOND => b"bad".to_vec(),
+        other => panic!("unexpected unique URL {other}"),
+    })
+    .expect("10,000 occurrences stay within the request cap");
+
     assert_eq!(
-        prepare_subscription_v1(&[
-            SubscriptionSourceV1::Direct(ALPHA),
-            SubscriptionSourceV1::Remote(first_remote.as_bytes()),
-            SubscriptionSourceV1::Remote(b"bad\nbad"),
-        ])
+        common::drive_session(start(), |url| match url {
+            REMOTE_FIRST => first_remote.as_bytes().to_vec(),
+            REMOTE_SECOND => b"bad\nbad".to_vec(),
+            other => panic!("unexpected unique URL {other}"),
+        })
         .unwrap_err(),
-        SubscriptionPreparationError::ConversionLimit
+        UniqueFlightFillFailure::ConversionLimit
     );
 }
 
 #[test]
 fn zero_valid_nodes_and_error_formatting_are_closed_and_secret_safe() {
     assert_eq!(
-        prepare_subscription_v1(&[
-            SubscriptionSourceV1::Direct("anytls://secret-canary.example:443"),
-            SubscriptionSourceV1::Remote(b"\t \r\n"),
-        ])
+        common::drive_session(
+            common::start_occurrences(
+                &[
+                    "anytls://secret-canary.example:443".to_owned(),
+                    REMOTE.to_owned(),
+                ],
+                [None, Some(REMOTE)],
+                None,
+                OutputTarget::Mihomo,
+            ),
+            |_| b"\t \r\n".to_vec(),
+        )
         .unwrap_err(),
-        SubscriptionPreparationError::NoValidNodes {
+        UniqueFlightFillFailure::NoValidNodes {
             skips: SkipCountsV1 {
                 parse: 1,
                 capability: 0,
@@ -236,9 +133,22 @@ fn zero_valid_nodes_and_error_formatting_are_closed_and_secret_safe() {
         }
     );
 
-    let error = prepare_subscription_v1(&[SubscriptionSourceV1::Direct(" secret-canary.example ")])
-        .unwrap_err();
-    for formatted in [format!("{error:?}"), error.to_string()] {
+    let failure = match UniqueFlightSessionV1::start(
+        &[" secret-canary.example ".to_owned()],
+        [None],
+        None,
+        OutputTarget::Mihomo,
+        common::DECODED_CAP,
+        false,
+    ) {
+        UniqueFlightDrive::Ended(Err(failure)) => failure,
+        UniqueFlightDrive::Ended(Ok(_)) => {
+            panic!("leading ASCII space is invalid unique-flight input")
+        }
+        UniqueFlightDrive::Need(need) => panic!("expected Ended, got {need:?}"),
+    };
+    assert_eq!(failure, UniqueFlightFillFailure::InvalidInput);
+    for formatted in [format!("{failure:?}"), failure.to_string()] {
         assert!(!formatted.contains("secret-canary"));
     }
 }

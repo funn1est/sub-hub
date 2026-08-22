@@ -14,8 +14,7 @@ use super::{
     },
 };
 use crate::{
-    MAX_RULE_SET_BYTES,
-    flight::UniqueFlightsV1,
+    MAX_RULE_SET_BYTES, UniqueFlightFillV1,
     policy::{
         CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
         PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
@@ -96,14 +95,12 @@ pub(super) fn compile_acl4ssr_policy(
 pub(super) fn consume_rule_sets(
     config: &Config,
     unique_bodies: &[&[u8]],
-    flights: &UniqueFlightsV1,
+    fill: &UniqueFlightFillV1,
     parsed_rule_sets: &mut [Option<Vec<RuleEntry>>],
     occurrence_exclusive: usize,
     collect: bool,
 ) -> Result<Vec<CompiledRuleV1>, Acl4SsrRenderError> {
-    if occurrence_exclusive > flights.occurrence_count()
-        || unique_bodies.len() > flights.flight_count()
-    {
+    if occurrence_exclusive > fill.occurrence_count() || unique_bodies.len() > fill.flight_count() {
         return Err(Acl4SsrRenderError::RuleSetAlignment);
     }
     let mut rules = Vec::new();
@@ -120,7 +117,7 @@ pub(super) fn consume_rule_sets(
                 if remote_index == occurrence_exclusive {
                     return Ok(rules);
                 }
-                let flight = flights
+                let flight = fill
                     .flight_of(remote_index)
                     .ok_or(Acl4SsrRenderError::RuleSetAlignment)?;
                 let entries = parsed.entries(flight, &mut rule_count)?;
@@ -157,7 +154,7 @@ pub(super) fn consume_rule_sets(
             }
         }
     }
-    if collect && remote_index != flights.occurrence_count() {
+    if collect && remote_index != fill.occurrence_count() {
         return Err(Acl4SsrRenderError::RuleSetAlignment);
     }
     Ok(rules)

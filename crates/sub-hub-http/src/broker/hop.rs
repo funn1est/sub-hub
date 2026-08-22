@@ -1,7 +1,7 @@
 //! HTTPS hop seam. Hosts supply header bags and read octets only when asked.
 //! They do not name Redirect or Success.
 
-use std::fmt;
+use std::{fmt, future::Future};
 
 use http::StatusCode;
 
@@ -106,13 +106,13 @@ impl RemoteResponse {
 }
 
 /// Host adapters read octets only when this variant is returned.
-pub enum HttpsHopOutcome {
+pub(crate) enum HttpsHopOutcome {
     Complete(RemoteResponse),
     ReadBody(HttpsHopPending),
 }
 
 /// Successful hop waiting for body octets. Does not name Redirect or Success.
-pub struct HttpsHopPending {
+pub(crate) struct HttpsHopPending {
     status: StatusCode,
     hop: HttpsHopHeaders,
     max_body_bytes: usize,
@@ -150,12 +150,52 @@ impl fmt::Debug for HttpsHopPending {
     }
 }
 
+/// Owned hop header values. Hosts snapshot these before reading body octets.
+pub struct HopHeaderBag {
+    location: Vec<Vec<u8>>,
+    content_encoding: Vec<Vec<u8>>,
+    content_length: Vec<Vec<u8>>,
+    userinfo: Vec<Vec<u8>>,
+}
+
+impl HopHeaderBag {
+    /// Looks up hop headers by lowercase field name. Hosts do not pick the fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RemoteFetchError::Failure`] when a lookup fails.
+    pub fn from_lookup<F, I, V>(mut header_values: F) -> Result<Self, RemoteFetchError>
+    where
+        F: FnMut(&'static str) -> Result<I, RemoteFetchError>,
+        I: IntoIterator<Item = V>,
+        V: AsRef<[u8]>,
+    {
+        Ok(Self {
+            location: owned_header_values(header_values("location")?),
+            content_encoding: owned_header_values(header_values("content-encoding")?),
+            content_length: owned_header_values(header_values("content-length")?),
+            userinfo: owned_header_values(header_values("subscription-userinfo")?),
+        })
+    }
+}
+
+fn owned_header_values<I, V>(values: I) -> Vec<Vec<u8>>
+where
+    I: IntoIterator<Item = V>,
+    V: AsRef<[u8]>,
+{
+    values
+        .into_iter()
+        .map(|value| value.as_ref().to_vec())
+        .collect()
+}
+
 /// Interprets one hop's headers. Hosts supply header bags; they do not name Redirect or Success.
 ///
 /// # Errors
 ///
 /// Returns [`RemoteFetchError::Failure`] when the hop header contract is violated.
-pub fn begin_https_hop<L, E, C, U, LV, EV, CV, UV>(
+pub(crate) fn begin_https_hop<L, E, C, U, LV, EV, CV, UV>(
     status: StatusCode,
     location_values: L,
     content_encoding_values: E,
@@ -199,31 +239,41 @@ where
     }
 }
 
-/// Hosts look up hop headers by lowercase field name. They do not pick hop fields themselves.
+/// Finishes one outbound hop: interpret a header bag, then body octets only when asked.
+///
+/// Hosts supply [`HopHeaderBag`] and a body reader. They do not name Redirect
+/// or Success, and they do not apply the body cap a second time.
 ///
 /// # Errors
 ///
-/// Returns [`RemoteFetchError::Failure`] when a lookup fails or the hop header contract is violated.
-pub fn begin_https_hop_lookup<F, I, V>(
+/// Returns [`RemoteFetchError::Failure`] when the hop header contract is
+/// violated or the body exceeds [`RemoteAttempt::max_body_bytes`].
+pub async fn complete_https_hop<R, Fut>(
     status: StatusCode,
-    mut header_values: F,
+    headers: HopHeaderBag,
     capture_subscription_user_info: bool,
     max_body_bytes: usize,
-) -> Result<HttpsHopOutcome, RemoteFetchError>
+    read_body: R,
+) -> Result<RemoteResponse, RemoteFetchError>
 where
-    F: FnMut(&'static str) -> Result<I, RemoteFetchError>,
-    I: IntoIterator<Item = V>,
-    V: AsRef<[u8]>,
+    R: FnOnce(usize) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>, RemoteFetchError>>,
 {
-    begin_https_hop(
+    match begin_https_hop(
         status,
-        header_values("location")?,
-        header_values("content-encoding")?,
-        header_values("content-length")?,
-        header_values("subscription-userinfo")?,
+        headers.location,
+        headers.content_encoding,
+        headers.content_length,
+        headers.userinfo,
         capture_subscription_user_info,
         max_body_bytes,
-    )
+    )? {
+        HttpsHopOutcome::Complete(complete) => Ok(complete),
+        HttpsHopOutcome::ReadBody(pending) => {
+            let body = read_body(pending.max_body_bytes()).await?;
+            pending.finish(body)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -282,21 +332,70 @@ mod tests {
 
     #[test]
     fn lookup_names_hop_headers_once() {
-        use super::begin_https_hop_lookup;
+        use super::{HopHeaderBag, begin_https_hop};
 
-        let success = begin_https_hop_lookup(
-            StatusCode::OK,
-            |name| -> Result<Vec<&[u8]>, crate::RemoteFetchError> {
+        let headers =
+            HopHeaderBag::from_lookup(|name| -> Result<Vec<&[u8]>, crate::RemoteFetchError> {
                 Ok(match name {
                     "content-length" => vec![b"4".as_slice()],
                     "content-encoding" => vec![b"identity".as_slice()],
                     _ => Vec::new(),
                 })
-            },
+            })
+            .expect("header bag");
+        let success = begin_https_hop(
+            StatusCode::OK,
+            headers.location,
+            headers.content_encoding,
+            headers.content_length,
+            headers.userinfo,
             false,
             16,
         )
         .expect("success hop");
         assert!(matches!(success, HttpsHopOutcome::ReadBody(_)));
+    }
+
+    #[test]
+    fn complete_https_hop_reads_body_only_when_asked() {
+        use super::{HopHeaderBag, complete_https_hop};
+
+        let headers =
+            HopHeaderBag::from_lookup(|name| -> Result<Vec<&[u8]>, crate::RemoteFetchError> {
+                Ok(match name {
+                    "content-length" => vec![b"4".as_slice()],
+                    "content-encoding" => vec![b"identity".as_slice()],
+                    _ => Vec::new(),
+                })
+            })
+            .expect("header bag");
+        let complete = futures::executor::block_on(complete_https_hop(
+            StatusCode::OK,
+            headers,
+            false,
+            16,
+            |_| async { Ok(b"body".to_vec()) },
+        ))
+        .expect("success hop");
+        assert_eq!(complete.body.as_slice(), b"body");
+
+        let redirect_headers =
+            HopHeaderBag::from_lookup(|name| -> Result<Vec<&[u8]>, crate::RemoteFetchError> {
+                Ok(if name == "location" {
+                    vec![b"https://cdn.example/sub".as_slice()]
+                } else {
+                    Vec::new()
+                })
+            })
+            .expect("redirect bag");
+        let redirect = futures::executor::block_on(complete_https_hop(
+            StatusCode::FOUND,
+            redirect_headers,
+            false,
+            16,
+            |_| async { panic!("redirect must not read a body") },
+        ))
+        .expect("redirect hop");
+        assert!(redirect.body.is_empty());
     }
 }

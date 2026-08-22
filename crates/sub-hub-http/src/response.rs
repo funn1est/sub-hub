@@ -1,10 +1,7 @@
 use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
-use sub_hub_conversion::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, ConversionRenderError, OutputTarget, SkipCountsV1,
-    SubscriptionPreparationError,
-};
+use sub_hub_conversion::{OutputTarget, SkipCountsV1, UniqueFlightFillFailure};
 
-use crate::{JSON_CONTENT_TYPE, NO_STORE, TEXT_CONTENT_TYPE, broker::BrokerError};
+use crate::{JSON_CONTENT_TYPE, NO_STORE, TEXT_CONTENT_TYPE};
 
 pub struct HttpResponse {
     pub(crate) status: StatusCode,
@@ -156,54 +153,15 @@ pub(crate) fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_rege
         .insert("x-subconverter-omitted-rules", omitted);
 }
 
-pub(crate) const fn map_subscription_error(
-    error: SubscriptionPreparationError,
-) -> ApplicationError {
+/// Maps one Unique-flight fill ending onto GET.
+pub(crate) const fn map_fill_outcome(error: UniqueFlightFillFailure) -> ApplicationError {
     match error {
-        SubscriptionPreparationError::InvalidInput => ApplicationError::InvalidRequest,
-        SubscriptionPreparationError::RemoteFailure { .. } => ApplicationError::RemoteFailure,
-        SubscriptionPreparationError::ConversionLimit => ApplicationError::ConversionLimit,
-        SubscriptionPreparationError::NoValidNodes { skips } => {
-            ApplicationError::NoValidNodes { skips }
-        }
-    }
-}
-
-pub(crate) const fn map_conversion_error(error: ConversionRenderError) -> ApplicationError {
-    match error {
-        ConversionRenderError::ConversionLimit => ApplicationError::ConversionLimit,
-        ConversionRenderError::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
-        ConversionRenderError::Internal => ApplicationError::Internal,
-    }
-}
-
-pub(crate) const fn map_acl4ssr_preparation_error(
-    error: Acl4SsrPreparationError,
-) -> ApplicationError {
-    match error {
-        Acl4SsrPreparationError::InvalidConfig => ApplicationError::RemoteFailure,
-        Acl4SsrPreparationError::ConversionLimit => ApplicationError::ConversionLimit,
-        Acl4SsrPreparationError::Internal => ApplicationError::Internal,
-    }
-}
-
-pub(crate) const fn map_broker_error(error: BrokerError) -> ApplicationError {
-    match error {
-        BrokerError::Failure => ApplicationError::RemoteFailure,
-        BrokerError::Timeout => ApplicationError::RemoteTimeout,
-        BrokerError::ConversionLimit => ApplicationError::ConversionLimit,
-        BrokerError::Internal => ApplicationError::Internal,
-    }
-}
-
-pub(crate) const fn map_acl4ssr_render_error(error: Acl4SsrRenderError) -> ApplicationError {
-    match error {
-        Acl4SsrRenderError::InvalidRuleSet => ApplicationError::RemoteFailure,
-        Acl4SsrRenderError::RuleSetAlignment | Acl4SsrRenderError::Internal => {
-            ApplicationError::Internal
-        }
-        Acl4SsrRenderError::ConversionLimit => ApplicationError::ConversionLimit,
-        Acl4SsrRenderError::KeepPass(error) => map_conversion_error(error),
+        UniqueFlightFillFailure::Internal => ApplicationError::Internal,
+        UniqueFlightFillFailure::ConversionLimit => ApplicationError::ConversionLimit,
+        UniqueFlightFillFailure::InvalidInput => ApplicationError::InvalidRequest,
+        UniqueFlightFillFailure::RemoteFailure => ApplicationError::RemoteFailure,
+        UniqueFlightFillFailure::RemoteTimeout => ApplicationError::RemoteTimeout,
+        UniqueFlightFillFailure::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
     }
 }
 
@@ -284,5 +242,40 @@ fn plain_response(status: StatusCode, body: Vec<u8>) -> HttpResponse {
         status,
         headers,
         body,
+    }
+}
+
+#[cfg(test)]
+mod fill_outcome_tests {
+    use super::{ApplicationError, map_fill_outcome};
+    use sub_hub_conversion::{SkipCountsV1, UniqueFlightFillFailure};
+
+    #[test]
+    fn map_fill_outcome_covers_the_closed_unique_flight_fill_ending() {
+        let skips = SkipCountsV1::parse_only(1);
+        assert_eq!(
+            map_fill_outcome(UniqueFlightFillFailure::ConversionLimit),
+            ApplicationError::ConversionLimit
+        );
+        assert_eq!(
+            map_fill_outcome(UniqueFlightFillFailure::NoValidNodes { skips }),
+            ApplicationError::NoValidNodes { skips }
+        );
+        assert_eq!(
+            map_fill_outcome(UniqueFlightFillFailure::RemoteTimeout),
+            ApplicationError::RemoteTimeout
+        );
+        assert_eq!(
+            map_fill_outcome(UniqueFlightFillFailure::RemoteFailure),
+            ApplicationError::RemoteFailure
+        );
+        assert_eq!(
+            map_fill_outcome(UniqueFlightFillFailure::InvalidInput),
+            ApplicationError::InvalidRequest
+        );
+        assert_eq!(
+            map_fill_outcome(UniqueFlightFillFailure::Internal),
+            ApplicationError::Internal
+        );
     }
 }

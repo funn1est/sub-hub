@@ -9,7 +9,7 @@ use std::{
 use http::{Method, StatusCode};
 use sub_hub_http::{
     Application, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse,
-    ResourceKind, SelfHosts,
+    SelfHosts,
 };
 
 const REMOTE_SUBSCRIPTION: &[u8] = concat!(
@@ -563,7 +563,6 @@ fn query_for_source(source: &str) -> String {
 
 struct RecordingRemote {
     urls: Arc<Mutex<Vec<String>>>,
-    kinds: Arc<Mutex<Vec<ResourceKind>>>,
 }
 
 impl RemoteAdapter for RecordingRemote {
@@ -578,10 +577,6 @@ impl RemoteAdapter for RecordingRemote {
             .lock()
             .expect("test recorder lock")
             .push(attempt.url().to_owned());
-        self.kinds
-            .lock()
-            .expect("test recorder lock")
-            .push(attempt.kind());
         future::ready(Ok(RemoteResponse::body(
             StatusCode::OK,
             REMOTE_SUBSCRIPTION.to_vec(),
@@ -592,11 +587,9 @@ impl RemoteAdapter for RecordingRemote {
 #[test]
 fn url_identity_normalizes_scheme_idna_host_trailing_dot_and_default_port() {
     let urls = Arc::new(Mutex::new(Vec::new()));
-    let kinds = Arc::new(Mutex::new(Vec::new()));
     let application = Application::new(
         RecordingRemote {
             urls: Arc::clone(&urls),
-            kinds: Arc::clone(&kinds),
         },
         SelfHosts::new(["service.example"]).expect("valid aliases"),
     );
@@ -609,10 +602,6 @@ fn url_identity_normalizes_scheme_idna_host_trailing_dot_and_default_port() {
     assert_eq!(
         *urls.lock().expect("test recorder lock"),
         ["https://xn--bcher-kva.example/a?x=1"]
-    );
-    assert_eq!(
-        *kinds.lock().expect("test recorder lock"),
-        [ResourceKind::Subscription]
     );
 }
 
@@ -636,7 +625,6 @@ fn lexical_remote_destination_rejections_happen_before_io() {
         let application = Application::new(
             RecordingRemote {
                 urls: Arc::clone(&urls),
-                kinds: Arc::new(Mutex::new(Vec::new())),
             },
             SelfHosts::new(["service.example"]).expect("valid aliases"),
         );

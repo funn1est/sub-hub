@@ -13,7 +13,6 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
         deadline_millis: u64,
     ) -> Result<super::RemoteResponse, BrokerError> {
         let RemoteResource {
-            kind,
             mut url,
             max_body_bytes,
             capture_subscription_user_info,
@@ -35,7 +34,6 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
                 return Err(BrokerError::Failure);
             }
             let attempt = RemoteAttempt {
-                kind,
                 url: url.as_str().to_owned(),
                 deadline_millis,
                 max_body_bytes,
@@ -86,7 +84,7 @@ mod tests {
 
     use super::super::{
         BrokerSession, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResource,
-        RemoteResponse, ResourceKind,
+        RemoteResponse,
     };
     use crate::SelfHosts;
 
@@ -118,7 +116,6 @@ mod tests {
         let self_hosts = SelfHosts::new(std::iter::empty::<String>()).expect("empty");
         let session = BrokerSession::new(&adapter, &self_hosts, "console.example");
         let resource = RemoteResource {
-            kind: ResourceKind::Subscription,
             url: Url::parse("https://upstream.example/sub").expect("url"),
             max_body_bytes: 64,
             capture_subscription_user_info: false,

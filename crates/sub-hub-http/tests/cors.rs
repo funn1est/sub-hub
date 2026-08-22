@@ -23,7 +23,18 @@ const DIRECT_QUERY: &str = concat!(
     "%40EXAMPLE.COM%3A443%23Alpha",
 );
 const CONSOLE: &str = "https://console.example";
-const EXPOSE: &str = "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules, x-subconverter-skipped";
+const GOLDEN: &str = include_str!("../../../testdata/subscription-url/cases.json");
+
+fn expose_headers() -> String {
+    let file: serde_json::Value = serde_json::from_str(GOLDEN).expect("golden JSON");
+    file["contract"]["exposedHeaders"]
+        .as_array()
+        .expect("exposedHeaders")
+        .iter()
+        .map(|value| value.as_str().expect("header name"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 fn handle(request: HttpRequest<'_>) -> HttpResponse {
     let application = Application::new(
@@ -71,8 +82,10 @@ fn assert_cors_echo(response: &HttpResponse, origin: &str) {
         response
             .headers()
             .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
-            .unwrap(),
-        EXPOSE
+            .unwrap()
+            .to_str()
+            .expect("ascii"),
+        expose_headers()
     );
 }
 

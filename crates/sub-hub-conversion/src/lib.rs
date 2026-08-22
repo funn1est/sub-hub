@@ -25,8 +25,6 @@ mod subscription_source;
 
 mod skip;
 
-mod flight;
-
 mod unique_fill;
 
 mod target;
@@ -40,18 +38,18 @@ pub const MAX_RULE_SET_BYTES: usize = 4 * 1024 * 1024;
 /// ACL4SSR INI body size accepted during prepare and the matching Config fetch.
 pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 
-pub use acl4ssr::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, Acl4SsrRuleSetBinder, Acl4SsrRuleSetRequestV1,
-    PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
+pub(crate) use acl4ssr::{
+    Acl4SsrPreparationError, Acl4SsrRenderError, PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
 };
-pub use direct_subscription::{
-    PreparedSubscriptionV1, RemoteSourceFailureV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, prepare_subscription_v1,
+pub(crate) use direct_subscription::{
+    PreparedSubscriptionV1, SubscriptionPreparationError, SubscriptionSourceV1,
+    prepare_subscription_v1,
 };
 pub use render::{ConversionRenderError, RenderedConfig};
 pub use skip::SkipCountsV1;
 pub use target::OutputTarget;
+pub(crate) use unique_fill::UniqueFlightFillV1;
 pub use unique_fill::{
-    UniqueFlightFillV1, UniqueFlightKind, UniqueFlightNeed, UniqueFlightPrefix,
-    UniqueFlightSessionError, UniqueFlightSessionV1,
+    UniqueFlightBodies, UniqueFlightDrive, UniqueFlightFetch, UniqueFlightFillFailure,
+    UniqueFlightHostFailure, UniqueFlightNeed, UniqueFlightOutbound, UniqueFlightSessionV1,
 };

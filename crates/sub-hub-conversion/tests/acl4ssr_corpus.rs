@@ -1,20 +1,14 @@
 #![cfg(not(target_family = "wasm"))]
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     env, fs,
     path::{Path, PathBuf},
 };
 
-use sub_hub_conversion::{
-    OutputTarget, PreparedAcl4SsrV1, SubscriptionPreparationError, SubscriptionSourceV1,
-    prepare_subscription_v1,
-};
+use sub_hub_conversion::OutputTarget;
 
-fn prepare_direct()
--> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
-    prepare_subscription_v1(&[SubscriptionSourceV1::Direct(VALID_DIRECT)])
-}
+mod common;
 
 const CORPUS_DIR_ENV: &str = "SUB_HUB_ACL4SSR_CORPUS_DIR";
 const REQUIRE_CORPUS_ENV: &str = "SUB_HUB_REQUIRE_ACL4SSR_CORPUS";
@@ -65,21 +59,6 @@ const FULL_OUTPUT: ExpectedOutputStructure = ExpectedOutputStructure {
     ],
 };
 
-fn bind_distinct(prepared: PreparedAcl4SsrV1) -> sub_hub_conversion::PreparedAcl4SsrRuleSetsV1 {
-    let urls: Vec<String> = (0..prepared.rule_set_requests().len())
-        .map(|index| format!("https://rules.example/flight/{index}"))
-        .collect();
-    let mut binder = prepared.rule_set_binder();
-    for url in &urls {
-        binder
-            .push_canonical(url)
-            .expect("fixed corpus flight plan is bounded and dense");
-    }
-    binder
-        .finish()
-        .expect("fixed corpus flight plan is bounded and dense")
-}
-
 #[test]
 fn pinned_online_and_full_corpus_cross_the_opaque_conversion_seam() {
     let Some(root) = configured_corpus_root() else {
@@ -116,26 +95,11 @@ fn verify_profile(
     expected_output: &ExpectedOutputStructure,
 ) {
     let config = read_corpus_file(root, config_path);
-    let prepared = prepare_direct()
-        .expect("fixed corpus subscription must be valid")
-        .prepare_acl4ssr_config_v1(&config)
-        .expect("fixed corpus config must match its compile-time policy");
-    assert_eq!(prepared.rule_set_requests().len(), expected_remote_count);
-    let bodies = prepared
-        .rule_set_requests()
-        .iter()
-        .map(|request| {
-            let relative = request
-                .url()
-                .strip_prefix(REMOTE_PREFIX)
-                .expect("fixed corpus Rule Set URL must use the approved prefix");
-            read_corpus_file(root, relative)
-        })
-        .collect::<Vec<_>>();
-    let body_refs = bodies.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    let output = bind_distinct(prepared)
-        .render_v1(OutputTarget::Mihomo, &body_refs)
-        .expect("fixed corpus must render through the strict conversion seam");
+    let mut collected = HashMap::new();
+    let outcome = render_corpus(root, &config, &mut collected)
+        .expect("fixed corpus must render through Unique-flight fill");
+    assert_eq!(outcome.outbound_count, expected_remote_count);
+    let output = outcome.document;
     assert_eq!(output.omitted_url_regex(), expected_omitted_count);
     let text = std::str::from_utf8(output.as_bytes()).expect("utf-8");
     if expected_empty_count == 0 {
@@ -152,34 +116,58 @@ fn verify_profile(
     );
     assert_output_structure(output.as_bytes(), expected_output);
 
-    let mut changed_omission = bodies.clone();
-    let (body_index, pattern_index) = changed_omission
+    let mut changed = collected;
+    let (body_key, pattern_index) = changed
         .iter()
-        .enumerate()
-        .find_map(|(body_index, body)| {
+        .find_map(|(url, body)| {
             body.windows(b"URL-REGEX,".len())
                 .position(|window| window == b"URL-REGEX,")
-                .map(|index| (body_index, index + b"URL-REGEX,".len()))
+                .map(|index| (url.clone(), index + b"URL-REGEX,".len()))
         })
         .expect("fixed compatibility corpus must contain URL-REGEX evidence");
-    changed_omission[body_index][pattern_index] = match changed_omission[body_index][pattern_index]
-    {
+    let byte = changed.get_mut(&body_key).expect("collected body");
+    byte[pattern_index] = match byte[pattern_index] {
         b'x' => b'y',
         _ => b'x',
     };
-    let changed_refs = changed_omission
-        .iter()
-        .map(Vec::as_slice)
-        .collect::<Vec<_>>();
-    let changed = bind_distinct(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(&config)
-            .unwrap(),
+    let mutated = common::drive_session(
+        common::start_direct_config(VALID_DIRECT, OutputTarget::Mihomo),
+        |url| {
+            if url == common::CONFIG_URL {
+                return config.clone();
+            }
+            changed
+                .get(url)
+                .cloned()
+                .unwrap_or_else(|| panic!("missing unique Rule Set body for {url}"))
+        },
     )
-    .render_v1(OutputTarget::Mihomo, &changed_refs)
     .expect("URL-REGEX pattern bytes are not a render gate");
-    assert_eq!(changed.omitted_url_regex(), expected_omitted_count);
+    assert_eq!(mutated.document.omitted_url_regex(), expected_omitted_count);
+}
+
+fn render_corpus(
+    root: &Path,
+    config: &[u8],
+    collected: &mut HashMap<String, Vec<u8>>,
+) -> Result<common::DriveStats, sub_hub_conversion::UniqueFlightFillFailure> {
+    common::drive_session(
+        common::start_direct_config(VALID_DIRECT, OutputTarget::Mihomo),
+        |url| {
+            if url == common::CONFIG_URL {
+                return config.to_vec();
+            }
+            collected
+                .entry(url.to_owned())
+                .or_insert_with(|| {
+                    let relative = url
+                        .strip_prefix(REMOTE_PREFIX)
+                        .expect("fixed corpus Rule Set URL must use the approved prefix");
+                    read_corpus_file(root, relative)
+                })
+                .clone()
+        },
+    )
 }
 
 fn assert_output_structure(output: &[u8], expected: &ExpectedOutputStructure) {
@@ -250,11 +238,11 @@ fn a_semantic_full_config_change_is_still_accepted(root: &Path) {
         1,
     );
     assert_ne!(changed, config);
-    let prepared = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(changed.as_bytes())
-        .expect("a declared-URL case change is not a prepare gate");
-    assert_eq!(prepared.rule_set_requests().len(), 31);
+    assert_eq!(
+        common::count_rule_set_outbounds(VALID_DIRECT, changed.as_bytes())
+            .expect("a declared-URL case change is not a Unique-flight fill gate"),
+        31
+    );
 }
 
 fn read_corpus_file(root: &Path, relative: &str) -> Vec<u8> {

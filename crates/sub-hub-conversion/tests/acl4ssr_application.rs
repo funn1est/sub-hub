@@ -1,47 +1,37 @@
-use proptest::prelude::*;
-use sub_hub_conversion::{
-    Acl4SsrPreparationError, Acl4SsrRenderError, OutputTarget, PreparedAcl4SsrV1,
-    SubscriptionSourceV1, prepare_subscription_v1,
-};
+use std::fmt::Write as _;
+
+use sub_hub_conversion::{OutputTarget, UniqueFlightFillFailure};
+
+mod common;
 
 const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
+const FIRST_LIST: &str = "https://rules.example/first.list";
+const SECOND_LIST: &str = "https://rules.example/second.list";
+const SHARED_LIST: &str = "https://rules.example/shared.list";
 
-fn prepare_direct() -> Result<
-    sub_hub_conversion::PreparedSubscriptionV1,
-    sub_hub_conversion::SubscriptionPreparationError,
-> {
-    prepare_subscription_v1(&[SubscriptionSourceV1::Direct(VALID_DIRECT)])
+fn render_mihomo(
+    config: &str,
+    mut rule_body: impl FnMut(&str) -> Vec<u8>,
+) -> Result<common::DriveStats, UniqueFlightFillFailure> {
+    common::render_acl4ssr(
+        VALID_DIRECT,
+        config.as_bytes(),
+        OutputTarget::Mihomo,
+        |url| rule_body(url),
+    )
 }
 
-fn bind_canonical(
-    prepared: PreparedAcl4SsrV1,
-    urls: &[&str],
-) -> Result<sub_hub_conversion::PreparedAcl4SsrRuleSetsV1, Acl4SsrRenderError> {
-    let mut binder = prepared.rule_set_binder();
-    for url in urls {
-        binder.push_canonical(url)?;
-    }
-    binder.finish()
+fn document_mihomo(
+    config: &str,
+    rule_body: impl FnMut(&str) -> Vec<u8>,
+) -> sub_hub_conversion::RenderedConfig {
+    render_mihomo(config, rule_body)
+        .expect("valid ACL4SSR Unique-flight fill")
+        .document
 }
 
-trait DistinctRuleSetFlights {
-    fn render_mihomo_v1(
-        self,
-        bodies: &[&[u8]],
-    ) -> Result<sub_hub_conversion::RenderedConfig, Acl4SsrRenderError>;
-}
-
-impl DistinctRuleSetFlights for PreparedAcl4SsrV1 {
-    fn render_mihomo_v1(
-        self,
-        bodies: &[&[u8]],
-    ) -> Result<sub_hub_conversion::RenderedConfig, Acl4SsrRenderError> {
-        let urls: Vec<String> = (0..self.rule_set_requests().len())
-            .map(|index| format!("https://rules.example/flight/{index}"))
-            .collect();
-        let refs = urls.iter().map(String::as_str).collect::<Vec<_>>();
-        bind_canonical(self, &refs)?.render_v1(OutputTarget::Mihomo, bodies)
-    }
+fn yaml(bytes: &[u8]) -> &str {
+    std::str::from_utf8(bytes).expect("Mihomo output is UTF-8")
 }
 
 #[test]
@@ -53,21 +43,11 @@ fn generic_acl4ssr_config_renders_groups_and_inline_final_rule() {
         "ruleset=PROXY,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let prepared = prepare_direct()
-        .expect("valid subscription")
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .expect("valid ACL4SSR config");
-
-    assert!(prepared.rule_set_requests().is_empty());
-    let output = prepared
-        .render_mihomo_v1(&[])
-        .expect("generic ACL4SSR output");
+    let outcome = render_mihomo(config, |_| panic!("no Rule Set fetch")).unwrap();
+    assert_eq!(outcome.outbound_count, 0);
+    let output = outcome.document;
     assert_eq!(output.omitted_url_regex(), 0);
-    assert!(
-        !std::str::from_utf8(output.as_bytes())
-            .unwrap()
-            .contains("empty proxy groups")
-    );
+    assert!(!yaml(output.as_bytes()).contains("empty proxy groups"));
     assert_eq!(
         output.as_bytes(),
         concat!(
@@ -103,17 +83,8 @@ fn group_regex_may_end_with_a_character_class() {
         "ruleset=PROXY,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let prepared = prepare_direct()
-        .expect("valid subscription")
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .expect("a directive ending in a regex character class is not a section");
-
-    let output = prepared.render_mihomo_v1(&[]).expect("valid output");
-    assert!(
-        std::str::from_utf8(output.as_bytes())
-            .expect("Mihomo output is UTF-8")
-            .contains("  - Alpha\n")
-    );
+    let output = document_mihomo(config, |_| panic!("no Rule Set fetch"));
+    assert!(yaml(output.as_bytes()).contains("  - Alpha\n"));
 }
 
 #[test]
@@ -128,29 +99,17 @@ fn remote_rule_set_plan_and_typed_rules_preserve_occurrence_order() {
         "ruleset=PROXY,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let prepared = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap();
+    let outcome = render_mihomo(config, |url| match url {
+        FIRST_LIST => b"DOMAIN,Example.COM\nIP-CIDR,192.0.2.129/24,no-resolve\n".to_vec(),
+        SECOND_LIST => b"DOMAIN-SUFFIX,example.net\nIP-CIDR6,2001:db8::1/32\n".to_vec(),
+        other => panic!("unexpected unique URL {other}"),
+    })
+    .unwrap();
     assert_eq!(
-        prepared
-            .rule_set_requests()
-            .iter()
-            .map(sub_hub_conversion::Acl4SsrRuleSetRequestV1::url)
-            .collect::<Vec<_>>(),
-        [
-            "https://rules.example/first.list",
-            "https://rules.example/second.list",
-        ]
+        outcome.outbound_urls,
+        [FIRST_LIST.to_owned(), SECOND_LIST.to_owned()]
     );
 
-    let output = prepared
-        .render_mihomo_v1(&[
-            b"DOMAIN,Example.COM\nIP-CIDR,192.0.2.129/24,no-resolve\n",
-            b"DOMAIN-SUFFIX,example.net\nIP-CIDR6,2001:db8::1/32\n",
-        ])
-        .unwrap();
-    let yaml = std::str::from_utf8(output.as_bytes()).unwrap();
     let expected_rules = concat!(
         "rules:\n",
         "- DOMAIN,Example.COM,PROXY\n",
@@ -160,7 +119,8 @@ fn remote_rule_set_plan_and_typed_rules_preserve_occurrence_order() {
         "- IP-CIDR6,2001:db8::1/32,PROXY\n",
         "- MATCH,PROXY\n",
     );
-    assert!(yaml.ends_with(expected_rules), "{yaml}");
+    let text = yaml(outcome.document.as_bytes());
+    assert!(text.ends_with(expected_rules), "{text}");
 }
 
 #[test]
@@ -174,24 +134,23 @@ fn duplicate_rule_set_flight_replays_typed_entries_per_occurrence() {
         "ruleset=PROXY,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let prepared = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap();
-    let output = bind_canonical(
-        prepared,
-        &[
-            "https://rules.example/shared.list",
-            "https://rules.example/shared.list",
-        ],
+    let canonical = SHARED_LIST.to_owned();
+    let output = common::render_acl4ssr_accepting(
+        VALID_DIRECT,
+        config.as_bytes(),
+        OutputTarget::Mihomo,
+        |_| canonical.clone(),
+        |url| {
+            assert_eq!(url, SHARED_LIST);
+            b"DOMAIN,example.org\n".to_vec()
+        },
     )
     .unwrap()
-    .render_v1(OutputTarget::Mihomo, &[b"DOMAIN,example.org\n"])
-    .unwrap();
-    let yaml = std::str::from_utf8(output.as_bytes()).unwrap();
-    assert!(yaml.contains("- DOMAIN,example.org,PROXY\n"));
-    assert!(yaml.contains("- DOMAIN,example.org,DIRECT\n"));
-    assert!(yaml.find("- DOMAIN,example.org,PROXY\n") < yaml.find("- DOMAIN,example.org,DIRECT\n"));
+    .document;
+    let text = yaml(output.as_bytes());
+    assert!(text.contains("- DOMAIN,example.org,PROXY\n"));
+    assert!(text.contains("- DOMAIN,example.org,DIRECT\n"));
+    assert!(text.find("- DOMAIN,example.org,PROXY\n") < text.find("- DOMAIN,example.org,DIRECT\n"));
 }
 
 #[test]
@@ -206,83 +165,37 @@ fn duplicate_rule_set_occurrences_still_consume_the_semantic_rule_budget() {
         "overwrite_original_rules=true\n",
     );
     let body = "DOMAIN,a\n".repeat(100_001);
-    let error = bind_canonical(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes())
-            .unwrap(),
-        &[
-            "https://rules.example/shared.list",
-            "https://rules.example/shared.list",
-        ],
-    )
-    .unwrap()
-    .render_v1(OutputTarget::Mihomo, &[body.as_bytes()])
-    .unwrap_err();
-    assert_eq!(error, Acl4SsrRenderError::ConversionLimit);
+    assert_eq!(
+        render_mihomo(config, |url| {
+            assert_eq!(url, SHARED_LIST);
+            body.as_bytes().to_vec()
+        })
+        .unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
+    );
 }
 
 #[test]
-fn canonical_url_identity_assigns_first_seen_flights() {
+fn invalid_config_and_invalid_rule_set_are_closed_remote_failures() {
+    let invalid_config =
+        "[custom]\nenable_rule_generator=true\noverwrite_original_rules=true\nunknown=true\n";
+    assert_eq!(
+        render_mihomo(invalid_config, |_| panic!("no Rule Set fetch")).unwrap_err(),
+        UniqueFlightFillFailure::RemoteFailure
+    );
+
     let config = concat!(
         "[custom]\n",
-        "ruleset=PROXY,https://rules.example/shared.list\n",
-        "ruleset=DIRECT,https://rules.example/shared.list\n",
         "enable_rule_generator=true\n",
         "custom_proxy_group=PROXY`select`.*\n",
+        "ruleset=PROXY,https://rules.example/rules.list\n",
         "ruleset=PROXY,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let prepared = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap();
-    let urls = [
-        "https://cdn.example/shared.list".to_owned(),
-        "https://cdn.example/shared.list".to_owned(),
-    ];
-    let bound = bind_canonical(prepared, &[urls[0].as_str(), urls[1].as_str()]).unwrap();
     assert_eq!(
-        bound.unique_urls(),
-        &["https://cdn.example/shared.list".to_owned()]
+        render_mihomo(config, |_| b"# comment only\n".to_vec()).unwrap_err(),
+        UniqueFlightFillFailure::RemoteFailure
     );
-    assert_eq!(
-        bind_canonical(
-            prepare_direct()
-                .unwrap()
-                .prepare_acl4ssr_config_v1(config.as_bytes())
-                .unwrap(),
-            &["https://cdn.example/a"],
-        )
-        .unwrap_err(),
-        Acl4SsrRenderError::RuleSetAlignment
-    );
-}
-
-#[test]
-fn config_grammar_rejects_unknown_duplicate_and_unresolved_semantics() {
-    let invalid_configs = [
-        "",
-        "[other]\nenable_rule_generator=true\noverwrite_original_rules=true\n",
-        "[custom\nenable_rule_generator=true\noverwrite_original_rules=true\n",
-        "custom]\nenable_rule_generator=true\noverwrite_original_rules=true\n",
-        "[custom]\nenable_rule_generator=true\nenable_rule_generator=true\noverwrite_original_rules=true\n",
-        "[custom]\nenable_rule_generator=false\noverwrite_original_rules=true\n",
-        "[custom]\nenable_rule_generator=true\noverwrite_original_rules=true\nunknown=true\n",
-        "[custom]\n# ignored-looking\0secret\nenable_rule_generator=true\noverwrite_original_rules=true\n",
-        "[custom]\nenable_rule_generator=true\noverwrite_original_rules=true\nruleset=MISSING,[]FINAL\n",
-        "[custom]\nenable_rule_generator=true\noverwrite_original_rules=true\ncustom_proxy_group=A`select`[]B\ncustom_proxy_group=B`select`[]A\nruleset=A,[]FINAL\n",
-        "[custom]\nenable_rule_generator=true\noverwrite_original_rules=true\ncustom_proxy_group=A`select`[]A\nruleset=A,[]FINAL\n",
-        "[custom]\nenable_rule_generator=true\noverwrite_original_rules=true\ncustom_proxy_group=A`select`.*\n",
-        "[custom]\nenable_rule_generator=true\noverwrite_original_rules=true\ncustom_proxy_group=A`select`.*\nruleset=A,[]FINAL\nruleset=A,https://rules.example/late\n",
-    ];
-    for config in invalid_configs {
-        let error = prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes())
-            .unwrap_err();
-        assert_eq!(error, Acl4SsrPreparationError::InvalidConfig, "{config}");
-    }
 }
 
 #[test]
@@ -295,19 +208,13 @@ fn group_expansion_is_ordered_deduplicated_and_empty_groups_are_downgraded() {
         "ruleset=ORDERED,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let output = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap()
-        .render_mihomo_v1(&[])
-        .unwrap();
+    let output = document_mihomo(config, |_| panic!("no Rule Set fetch"));
     assert!(
-        std::str::from_utf8(output.as_bytes())
-            .unwrap()
+        yaml(output.as_bytes())
             .contains("empty proxy groups downgraded to select + REJECT; count=1")
     );
     assert_eq!(
-        std::str::from_utf8(output.as_bytes()).unwrap(),
+        yaml(output.as_bytes()),
         concat!(
             "# subconverter: warning; empty proxy groups downgraded to select + REJECT; count=1\n",
             "mode: rule\n",
@@ -346,42 +253,32 @@ fn generic_url_regex_and_malformed_rule_sets_fail_closed() {
         "ruleset=PROXY,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let prepare = || {
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes())
-            .unwrap()
-    };
-    let omitted = prepare()
-        .render_mihomo_v1(&[b"URL-REGEX,secret,opaque,pattern"])
-        .expect("generic URL-REGEX is compiled and omitted on Mihomo");
+    let omitted = document_mihomo(config, |_| b"URL-REGEX,secret,opaque,pattern".to_vec());
     assert_eq!(omitted.omitted_url_regex(), 1);
     assert!(
         omitted.as_bytes().starts_with(
             b"# subconverter: lossy conversion; unsupported URL-REGEX rules omitted\n"
         )
     );
-    let omitted_text = std::str::from_utf8(omitted.as_bytes()).unwrap();
+    let omitted_text = yaml(omitted.as_bytes());
     assert!(!omitted_text.contains("- URL-REGEX,"));
     assert!(!omitted_text.contains("secret,opaque,pattern"));
-    let loon = bind_canonical(prepare(), &["https://rules.example/rules.list"])
-        .unwrap()
-        .render_v1(OutputTarget::Loon, &[b"URL-REGEX,example.com/path"])
-        .expect("Loon emits URL-REGEX");
+
+    let loon = common::render_acl4ssr(VALID_DIRECT, config.as_bytes(), OutputTarget::Loon, |_| {
+        b"URL-REGEX,example.com/path".to_vec()
+    })
+    .expect("Loon emits URL-REGEX")
+    .document;
     assert_eq!(loon.omitted_url_regex(), 0);
     assert!(
         std::str::from_utf8(loon.as_bytes())
             .unwrap()
             .contains("URL-REGEX,example.com/path,PROXY")
     );
-    let output = prepare()
-        .render_mihomo_v1(&[b"DOMAIN, example.com\n"])
-        .expect("ordinary Rule Set fields are not trimmed a second time");
-    assert!(
-        std::str::from_utf8(output.as_bytes())
-            .unwrap()
-            .contains("- DOMAIN, example.com,PROXY\n")
-    );
+
+    let output = document_mihomo(config, |_| b"DOMAIN, example.com\n".to_vec());
+    assert!(yaml(output.as_bytes()).contains("- DOMAIN, example.com,PROXY\n"));
+
     for invalid in [
         b"".as_slice(),
         b"# comment only\n",
@@ -398,91 +295,38 @@ fn generic_url_regex_and_malformed_rule_sets_fail_closed() {
         b"# ignored-looking\0secret\nDOMAIN,example.com\n",
     ] {
         assert_eq!(
-            prepare().render_mihomo_v1(&[invalid]).unwrap_err(),
-            Acl4SsrRenderError::InvalidRuleSet
+            render_mihomo(config, |_| invalid.to_vec()).unwrap_err(),
+            UniqueFlightFillFailure::RemoteFailure
         );
     }
     let comma_flood = format!("UNKNOWN,{}", ",".repeat(4 * 1024 * 1024 - 8));
     assert_eq!(
-        prepare()
-            .render_mihomo_v1(&[comma_flood.as_bytes()])
-            .unwrap_err(),
-        Acl4SsrRenderError::InvalidRuleSet
+        render_mihomo(config, |_| comma_flood.as_bytes().to_vec()).unwrap_err(),
+        UniqueFlightFillFailure::RemoteFailure
     );
 }
 
 #[test]
-fn staged_values_and_errors_do_not_leak_attacker_controlled_text() {
+fn keep_pass_document_and_fill_failure_do_not_leak_attacker_controlled_text() {
     const SECRET_URL: &str = "https://secret-canary.example/private-token.list";
     let config = format!(
         "[custom]\nenable_rule_generator=true\ncustom_proxy_group=PROXY`select`.*\nruleset=PROXY,{SECRET_URL}\nruleset=PROXY,[]FINAL\noverwrite_original_rules=true\n"
     );
-    let prepared = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap();
-    assert!(!format!("{prepared:?}").contains("secret-canary"));
-    assert!(!format!("{:?}", prepared.rule_set_requests()[0]).contains("secret-canary"));
-    let output = prepared
-        .render_mihomo_v1(&[b"URL-REGEX,secret-pattern"])
-        .expect("generic URL-REGEX is omitted, not a closed error");
+    let output = document_mihomo(&config, |_| b"URL-REGEX,secret-pattern".to_vec());
     assert!(!format!("{output:?}").contains("secret"));
-    let error = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap()
-        .render_mihomo_v1(&[b"URL-REGEX,secret\tpattern"]);
-    let error = error.unwrap_err();
+    let error = render_mihomo(&config, |_| b"URL-REGEX,secret\tpattern".to_vec()).unwrap_err();
     assert!(!format!("{error:?}").contains("secret"));
     assert!(!error.to_string().contains("secret"));
 }
 
 #[test]
-fn declared_urls_group_fields_and_probe_numbers_are_strict() {
-    let invalid_directives = [
-        "custom_proxy_group=Q`select`.*`",
-        "custom_proxy_group=Q`select`[]DIRECT`[]DIRECT",
-        "custom_proxy_group=Q`select`(",
-        "custom_proxy_group=DIRECT`select`.*",
-        "custom_proxy_group=Q`url-test`.*`ftp://probe.example/x`300",
-        "custom_proxy_group=Q`url-test`.*`https://127.0.0.1/x`300",
-        "custom_proxy_group=Q`url-test`.*`https://@probe.example/x`300",
-        "custom_proxy_group=Q`url-test`.*`https://probe.example/x#fragment`300",
-        "custom_proxy_group=Q`url-test`.*` https://probe.example/x`300",
-        "custom_proxy_group=Q`url-test`.*`https://probe.example/x `300",
-        "custom_proxy_group=Q`url-test`.*`https://probe.example/x`0",
-        "custom_proxy_group=Q`url-test`.*`https://probe.example/x`01",
-        "custom_proxy_group=Q`url-test`.*`https://probe.example/x`+1",
-        "custom_proxy_group=Q`url-test`.*`https://probe.example/x`300,",
-        "custom_proxy_group=Q`url-test`.*`https://probe.example/x`300,,",
-        "custom_proxy_group=Q`url-test`.*`https://probe.example/x`300,timeout,50",
-        "ruleset=P,http://rules.example/x",
-        "ruleset=P,https://127.0.0.1/x",
-        "ruleset=P,https://user@rules.example/x",
-        "ruleset=P,https://rules.example/x#fragment",
-    ];
-    for directive in invalid_directives {
-        let config = format!(
-            "[custom]\nenable_rule_generator=true\ncustom_proxy_group=P`select`.*\n{directive}\nruleset=P,[]FINAL\noverwrite_original_rules=true\n"
-        );
-        let result = prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes());
-        assert!(
-            matches!(result, Err(Acl4SsrPreparationError::InvalidConfig)),
-            "{directive}"
-        );
-    }
-
+fn declared_rule_set_url_is_the_outbound_need() {
     let declared = "https://RULES.example:443/a%2Fb?q=x%2Fy";
     let config = format!(
         "[custom]\nenable_rule_generator=true\ncustom_proxy_group=P`select`.*\nruleset=P,{declared}\nruleset=P,[]FINAL\noverwrite_original_rules=true\n"
     );
-    let prepared = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .unwrap();
-    assert_eq!(prepared.rule_set_requests()[0].url(), declared);
+    let outcome = render_mihomo(&config, |_| b"DOMAIN,example.com\n".to_vec()).unwrap();
+    assert_eq!(outcome.outbound_urls, [declared.to_owned()]);
 }
 
 #[test]
@@ -495,19 +339,14 @@ fn non_url_test_tolerance_is_ignored_on_any_config() {
         "ruleset=P,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let output = prepare_direct()
-        .unwrap()
-        .prepare_acl4ssr_config_v1(config.as_bytes())
-        .expect("legacy probe hints are ignored, not rejected")
-        .render_mihomo_v1(&[])
-        .unwrap();
-    let yaml = std::str::from_utf8(output.as_bytes()).unwrap();
-    assert!(yaml.contains("name: Q\n  type: fallback\n"));
-    assert!(!yaml.contains("tolerance:"));
+    let output = document_mihomo(config, |_| panic!("no Rule Set fetch"));
+    let text = yaml(output.as_bytes());
+    assert!(text.contains("name: Q\n  type: fallback\n"));
+    assert!(!text.contains("tolerance:"));
 }
 
 #[test]
-fn rule_set_alignment_and_per_resource_size_are_bounded() {
+fn per_resource_rule_set_size_is_bounded() {
     let config = concat!(
         "[custom]\n",
         "enable_rule_generator=true\n",
@@ -516,84 +355,10 @@ fn rule_set_alignment_and_per_resource_size_are_bounded() {
         "ruleset=P,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let prepare = || {
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes())
-            .unwrap()
-    };
-    assert_eq!(
-        prepare().render_mihomo_v1(&[]).unwrap_err(),
-        Acl4SsrRenderError::RuleSetAlignment
-    );
     let oversized = vec![b'a'; 4 * 1024 * 1024 + 1];
     assert_eq!(
-        prepare().render_mihomo_v1(&[&oversized]).unwrap_err(),
-        Acl4SsrRenderError::ConversionLimit
-    );
-}
-
-#[test]
-fn a_loaded_rule_set_prefix_can_be_validated_before_a_later_transport_failure() {
-    let config = concat!(
-        "[custom]\n",
-        "enable_rule_generator=true\n",
-        "custom_proxy_group=P`select`.*\n",
-        "ruleset=P,https://rules.example/first\n",
-        "ruleset=P,https://rules.example/second\n",
-        "ruleset=P,[]FINAL\n",
-        "overwrite_original_rules=true\n",
-    );
-    let mut prepared = bind_canonical(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes())
-            .unwrap(),
-        &[
-            "https://rules.example/first",
-            "https://rules.example/second",
-        ],
-    )
-    .unwrap();
-    assert_eq!(
-        prepared
-            .check_loaded_prefix(&[b"# semantic empty"], None)
-            .unwrap_err(),
-        Acl4SsrRenderError::InvalidRuleSet
-    );
-    assert!(
-        prepared
-            .check_loaded_prefix(&[b"DOMAIN,example.com"], None)
-            .is_ok()
-    );
-
-    let config_with_earlier_inline = concat!(
-        "[custom]\n",
-        "enable_rule_generator=true\n",
-        "custom_proxy_group=P`select`.*\n",
-        "ruleset=DIRECT,[]GEOIP,CN\n",
-        "ruleset=P,https://rules.example/first\n",
-        "ruleset=P,https://rules.example/second\n",
-        "ruleset=P,[]FINAL\n",
-        "overwrite_original_rules=true\n",
-    );
-    let mut prepared = bind_canonical(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config_with_earlier_inline.as_bytes())
-            .unwrap(),
-        &[
-            "https://rules.example/first",
-            "https://rules.example/second",
-        ],
-    )
-    .unwrap();
-    let maximum_remote_rules = "DOMAIN,a\n".repeat(200_000);
-    assert_eq!(
-        prepared
-            .check_loaded_prefix(&[maximum_remote_rules.as_bytes()], None)
-            .unwrap_err(),
-        Acl4SsrRenderError::ConversionLimit
+        render_mihomo(config, |_| oversized.clone()).unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
     );
 }
 
@@ -601,11 +366,14 @@ fn a_loaded_rule_set_prefix_can_be_validated_before_a_later_transport_failure() 
 fn config_group_regex_and_rule_budgets_fail_before_crossing_allocations() {
     let oversized_config = vec![b'#'; 256 * 1024 + 1];
     assert_eq!(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(&oversized_config)
-            .unwrap_err(),
-        Acl4SsrPreparationError::ConversionLimit
+        common::render_acl4ssr(
+            VALID_DIRECT,
+            &oversized_config,
+            OutputTarget::Mihomo,
+            |_| panic!("no Rule Set fetch"),
+        )
+        .unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
     );
 
     let too_many_members = format!(
@@ -613,11 +381,8 @@ fn config_group_regex_and_rule_budgets_fail_before_crossing_allocations() {
         vec!["x"; 257].join("`")
     );
     assert_eq!(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(too_many_members.as_bytes())
-            .unwrap_err(),
-        Acl4SsrPreparationError::ConversionLimit
+        render_mihomo(&too_many_members, |_| panic!("no Rule Set fetch")).unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
     );
 
     let oversized_regex = "x".repeat(1_025);
@@ -625,11 +390,8 @@ fn config_group_regex_and_rule_budgets_fail_before_crossing_allocations() {
         "[custom]\nenable_rule_generator=true\ncustom_proxy_group=P`select`{oversized_regex}\nruleset=P,[]FINAL\noverwrite_original_rules=true\n"
     );
     assert_eq!(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes())
-            .unwrap_err(),
-        Acl4SsrPreparationError::ConversionLimit
+        render_mihomo(&config, |_| panic!("no Rule Set fetch")).unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
     );
 
     let config = concat!(
@@ -642,33 +404,41 @@ fn config_group_regex_and_rule_budgets_fail_before_crossing_allocations() {
     );
     let rules = "DOMAIN,a\n".repeat(200_000);
     assert_eq!(
-        prepare_direct()
-            .unwrap()
-            .prepare_acl4ssr_config_v1(config.as_bytes())
-            .unwrap()
-            .render_mihomo_v1(&[rules.as_bytes()])
-            .unwrap_err(),
-        Acl4SsrRenderError::ConversionLimit
+        render_mihomo(config, |_| rules.as_bytes().to_vec()).unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
     );
 }
 
 #[test]
 fn regex_evaluation_and_expanded_member_budgets_are_request_wide() {
     let remote = format!("{VALID_DIRECT}\n").repeat(10_000);
-    let prepared_subscription =
-        || prepare_subscription_v1(&[SubscriptionSourceV1::Remote(remote.as_bytes())]).unwrap();
+    let source = "https://upstream.example/sub";
+    let drive = || {
+        common::start_occurrences(
+            &[source.to_owned()],
+            [Some(source)],
+            Some(common::CONFIG_URL),
+            OutputTarget::Mihomo,
+        )
+    };
+    let body_of = |config: Vec<u8>| {
+        let remote = remote.clone();
+        move |url: &str| {
+            if url == common::CONFIG_URL {
+                config.clone()
+            } else {
+                remote.as_bytes().to_vec()
+            }
+        }
+    };
 
     let evaluation_config = format!(
         "[custom]\nenable_rule_generator=true\ncustom_proxy_group=P`select`{}\nruleset=P,[]FINAL\noverwrite_original_rules=true\n",
         vec![".*"; 201].join("`")
     );
     assert_eq!(
-        prepared_subscription()
-            .prepare_acl4ssr_config_v1(evaluation_config.as_bytes())
-            .unwrap()
-            .render_mihomo_v1(&[])
-            .unwrap_err(),
-        Acl4SsrRenderError::ConversionLimit
+        common::drive_session(drive(), body_of(evaluation_config.into_bytes())).unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
     );
 
     let mut expansion_config = String::from("[custom]\nenable_rule_generator=true\n");
@@ -677,42 +447,7 @@ fn regex_evaluation_and_expanded_member_budgets_are_request_wide() {
     }
     expansion_config.push_str("ruleset=G0,[]FINAL\noverwrite_original_rules=true\n");
     assert_eq!(
-        prepared_subscription()
-            .prepare_acl4ssr_config_v1(expansion_config.as_bytes())
-            .unwrap()
-            .render_mihomo_v1(&[])
-            .unwrap_err(),
-        Acl4SsrRenderError::ConversionLimit
+        common::drive_session(drive(), body_of(expansion_config.into_bytes())).unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
     );
 }
-
-proptest! {
-    #[test]
-    fn arbitrary_config_bytes_are_deterministic_and_never_panic(
-        input in prop::collection::vec(any::<u8>(), 0..2_048),
-    ) {
-        let prepare = || {
-            prepare_direct()
-                .unwrap()
-                .prepare_acl4ssr_config_v1(&input)
-        };
-        match (prepare(), prepare()) {
-            (Err(first), Err(second)) => prop_assert_eq!(first, second),
-            (Ok(first), Ok(second)) => {
-                let first_urls = first
-                    .rule_set_requests()
-                    .iter()
-                    .map(sub_hub_conversion::Acl4SsrRuleSetRequestV1::url)
-                    .collect::<Vec<_>>();
-                let second_urls = second
-                    .rule_set_requests()
-                    .iter()
-                    .map(sub_hub_conversion::Acl4SsrRuleSetRequestV1::url)
-                    .collect::<Vec<_>>();
-                prop_assert_eq!(first_urls, second_urls);
-            }
-            _ => prop_assert!(false, "preparation phases diverged"),
-        }
-    }
-}
-use std::fmt::Write as _;

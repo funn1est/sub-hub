@@ -5,7 +5,8 @@
  * config selection, paste warnings as codes, Preview and version-probe
  * lifecycles with stale results dropped — behind one view + actions
  * interface. fetch, clipboard write, file save, and notify are injected
- * ports; Console chrome (locale, theme) stays outside with App. Empty
+ * ports; Console chrome (locale, theme) — state and chrome bar — stays
+ * outside with App. Empty
  * Conversion Service origin may adopt a Console origin through the
  * version-probe lifecycle.
  */
@@ -33,9 +34,7 @@ import {
 } from "./workshop.ts"
 
 export type VersionState =
-  | { status: "idle" }
-  | { status: "checking" }
-  | VersionProbe
+  { status: "idle" } | { status: "checking" } | VersionProbe
 
 export type WorkshopNotice = "imported" | "copied" | "copy-failed"
 

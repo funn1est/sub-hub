@@ -1,29 +1,19 @@
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use proptest::prelude::*;
-use sub_hub_conversion::{
-    ConversionRenderError, OutputTarget, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, prepare_subscription_v1,
-};
+use sub_hub_conversion::{OutputTarget, SkipCountsV1, UniqueFlightFillFailure};
 
-fn prepare_direct(
+mod common;
+
+fn render_direct(
     uris: &[&str],
-) -> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
-    let sources: Vec<_> = uris
-        .iter()
-        .copied()
-        .map(SubscriptionSourceV1::Direct)
-        .collect();
-    prepare_subscription_v1(&sources)
+) -> Result<sub_hub_conversion::RenderedConfig, UniqueFlightFillFailure> {
+    common::render_direct(uris, OutputTarget::Mihomo)
 }
 
 const VALID_DIRECT: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443#Alpha";
 
 #[test]
 fn direct_application_prepares_and_renders_builtin_mihomo() {
-    let prepared = prepare_direct(&[VALID_DIRECT]).expect("valid direct subscription");
-    let config = prepared
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin Mihomo config");
+    let config = render_direct(&[VALID_DIRECT]).expect("valid direct subscription");
 
     assert_eq!(
         config.as_bytes(),
@@ -71,23 +61,23 @@ fn direct_preparation_enforces_occurrence_shape_and_count() {
         vec!["vless://example\rss://example"],
     ] {
         assert_eq!(
-            prepare_direct(&invalid).unwrap_err(),
-            SubscriptionPreparationError::InvalidInput
+            render_direct(&invalid).unwrap_err(),
+            UniqueFlightFillFailure::InvalidInput
         );
     }
 
-    assert!(prepare_direct(&[VALID_DIRECT; 5]).is_ok());
+    assert!(render_direct(&[VALID_DIRECT; 5]).is_ok());
     assert_eq!(
-        prepare_direct(&[VALID_DIRECT; 6]).unwrap_err(),
-        SubscriptionPreparationError::InvalidInput
+        render_direct(&[VALID_DIRECT; 6]).unwrap_err(),
+        UniqueFlightFillFailure::InvalidInput
     );
 }
 
 #[test]
 fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
     assert_eq!(
-        prepare_direct(&["anytls://example.com:443"]).unwrap_err(),
-        SubscriptionPreparationError::NoValidNodes {
+        render_direct(&["anytls://example.com:443"]).unwrap_err(),
+        UniqueFlightFillFailure::NoValidNodes {
             skips: SkipCountsV1 {
                 parse: 1,
                 capability: 0,
@@ -96,10 +86,10 @@ fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
         }
     );
 
-    let encoded = STANDARD.encode(VALID_DIRECT);
+    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, VALID_DIRECT);
     assert_eq!(
-        prepare_direct(&[&encoded]).unwrap_err(),
-        SubscriptionPreparationError::NoValidNodes {
+        render_direct(&[&encoded]).unwrap_err(),
+        UniqueFlightFillFailure::NoValidNodes {
             skips: SkipCountsV1 {
                 parse: 1,
                 capability: 0,
@@ -108,21 +98,15 @@ fn unsupported_and_base64_inputs_are_node_local_rejections_not_containers() {
         }
     );
 
-    let prepared = prepare_direct(&["anytls://example.com:443", VALID_DIRECT])
+    let config = render_direct(&["anytls://example.com:443", VALID_DIRECT])
         .expect("one accepted direct occurrence");
-    let config = prepared
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin Mihomo config");
     assert_eq!(config.as_bytes(), SINGLE_VLESS_YAML);
 }
 
 #[test]
 fn duplicate_direct_occurrences_are_retained_in_declaration_order() {
-    let prepared = prepare_direct(&[VALID_DIRECT, VALID_DIRECT])
+    let config = render_direct(&[VALID_DIRECT, VALID_DIRECT])
         .expect("duplicate direct occurrences remain valid");
-    let config = prepared
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin Mihomo config");
     let yaml = std::str::from_utf8(config.as_bytes()).expect("UTF-8 Mihomo YAML");
 
     let first = yaml.find("- name: Alpha\n").expect("first duplicate");
@@ -139,13 +123,9 @@ fn direct_render_maps_the_public_output_limit() {
     let source = format!(
         "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443?type=ws&path=/{long_path}#Alpha"
     );
-    let prepared = prepare_direct(&[&source]).expect("valid large direct URI");
-
     assert_eq!(
-        prepared
-            .render_builtin_v1(OutputTarget::Mihomo)
-            .unwrap_err(),
-        ConversionRenderError::ConversionLimit
+        render_direct(&[&source]).unwrap_err(),
+        UniqueFlightFillFailure::ConversionLimit
     );
 }
 
@@ -156,22 +136,14 @@ fn direct_application_debug_and_errors_do_not_expose_input_or_config() {
     const SECRET_NAME: &str = "secret-canary-name";
     let source = format!("vless://{SECRET_UUID}@{SECRET_HOST}:443#{SECRET_NAME}");
 
-    let prepared = prepare_direct(&[&source]).expect("valid direct subscription");
-    let prepared_debug = format!("{prepared:?}");
-    for secret in [SECRET_UUID, SECRET_HOST, SECRET_NAME] {
-        assert!(!prepared_debug.contains(secret));
-    }
-
-    let config = prepared
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin Mihomo config");
+    let config = render_direct(&[&source]).expect("valid direct subscription");
     let config_debug = format!("{config:?}");
     for secret in [SECRET_UUID, SECRET_HOST, SECRET_NAME] {
         assert!(!config_debug.contains(secret));
     }
 
-    let invalid = prepare_direct(&[" secret-canary "]).unwrap_err();
-    assert_eq!(invalid.to_string(), "invalid subscription input");
+    let invalid = render_direct(&[" secret-canary "]).unwrap_err();
+    assert_eq!(invalid.to_string(), "invalid unique-flight input");
     assert!(!format!("{invalid:?}").contains("secret-canary"));
 }
 
@@ -213,22 +185,12 @@ proptest! {
         ),
     ) {
         let refs = sources.iter().map(String::as_str).collect::<Vec<_>>();
-        let first = prepare_direct(&refs);
-        let second = prepare_direct(&refs);
-
+        let first = render_direct(&refs);
+        let second = render_direct(&refs);
         match (first, second) {
             (Err(first), Err(second)) => prop_assert_eq!(first, second),
-            (Ok(first), Ok(second)) => {
-                match (
-                    first.render_builtin_v1(OutputTarget::Mihomo),
-                    second.render_builtin_v1(OutputTarget::Mihomo),
-                ) {
-                    (Ok(first), Ok(second)) => prop_assert_eq!(first.as_bytes(), second.as_bytes()),
-                    (Err(first), Err(second)) => prop_assert_eq!(first, second),
-                    _ => prop_assert!(false, "render phases diverged"),
-                }
-            }
-            _ => prop_assert!(false, "preparation phases diverged"),
+            (Ok(first), Ok(second)) => prop_assert_eq!(first.as_bytes(), second.as_bytes()),
+            _ => prop_assert!(false, "direct Unique-flight fill diverged"),
         }
     }
 }

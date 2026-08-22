@@ -4,8 +4,7 @@
  * HTTP (`sub-hub-http`) plus `testdata/subscription-url/cases.json` are the
  * spelling authority. This module encodes a Subscription URL, percent-decodes
  * paste input, and parses Keep-pass skip headers Preview consumes. It does not
- * emit skip headers. Do not generate TypeScript from Rust DTOs (ADR-0020 is
- * retired).
+ * emit skip headers. Do not generate TypeScript from Rust DTOs.
  *
  * `append_info` captures `subscription-userinfo` on a single remote source.
  * It does not control `profile-update-interval` (Mihomo always sends `24`).

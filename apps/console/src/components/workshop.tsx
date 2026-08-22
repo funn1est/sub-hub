@@ -8,13 +8,10 @@ import {
   FileCode2Icon,
   GlobeIcon,
   Link2Icon,
-  MonitorIcon,
-  MoonIcon,
   PlusIcon,
   ServerIcon,
   Settings2Icon,
   ShieldAlertIcon,
-  SunIcon,
   Trash2Icon,
 } from "lucide-react"
 
@@ -43,15 +40,6 @@ import {
   CardTitle,
 } from "@/components/ui/card.tsx"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu.tsx"
-import {
   Field,
   FieldContent,
   FieldDescription,
@@ -75,7 +63,7 @@ import {
   t,
   type Messages,
 } from "@/lib/i18n.ts"
-import type { Locale, Theme } from "@/lib/persist.ts"
+import type { Locale } from "@/lib/persist.ts"
 import {
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
@@ -104,20 +92,10 @@ type ConfigChoiceGroup = {
 type WorkshopProps = {
   session: WorkshopSession
   locale: Locale
-  theme: Theme
-  onLocaleChange: (locale: Locale) => void
-  onThemeChange: (theme: Theme) => void
   banner?: React.ReactNode
 }
 
-export function Workshop({
-  session,
-  locale,
-  theme,
-  onLocaleChange,
-  onThemeChange,
-  banner,
-}: WorkshopProps) {
+export function Workshop({ session, locale, banner }: WorkshopProps) {
   const view = React.useSyncExternalStore(
     session.subscribe,
     session.getView,
@@ -132,424 +110,383 @@ export function Workshop({
   )
   const showServiceFields = serviceOpen || !view.canCollapseService
   const configGroups = React.useMemo(() => configChoiceGroups(copy), [copy])
-  const selectedConfig = selectedConfigChoice(configGroups, view.configSelection)
+  const selectedConfig = selectedConfigChoice(
+    configGroups,
+    view.configSelection
+  )
 
   return (
-    <div className="console-shell relative isolate">
-      <div className="console-shell-bg" aria-hidden />
-      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-6 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <img
-              src="/icon.svg"
-              alt=""
-              className="size-9 rounded-[10px] ring-1 ring-foreground/10"
-            />
-            <div className="min-w-0">
-              <h1 className="truncate font-heading text-base font-medium tracking-tight">
-                {copy.title}
-              </h1>
-              <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                {copy.tagline}
-              </p>
+    <main
+      className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-6 py-6"
+      onKeyDown={(event) => {
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          event.key === "Enter" &&
+          view.previewEnabled
+        ) {
+          event.preventDefault()
+          void session.actions.preview()
+        }
+      }}
+    >
+      {banner}
+
+      <Card>
+        <CardHeader className="border-b">
+          <SectionHeading
+            icon={<ServerIcon />}
+            title={copy.service}
+            description={
+              showServiceFields
+                ? copy.serviceDescription
+                : (view.canonicalOrigin ?? undefined)
+            }
+            descriptionClassName={showServiceFields ? undefined : "break-all"}
+          />
+          <CardAction>
+            <div className="flex items-center gap-2">
+              {fields.accessToken.trim().length > 0 ? (
+                <Badge variant="outline">{copy.tokenSet}</Badge>
+              ) : null}
+              <VersionBadge state={view.version} copy={copy} />
+              {view.canCollapseService ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-expanded={showServiceFields}
+                  onClick={() => setServiceOpen((open) => !open)}
+                >
+                  {showServiceFields ? copy.done : copy.edit}
+                </Button>
+              ) : null}
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <LocaleMenu
-              label={copy.language}
-              locale={locale}
-              onChange={onLocaleChange}
-            />
-            <ThemeMenu
-              label={copy.theme}
-              theme={theme}
-              system={copy.themeSystem}
-              light={copy.themeLight}
-              dark={copy.themeDark}
-              onChange={onThemeChange}
-            />
-          </div>
-        </div>
-      </header>
+          </CardAction>
+        </CardHeader>
+        {showServiceFields ? (
+          <CardContent>
+            <FieldGroup>
+              <Field data-invalid={view.originInvalid || undefined}>
+                <FieldLabel htmlFor="service-origin">
+                  {copy.serviceOrigin}
+                </FieldLabel>
+                <InputGroup>
+                  <InputGroupInput
+                    id="service-origin"
+                    value={fields.serviceOrigin}
+                    autoComplete="url"
+                    spellCheck={false}
+                    aria-invalid={view.originInvalid || undefined}
+                    placeholder="http://127.0.0.1:25500"
+                    onChange={(event) =>
+                      session.actions.patch({
+                        serviceOrigin: event.target.value,
+                      })
+                    }
+                    onBlur={() => session.actions.blurOrigin()}
+                  />
+                </InputGroup>
+                <FieldDescription>{copy.serviceOriginHint}</FieldDescription>
+              </Field>
+              <Field data-invalid={view.tokenInvalid || undefined}>
+                <FieldLabel htmlFor="access-token">
+                  {copy.accessToken}
+                </FieldLabel>
+                <InputGroup>
+                  <InputGroupInput
+                    id="access-token"
+                    type={revealToken ? "text" : "password"}
+                    value={fields.accessToken}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-invalid={view.tokenInvalid || undefined}
+                    onChange={(event) =>
+                      session.actions.patch({
+                        accessToken: event.target.value,
+                      })
+                    }
+                  />
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupButton
+                      size="icon-xs"
+                      aria-label={revealToken ? copy.hideToken : copy.showToken}
+                      onClick={() => setRevealToken((current) => !current)}
+                    >
+                      {revealToken ? <EyeOffIcon /> : <EyeIcon />}
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription>{copy.accessTokenHint}</FieldDescription>
+              </Field>
+              <VersionAlert state={view.version} copy={copy} />
+            </FieldGroup>
+          </CardContent>
+        ) : (
+          <VersionAlert state={view.version} copy={copy} padded />
+        )}
+      </Card>
 
-      <main
-        className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-6 py-6"
-        onKeyDown={(event) => {
-          if (
-            (event.metaKey || event.ctrlKey) &&
-            event.key === "Enter" &&
-            view.previewEnabled
-          ) {
-            event.preventDefault()
-            void session.actions.preview()
-          }
-        }}
+      <SectionCard
+        icon={<Link2Icon />}
+        title={copy.sources}
+        description={copy.sourcesDescription}
       >
-        {banner}
-
-        <Card>
-          <CardHeader className="border-b">
-            <SectionHeading
-              icon={<ServerIcon />}
-              title={copy.service}
-              description={
-                showServiceFields
-                  ? copy.serviceDescription
-                  : (view.canonicalOrigin ?? undefined)
-              }
-              descriptionClassName={showServiceFields ? undefined : "break-all"}
-            />
-            <CardAction>
-              <div className="flex items-center gap-2">
-                {fields.accessToken.trim().length > 0 ? (
-                  <Badge variant="outline">{copy.tokenSet}</Badge>
-                ) : null}
-                <VersionBadge state={view.version} copy={copy} />
-                {view.canCollapseService ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-expanded={showServiceFields}
-                    onClick={() => setServiceOpen((open) => !open)}
-                  >
-                    {showServiceFields ? copy.done : copy.edit}
-                  </Button>
-                ) : null}
-              </div>
-            </CardAction>
-          </CardHeader>
-          {showServiceFields ? (
-            <CardContent>
-              <FieldGroup>
-                <Field data-invalid={view.originInvalid || undefined}>
-                  <FieldLabel htmlFor="service-origin">
-                    {copy.serviceOrigin}
-                  </FieldLabel>
-                  <InputGroup>
-                    <InputGroupInput
-                      id="service-origin"
-                      value={fields.serviceOrigin}
-                      autoComplete="url"
-                      spellCheck={false}
-                      aria-invalid={view.originInvalid || undefined}
-                      placeholder="http://127.0.0.1:25500"
-                      onChange={(event) =>
-                        session.actions.patch({
-                          serviceOrigin: event.target.value,
-                        })
+        <FieldGroup>
+          {fields.sources.map((source, index) => {
+            const invalid = view.sourceInvalid[index] === true
+            return (
+              <Field key={index} data-invalid={invalid || undefined}>
+                <FieldLabel htmlFor={`source-${index}`} className="sr-only">
+                  {copy.sourceN} {index + 1}
+                </FieldLabel>
+                <InputGroup>
+                  <InputGroupAddon align="inline-start">
+                    <span className="w-4 text-center text-xs text-muted-foreground tabular-nums">
+                      {index + 1}
+                    </span>
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    id={`source-${index}`}
+                    value={source}
+                    spellCheck={false}
+                    aria-invalid={invalid || undefined}
+                    onChange={(event) => {
+                      const next = fields.sources.slice()
+                      next[index] = event.target.value
+                      session.actions.patch({ sources: next })
+                    }}
+                    onPaste={(event) => {
+                      const field = event.currentTarget
+                      const outcome = session.actions.pasteIntoSource(
+                        event.clipboardData.getData("text"),
+                        {
+                          value: field.value,
+                          selectionStart: field.selectionStart,
+                          selectionEnd: field.selectionEnd,
+                        }
+                      )
+                      if (outcome === "imported") {
+                        event.preventDefault()
                       }
-                      onBlur={() => session.actions.blurOrigin()}
-                    />
-                  </InputGroup>
-                  <FieldDescription>{copy.serviceOriginHint}</FieldDescription>
-                </Field>
-                <Field data-invalid={view.tokenInvalid || undefined}>
-                  <FieldLabel htmlFor="access-token">
-                    {copy.accessToken}
-                  </FieldLabel>
-                  <InputGroup>
-                    <InputGroupInput
-                      id="access-token"
-                      type={revealToken ? "text" : "password"}
-                      value={fields.accessToken}
-                      autoComplete="off"
-                      spellCheck={false}
-                      aria-invalid={view.tokenInvalid || undefined}
-                      onChange={(event) =>
-                        session.actions.patch({
-                          accessToken: event.target.value,
-                        })
-                      }
-                    />
+                    }}
+                  />
+                  {fields.sources.length > 1 ? (
                     <InputGroupAddon align="inline-end">
                       <InputGroupButton
                         size="icon-xs"
-                        aria-label={
-                          revealToken ? copy.hideToken : copy.showToken
-                        }
-                        onClick={() => setRevealToken((current) => !current)}
+                        aria-label={copy.removeSource}
+                        onClick={() => {
+                          session.actions.patch({
+                            sources: fields.sources.filter(
+                              (_, item) => item !== index
+                            ),
+                          })
+                        }}
                       >
-                        {revealToken ? <EyeOffIcon /> : <EyeIcon />}
+                        <Trash2Icon />
                       </InputGroupButton>
                     </InputGroupAddon>
-                  </InputGroup>
-                  <FieldDescription>{copy.accessTokenHint}</FieldDescription>
-                </Field>
-                <VersionAlert state={view.version} copy={copy} />
-              </FieldGroup>
-            </CardContent>
-          ) : (
-            <VersionAlert state={view.version} copy={copy} padded />
-          )}
-        </Card>
-
-        <SectionCard
-          icon={<Link2Icon />}
-          title={copy.sources}
-          description={copy.sourcesDescription}
-        >
-          <FieldGroup>
-            {fields.sources.map((source, index) => {
-              const invalid = view.sourceInvalid[index] === true
-              return (
-                <Field key={index} data-invalid={invalid || undefined}>
-                  <FieldLabel htmlFor={`source-${index}`} className="sr-only">
-                    {copy.sourceN} {index + 1}
-                  </FieldLabel>
-                  <InputGroup>
-                    <InputGroupAddon align="inline-start">
-                      <span className="w-4 text-center text-xs text-muted-foreground tabular-nums">
-                        {index + 1}
-                      </span>
-                    </InputGroupAddon>
-                    <InputGroupInput
-                      id={`source-${index}`}
-                      value={source}
-                      spellCheck={false}
-                      aria-invalid={invalid || undefined}
-                      onChange={(event) => {
-                        const next = fields.sources.slice()
-                        next[index] = event.target.value
-                        session.actions.patch({ sources: next })
-                      }}
-                      onPaste={(event) => {
-                        const field = event.currentTarget
-                        const outcome = session.actions.pasteIntoSource(
-                          event.clipboardData.getData("text"),
-                          {
-                            value: field.value,
-                            selectionStart: field.selectionStart,
-                            selectionEnd: field.selectionEnd,
-                          }
-                        )
-                        if (outcome === "imported") {
-                          event.preventDefault()
-                        }
-                      }}
-                    />
-                    {fields.sources.length > 1 ? (
-                      <InputGroupAddon align="inline-end">
-                        <InputGroupButton
-                          size="icon-xs"
-                          aria-label={copy.removeSource}
-                          onClick={() => {
-                            session.actions.patch({
-                              sources: fields.sources.filter(
-                                (_, item) => item !== index
-                              ),
-                            })
-                          }}
-                        >
-                          <Trash2Icon />
-                        </InputGroupButton>
-                      </InputGroupAddon>
-                    ) : null}
-                  </InputGroup>
-                </Field>
-              )
-            })}
-            {fields.sources.length < MAX_SOURCES ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() =>
-                  session.actions.patch({ sources: [...fields.sources, ""] })
-                }
-              >
-                <PlusIcon data-icon="inline-start" />
-                {copy.addSource}
-              </Button>
-            ) : null}
-            {view.pasteWarnings.map((warning) => (
-              <Alert key={warning}>
-                <CircleAlertIcon />
-                <AlertDescription>
-                  {copy.pasteWarnings[warning]}
-                </AlertDescription>
-              </Alert>
-            ))}
-          </FieldGroup>
-        </SectionCard>
-
-        <SectionCard icon={<Settings2Icon />} title={copy.options}>
-          <FieldGroup>
-            <Field>
-              <FieldLabel>{copy.target}</FieldLabel>
-              <ToggleGroup
-                variant="outline"
-                size="sm"
-                value={[fields.target]}
-                onValueChange={(value) => {
-                  const next = value[0]
-                  if (next !== undefined && isTarget(next)) {
-                    session.actions.patch({ target: next })
-                  }
-                }}
-                spacing={2}
-                className="flex-wrap"
-              >
-                {TARGETS.map((target) => (
-                  <ToggleGroupItem key={target} value={target}>
-                    {target}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="config-preset">{copy.config}</FieldLabel>
-              <Combobox
-                items={configGroups}
-                value={selectedConfig}
-                onValueChange={(item) => {
-                  if (item == null || !("id" in item)) {
-                    return
-                  }
-                  session.actions.selectConfig(item.id)
-                }}
-                itemToStringValue={(item) => item.label}
-              >
-                <ComboboxInput
-                  id="config-preset"
-                  className="w-full"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <ComboboxContent>
-                  <ComboboxEmpty>{copy.configEmpty}</ComboboxEmpty>
-                  <ComboboxList>
-                    {(group: ConfigChoiceGroup, index: number) => (
-                      <ComboboxGroup key={group.value} items={group.items}>
-                        <ComboboxLabel>{group.value}</ComboboxLabel>
-                        <ComboboxCollection>
-                          {(item: ConfigChoice) => (
-                            <ComboboxItem key={item.id} value={item}>
-                              {item.label}
-                            </ComboboxItem>
-                          )}
-                        </ComboboxCollection>
-                        {index < configGroups.length - 1 ? (
-                          <ComboboxSeparator />
-                        ) : null}
-                      </ComboboxGroup>
-                    )}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
-              <FieldDescription>{copy.configHint}</FieldDescription>
-            </Field>
-            {view.showCustomConfigField ? (
-              <Field data-invalid={view.configInvalid || undefined}>
-                <FieldLabel htmlFor="config-url">{copy.configUrl}</FieldLabel>
-                <InputGroup>
-                  <InputGroupInput
-                    id="config-url"
-                    value={fields.configUrl}
-                    spellCheck={false}
-                    aria-invalid={view.configInvalid || undefined}
-                    placeholder="https://"
-                    onChange={(event) =>
-                      session.actions.editCustomConfigUrl(event.target.value)
-                    }
-                  />
+                  ) : null}
                 </InputGroup>
               </Field>
-            ) : null}
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldLabel htmlFor="append-info">{copy.appendInfo}</FieldLabel>
-                <FieldDescription>{copy.appendInfoHint}</FieldDescription>
-              </FieldContent>
-              <Switch
-                id="append-info"
-                checked={fields.appendInfo}
-                onCheckedChange={(checked) =>
-                  session.actions.patch({ appendInfo: checked })
+            )
+          })}
+          {fields.sources.length < MAX_SOURCES ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() =>
+                session.actions.patch({ sources: [...fields.sources, ""] })
+              }
+            >
+              <PlusIcon data-icon="inline-start" />
+              {copy.addSource}
+            </Button>
+          ) : null}
+          {view.pasteWarnings.map((warning) => (
+            <Alert key={warning}>
+              <CircleAlertIcon />
+              <AlertDescription>{copy.pasteWarnings[warning]}</AlertDescription>
+            </Alert>
+          ))}
+        </FieldGroup>
+      </SectionCard>
+
+      <SectionCard icon={<Settings2Icon />} title={copy.options}>
+        <FieldGroup>
+          <Field>
+            <FieldLabel>{copy.target}</FieldLabel>
+            <ToggleGroup
+              variant="outline"
+              size="sm"
+              value={[fields.target]}
+              onValueChange={(value) => {
+                const next = value[0]
+                if (next !== undefined && isTarget(next)) {
+                  session.actions.patch({ target: next })
                 }
+              }}
+              spacing={2}
+              className="flex-wrap"
+            >
+              {TARGETS.map((target) => (
+                <ToggleGroupItem key={target} value={target}>
+                  {target}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="config-preset">{copy.config}</FieldLabel>
+            <Combobox
+              items={configGroups}
+              value={selectedConfig}
+              onValueChange={(item) => {
+                if (item == null || !("id" in item)) {
+                  return
+                }
+                session.actions.selectConfig(item.id)
+              }}
+              itemToStringValue={(item) => item.label}
+            >
+              <ComboboxInput
+                id="config-preset"
+                className="w-full"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <ComboboxContent>
+                <ComboboxEmpty>{copy.configEmpty}</ComboboxEmpty>
+                <ComboboxList>
+                  {(group: ConfigChoiceGroup, index: number) => (
+                    <ComboboxGroup key={group.value} items={group.items}>
+                      <ComboboxLabel>{group.value}</ComboboxLabel>
+                      <ComboboxCollection>
+                        {(item: ConfigChoice) => (
+                          <ComboboxItem key={item.id} value={item}>
+                            {item.label}
+                          </ComboboxItem>
+                        )}
+                      </ComboboxCollection>
+                      {index < configGroups.length - 1 ? (
+                        <ComboboxSeparator />
+                      ) : null}
+                    </ComboboxGroup>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+            <FieldDescription>{copy.configHint}</FieldDescription>
+          </Field>
+          {view.showCustomConfigField ? (
+            <Field data-invalid={view.configInvalid || undefined}>
+              <FieldLabel htmlFor="config-url">{copy.configUrl}</FieldLabel>
+              <InputGroup>
+                <InputGroupInput
+                  id="config-url"
+                  value={fields.configUrl}
+                  spellCheck={false}
+                  aria-invalid={view.configInvalid || undefined}
+                  placeholder="https://"
+                  onChange={(event) =>
+                    session.actions.editCustomConfigUrl(event.target.value)
+                  }
+                />
+              </InputGroup>
+            </Field>
+          ) : null}
+          <Field orientation="horizontal">
+            <FieldContent>
+              <FieldLabel htmlFor="append-info">{copy.appendInfo}</FieldLabel>
+              <FieldDescription>{copy.appendInfoHint}</FieldDescription>
+            </FieldContent>
+            <Switch
+              id="append-info"
+              checked={fields.appendInfo}
+              onCheckedChange={(checked) =>
+                session.actions.patch({ appendInfo: checked })
+              }
+            />
+          </Field>
+        </FieldGroup>
+      </SectionCard>
+
+      <Card>
+        <CardHeader className="border-b">
+          <SectionHeading
+            icon={<GlobeIcon />}
+            title={copy.subscription}
+            description={copy.subscriptionDescription}
+          />
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="subscription-url" className="sr-only">
+                {copy.subscription}
+              </FieldLabel>
+              <Textarea
+                id="subscription-url"
+                readOnly
+                value={assembled.url ?? ""}
+                rows={3}
+                placeholder={copy.previewBlocked}
+                className="font-mono text-xs"
+                onFocus={(event) => event.currentTarget.select()}
               />
             </Field>
-          </FieldGroup>
-        </SectionCard>
-
-        <Card>
-          <CardHeader className="border-b">
-            <SectionHeading
-              icon={<GlobeIcon />}
-              title={copy.subscription}
-              description={copy.subscriptionDescription}
-            />
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="subscription-url" className="sr-only">
-                  {copy.subscription}
-                </FieldLabel>
-                <Textarea
-                  id="subscription-url"
-                  readOnly
-                  value={assembled.url ?? ""}
-                  rows={3}
-                  placeholder={copy.previewBlocked}
-                  className="font-mono text-xs"
-                  onFocus={(event) => event.currentTarget.select()}
-                />
-              </Field>
-              {assembled.overLimit ? (
-                <Alert variant="destructive">
-                  <CircleAlertIcon />
-                  <AlertTitle>{copy.overLimit}</AlertTitle>
-                </Alert>
-              ) : null}
-            </FieldGroup>
-          </CardContent>
-          <CardFooter className="flex-wrap gap-2">
-            <Button
-              type="button"
-              onClick={() => void session.actions.copy()}
-              disabled={assembled.url === null}
-            >
-              <CopyIcon data-icon="inline-start" />
-              {copy.copyUrl}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => void session.actions.preview()}
-              disabled={!view.previewEnabled}
-            >
-              {view.preview.status === "loading" ? (
-                <Spinner data-icon="inline-start" />
-              ) : null}
-              {view.preview.status === "loading"
-                ? copy.previewing
-                : copy.preview}
-            </Button>
-            {view.clashInstallHref !== null ? (
-              <Button
-                nativeButton={false}
-                variant="outline"
-                render={<a href={view.clashInstallHref} />}
-              >
-                {copy.clashInstall}
-              </Button>
+            {assembled.overLimit ? (
+              <Alert variant="destructive">
+                <CircleAlertIcon />
+                <AlertTitle>{copy.overLimit}</AlertTitle>
+              </Alert>
             ) : null}
-          </CardFooter>
-        </Card>
+          </FieldGroup>
+        </CardContent>
+        <CardFooter className="flex-wrap gap-2">
+          <Button
+            type="button"
+            onClick={() => void session.actions.copy()}
+            disabled={assembled.url === null}
+          >
+            <CopyIcon data-icon="inline-start" />
+            {copy.copyUrl}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void session.actions.preview()}
+            disabled={!view.previewEnabled}
+          >
+            {view.preview.status === "loading" ? (
+              <Spinner data-icon="inline-start" />
+            ) : null}
+            {view.preview.status === "loading" ? copy.previewing : copy.preview}
+          </Button>
+          {view.clashInstallHref !== null ? (
+            <Button
+              nativeButton={false}
+              variant="outline"
+              render={<a href={view.clashInstallHref} />}
+            >
+              {copy.clashInstall}
+            </Button>
+          ) : null}
+        </CardFooter>
+      </Card>
 
-        <PreviewCard
-          locale={locale}
-          preview={view.preview}
-          copy={copy}
-          onDownload={session.actions.download}
-        />
+      <PreviewCard
+        locale={locale}
+        preview={view.preview}
+        copy={copy}
+        onDownload={session.actions.download}
+      />
 
-        <p className="pb-4 text-center text-xs text-muted-foreground">
-          {copy.agpl}
-        </p>
-      </main>
-    </div>
+      <p className="pb-4 text-center text-xs text-muted-foreground">
+        {copy.agpl}
+      </p>
+    </main>
   )
 }
 
@@ -842,84 +779,4 @@ function selectedConfigChoice(
   }
   const fallback = groups[0]?.items[0]
   return fallback ?? { id: "none", label: "" }
-}
-
-function LocaleMenu({
-  label,
-  locale,
-  onChange,
-}: {
-  label: string
-  locale: Locale
-  onChange: (locale: Locale) => void
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
-        {locale === "zh" ? "中文" : "EN"}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-36">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{label}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={locale}
-            onValueChange={(value) => {
-              if (value === "zh" || value === "en") {
-                onChange(value)
-              }
-            }}
-          >
-            <DropdownMenuRadioItem value="zh">中文</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="en">English</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function ThemeMenu({
-  label,
-  theme,
-  system,
-  light,
-  dark,
-  onChange,
-}: {
-  label: string
-  theme: Theme
-  system: string
-  light: string
-  dark: string
-  onChange: (theme: Theme) => void
-}) {
-  const Icon =
-    theme === "light" ? SunIcon : theme === "dark" ? MoonIcon : MonitorIcon
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="icon-sm" />}>
-        <Icon />
-        <span className="sr-only">{label}</span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-36">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{label}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={theme}
-            onValueChange={(value) => {
-              if (value === "system" || value === "light" || value === "dark") {
-                onChange(value)
-              }
-            }}
-          >
-            <DropdownMenuRadioItem value="system">
-              {system}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="light">{light}</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="dark">{dark}</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
 }

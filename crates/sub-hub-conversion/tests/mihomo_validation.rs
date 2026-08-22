@@ -11,19 +11,12 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use sub_hub_conversion::{
-    OutputTarget, SubscriptionPreparationError, SubscriptionSourceV1, prepare_subscription_v1,
-};
+use sub_hub_conversion::OutputTarget;
 
-fn prepare_direct(
-    uris: &[&str],
-) -> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
-    let sources: Vec<_> = uris
-        .iter()
-        .copied()
-        .map(SubscriptionSourceV1::Direct)
-        .collect();
-    prepare_subscription_v1(&sources)
+mod common;
+
+fn render_direct(uris: &[&str]) -> sub_hub_conversion::RenderedConfig {
+    common::render_direct(uris, OutputTarget::Mihomo).expect("fixed subscription must be valid")
 }
 
 const MIHOMO_BINARY_ENV: &str = "SUB_HUB_MIHOMO_BIN";
@@ -71,10 +64,7 @@ fn configured_official_mihomo_accepts_builtin_trojan() {
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
     verify_mihomo_version(&binary, &sandbox, expected_version);
-    let rendered = prepare_direct(&[VALID_TROJAN])
-        .expect("fixed Trojan subscription must be valid")
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin Trojan Mihomo render must succeed");
+    let rendered = render_direct(&[VALID_TROJAN]);
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the Trojan Mihomo acceptance fixture"));
     verify_mihomo_config(&binary, &sandbox, "builtin Trojan");
@@ -90,10 +80,7 @@ fn configured_official_mihomo_accepts_builtin_vmess() {
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
     verify_mihomo_version(&binary, &sandbox, expected_version);
-    let rendered = prepare_direct(&[VALID_VMESS])
-        .expect("fixed VMess subscription must be valid")
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin VMess Mihomo render must succeed");
+    let rendered = render_direct(&[VALID_VMESS]);
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the VMess Mihomo acceptance fixture"));
     verify_mihomo_config(&binary, &sandbox, "builtin VMess");
@@ -109,10 +96,7 @@ fn configured_official_mihomo_accepts_builtin_hysteria2() {
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
     verify_mihomo_version(&binary, &sandbox, expected_version);
-    let rendered = prepare_direct(&[VALID_HYSTERIA2])
-        .expect("fixed Hysteria2 subscription must be valid")
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin Hysteria2 Mihomo render must succeed");
+    let rendered = render_direct(&[VALID_HYSTERIA2]);
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the Hysteria2 Mihomo acceptance fixture"));
     verify_mihomo_config(&binary, &sandbox, "builtin Hysteria2");
@@ -128,10 +112,7 @@ fn configured_official_mihomo_accepts_builtin_tuic() {
         .unwrap_or_else(|_| panic!("failed to create the isolated Mihomo test sandbox"));
 
     verify_mihomo_version(&binary, &sandbox, expected_version);
-    let rendered = prepare_direct(&[VALID_TUIC])
-        .expect("fixed TUIC subscription must be valid")
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("builtin TUIC Mihomo render must succeed");
+    let rendered = render_direct(&[VALID_TUIC]);
     fs::write(&sandbox.config_file, rendered.as_bytes())
         .unwrap_or_else(|_| panic!("failed to prepare the TUIC Mihomo acceptance fixture"));
     verify_mihomo_config(&binary, &sandbox, "builtin TUIC");
@@ -272,37 +253,20 @@ fn configured_acl4ssr_corpus_root(required: bool) -> Option<PathBuf> {
 
 fn render_acl4ssr_profile(root: &Path, config_path: &str) -> Vec<u8> {
     let config = read_acl4ssr_corpus_file(root, config_path);
-    let prepared = prepare_direct(&[VALID_DIRECT])
-        .expect("fixed corpus subscription must be valid")
-        .prepare_acl4ssr_config_v1(&config)
-        .expect("fixed corpus config must match its compile-time policy");
-    let bodies = prepared
-        .rule_set_requests()
-        .iter()
-        .map(|request| {
-            let relative = request
-                .url()
+    let outcome = common::drive_session(
+        common::start_direct_config(VALID_DIRECT, OutputTarget::Mihomo),
+        |url| {
+            if url == common::CONFIG_URL {
+                return config.clone();
+            }
+            let relative = url
                 .strip_prefix(ACL4SSR_REMOTE_PREFIX)
                 .expect("fixed corpus Rule Set URL must use the approved prefix");
             read_acl4ssr_corpus_file(root, relative)
-        })
-        .collect::<Vec<_>>();
-    let body_refs = bodies.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    let urls: Vec<String> = (0..prepared.rule_set_requests().len())
-        .map(|index| format!("https://rules.example/flight/{index}"))
-        .collect();
-    let mut binder = prepared.rule_set_binder();
-    for url in &urls {
-        binder
-            .push_canonical(url)
-            .expect("fixed corpus flight plan is bounded and dense");
-    }
-    binder
-        .finish()
-        .expect("fixed corpus flight plan is bounded and dense")
-        .render_v1(OutputTarget::Mihomo, &body_refs)
-        .expect("fixed corpus must render through the strict conversion seam")
-        .into_bytes()
+        },
+    )
+    .expect("fixed corpus must render through Unique-flight fill");
+    outcome.document.into_bytes()
 }
 
 fn read_acl4ssr_corpus_file(root: &Path, relative: &str) -> Vec<u8> {

@@ -1,18 +1,6 @@
-use sub_hub_conversion::{
-    ConversionRenderError, OutputTarget, SkipCountsV1, SubscriptionPreparationError,
-    SubscriptionSourceV1, prepare_subscription_v1,
-};
+use sub_hub_conversion::{OutputTarget, SkipCountsV1, UniqueFlightFillFailure};
 
-fn prepare_direct(
-    uris: &[&str],
-) -> Result<sub_hub_conversion::PreparedSubscriptionV1, SubscriptionPreparationError> {
-    let sources: Vec<_> = uris
-        .iter()
-        .copied()
-        .map(SubscriptionSourceV1::Direct)
-        .collect();
-    prepare_subscription_v1(&sources)
-}
+mod common;
 
 const VLESS: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
 const ANYTLS: &str = "anytls://secret-canary.example:443#Canary";
@@ -28,9 +16,7 @@ fn builtin_facade_dispatches_every_released_target() {
         OutputTarget::Loon,
         OutputTarget::Egern,
     ] {
-        let rendered = prepare_direct(&[VLESS])
-            .expect("valid")
-            .render_builtin_v1(target)
+        let rendered = common::render_direct(&[VLESS], target)
             .expect("vless is kept on every released target");
         assert!(!rendered.as_bytes().is_empty());
         assert_eq!(rendered.omitted_url_regex(), 0);
@@ -47,10 +33,8 @@ fn builtin_facade_dispatches_every_released_target() {
 
 #[test]
 fn mihomo_keeps_supported_nodes_and_counts_parse_skips() {
-    let prepared = prepare_direct(&[ANYTLS, VLESS]).expect("one valid node");
-    let config = prepared
-        .render_builtin_v1(OutputTarget::Mihomo)
-        .expect("mihomo keeps vless");
+    let config =
+        common::render_direct(&[ANYTLS, VLESS], OutputTarget::Mihomo).expect("mihomo keeps vless");
     assert_eq!(
         config.skip_counts(),
         SkipCountsV1 {
@@ -68,9 +52,7 @@ fn mihomo_keeps_supported_nodes_and_counts_parse_skips() {
 
 #[test]
 fn quanx_counts_hysteria2_as_capability_and_reserved_name() {
-    let prepared = prepare_direct(&[HYSTERIA2, RESERVED, VLESS]).expect("mixed");
-    let config = prepared
-        .render_builtin_v1(OutputTarget::Quanx)
+    let config = common::render_direct(&[HYSTERIA2, RESERVED, VLESS], OutputTarget::Quanx)
         .expect("vless remains");
     assert_eq!(
         config.skip_counts(),
@@ -88,13 +70,10 @@ fn quanx_counts_hysteria2_as_capability_and_reserved_name() {
 
 #[test]
 fn adapter_all_skipped_is_no_valid_nodes_with_counts() {
-    let prepared = prepare_direct(&[HYSTERIA2]).expect("parsed");
-    let error = prepared
-        .render_builtin_v1(OutputTarget::Quanx)
-        .expect_err("qx drops hy2");
+    let error = common::render_direct(&[HYSTERIA2], OutputTarget::Quanx).expect_err("qx drops hy2");
     assert_eq!(
         error,
-        ConversionRenderError::NoValidNodes {
+        UniqueFlightFillFailure::NoValidNodes {
             skips: SkipCountsV1 {
                 parse: 0,
                 capability: 1,
@@ -110,10 +89,7 @@ fn skip_counts_debug_does_not_retain_canaries() {
     const HOST: &str = "private-canary.example";
     const NAME: &str = "secret-canary-name";
     let source = format!("hysteria2://{UUID}@{HOST}:443#{NAME}");
-    let prepared = prepare_subscription_v1(&[SubscriptionSourceV1::Direct(&source)]).expect("ok");
-    let error = prepared
-        .render_builtin_v1(OutputTarget::Quanx)
-        .expect_err("skipped");
+    let error = common::render_direct(&[&source], OutputTarget::Quanx).expect_err("skipped");
     let debug = format!("{error:?}");
     for canary in [UUID, HOST, NAME] {
         assert!(!debug.contains(canary), "{debug}");

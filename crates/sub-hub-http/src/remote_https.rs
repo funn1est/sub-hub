@@ -161,6 +161,16 @@ pub const OUTBOUND_ACCEPT: http::HeaderValue = http::HeaderValue::from_static("*
 pub const OUTBOUND_ACCEPT_ENCODING: http::HeaderValue = http::HeaderValue::from_static("identity");
 pub const OUTBOUND_CACHE_CONTROL: http::HeaderValue = http::HeaderValue::from_static("no-store");
 
+/// Shared outbound hop request headers. Hosts may add a platform User-Agent.
+#[must_use]
+pub fn outbound_request_headers() -> [(&'static str, http::HeaderValue); 3] {
+    [
+        ("accept", OUTBOUND_ACCEPT),
+        ("accept-encoding", OUTBOUND_ACCEPT_ENCODING),
+        ("cache-control", OUTBOUND_CACHE_CONTROL),
+    ]
+}
+
 /// Interprets the single-hop HTTPS header contract once for every host adapter.
 ///
 /// # Errors
