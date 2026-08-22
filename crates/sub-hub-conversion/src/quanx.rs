@@ -7,8 +7,8 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text, encode_hex,
-        keep_named, map_compiled_rules, policy_member_token, reality_public_key_base64,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text_sections,
+        encode_hex, keep_named, map_compiled_rules, policy_member_token, reality_public_key_base64,
         reality_short_id_hex, render_host_bracketed, shadowsocks_method, shadowsocks_password,
     },
 };
@@ -30,35 +30,28 @@ pub(crate) fn render_quanx_from_policy_v1(
     let servers = expand_servers(servers, policy, &valid, &unique_urls)?;
     let (rules, omitted_url_regex) = render_rules(policy.rules())?;
 
-    let mut body = String::new();
+    let mut leading = String::new();
     if let Some(url) = unique_urls.first() {
         if !is_safe_field(url) {
             return Err(AdapterRenderError::Internal);
         }
-        body.push_str("[general]\n");
-        body.push_str("server_check_url=");
-        body.push_str(url);
-        body.push('\n');
-        body.push('\n');
+        leading.push_str("[general]\n");
+        leading.push_str("server_check_url=");
+        leading.push_str(url);
+        leading.push('\n');
+        leading.push('\n');
     }
-    body.push_str("[server_local]\n");
-    for line in &servers {
-        body.push_str(line);
-        body.push('\n');
-    }
-    body.push('\n');
-    body.push_str("[policy]\n");
-    for line in &groups {
-        body.push_str(line);
-        body.push('\n');
-    }
-    body.push('\n');
-    body.push_str("[filter_local]\n");
-    for line in &rules {
-        body.push_str(line);
-        body.push('\n');
-    }
-    bounded_text(body, limit_bytes, &kept, omitted_url_regex)
+    bounded_text_sections(
+        &leading,
+        &[
+            ("[server_local]", servers.as_slice()),
+            ("[policy]", groups.as_slice()),
+            ("[filter_local]", rules.as_slice()),
+        ],
+        limit_bytes,
+        &kept,
+        omitted_url_regex,
+    )
 }
 
 fn encode_node(node: &ProxyNode) -> Result<ServerRecord, NodeKeep> {

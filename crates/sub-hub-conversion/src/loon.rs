@@ -7,7 +7,7 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text, hysteria2_has_gecko,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text_sections, hysteria2_has_gecko,
         hysteria2_has_pin, keep_named, keep_tagged, map_compiled_rules, policy_member_token,
         probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
         render_host_plain, shadowsocks_method, shadowsocks_password, shared_probe_url,
@@ -34,35 +34,28 @@ pub(crate) fn render_loon_from_policy_v1(
     let groups = render_groups(policy, &valid)?;
     let (rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
 
-    let mut body = String::new();
+    let mut leading = String::new();
     if let Some(url) = shared_probe_url(policy) {
         if !is_safe_field(url) {
             return Err(AdapterRenderError::Internal);
         }
-        body.push_str("[General]\n");
-        body.push_str("proxy-test-url = ");
-        body.push_str(url);
-        body.push('\n');
-        body.push('\n');
+        leading.push_str("[General]\n");
+        leading.push_str("proxy-test-url = ");
+        leading.push_str(url);
+        leading.push('\n');
+        leading.push('\n');
     }
-    body.push_str("[Proxy]\n");
-    for line in &proxies {
-        body.push_str(line);
-        body.push('\n');
-    }
-    body.push('\n');
-    body.push_str("[Proxy Group]\n");
-    for line in &groups {
-        body.push_str(line);
-        body.push('\n');
-    }
-    body.push('\n');
-    body.push_str("[Rule]\n");
-    for line in &rules {
-        body.push_str(line);
-        body.push('\n');
-    }
-    bounded_text(body, limit_bytes, &kept, omitted_url_regex)
+    bounded_text_sections(
+        &leading,
+        &[
+            ("[Proxy]", proxies.as_slice()),
+            ("[Proxy Group]", groups.as_slice()),
+            ("[Rule]", rules.as_slice()),
+        ],
+        limit_bytes,
+        &kept,
+        omitted_url_regex,
+    )
 }
 
 fn encode_node(node: &ProxyNode) -> Result<(String, String), NodeKeep> {

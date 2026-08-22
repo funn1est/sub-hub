@@ -339,6 +339,31 @@ pub(crate) fn bounded_text(
     ))
 }
 
+/// QuanX/Loon INI tail: optional leading stanza plus named line lists, then
+/// the Keep-pass byte bound. Headings and the leading stanza are adapter
+/// spelling; this only joins sections with a blank line between them.
+pub(crate) fn bounded_text_sections(
+    leading: &str,
+    sections: &[(&str, &[String])],
+    limit_bytes: usize,
+    kept: &KeptNodes,
+    omitted_url_regex: u8,
+) -> Result<RenderedTargetV1, AdapterRenderError> {
+    let mut body = String::from(leading);
+    for (index, (heading, lines)) in sections.iter().enumerate() {
+        if index > 0 {
+            body.push('\n');
+        }
+        body.push_str(heading);
+        body.push('\n');
+        for line in *lines {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    bounded_text(body, limit_bytes, kept, omitted_url_regex)
+}
+
 /// Shared tail of No remote config and Rule frontend: named nodes + policy → document.
 pub(crate) fn render_named_policy(
     named: &NamedSubscriptionSources,
