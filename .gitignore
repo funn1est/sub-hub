@@ -6,5 +6,6 @@ docs/
 tools/
 .scratch/
 .wrangler/
+testdata/
 CONTEXT.md
 .env
