@@ -284,6 +284,9 @@ respective licenses and notices. Incorporated-material notices are collected in
 
 Sub Hub is licensed under the
 [GNU Affero General Public License v3.0 or later](LICENSE).
+It is commonly deployed as a network service; AGPL section 13 requires
+operators of modified network-facing versions to offer corresponding source
+to their users. Commercial use remains permitted under the AGPL.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability and
 [CONTRIBUTING.md](CONTRIBUTING.md) for development gates.

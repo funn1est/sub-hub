@@ -12,6 +12,8 @@ does not operate a public instance.
 
 React + Vite 8 + shadcn v4 / Base UI + Tailwind v4 + `vite-plugin-pwa`.
 Node 24.19.0 and pnpm 11.22.0 are pinned in the repository-root `mise.toml`.
+Chrome and Workshop copy localize to Chinese and English. The Conversion
+Service does not: HTTP bodies stay English and ignore `Accept-Language`.
 
 ## Develop
 
