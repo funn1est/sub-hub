@@ -6,7 +6,7 @@ use crate::{
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
     policy::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
+        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1,
     },
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, hysteria2_has_gecko,
@@ -50,17 +50,11 @@ fn encode_node(node: &ProxyNode) -> Result<(String, ProxyEntry), NodeKeep> {
 
 fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
     match node.protocol() {
-        NodeProtocol::Vless(vless) => Some(ProxyEntry {
-            vless: Some(Box::new(vless_proxy(node, vless, tag)?)),
-            shadowsocks: None,
-            trojan: None,
-            vmess: None,
-            hysteria2: None,
-            tuic: None,
+        NodeProtocol::Vless(vless) => Some(ProxyEntry::Vless {
+            vless: Box::new(vless_proxy(node, vless, tag)?),
         }),
-        NodeProtocol::Shadowsocks(shadowsocks) => Some(ProxyEntry {
-            vless: None,
-            shadowsocks: Some(ShadowsocksProxy {
+        NodeProtocol::Shadowsocks(shadowsocks) => Some(ProxyEntry::Shadowsocks {
+            shadowsocks: Box::new(ShadowsocksProxy {
                 name: tag.to_owned(),
                 method: shadowsocks_method(shadowsocks.cipher()),
                 password: shadowsocks_password(shadowsocks.credential()).into_owned(),
@@ -69,42 +63,18 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
                 tfo: false,
                 udp_relay: true,
             }),
-            trojan: None,
-            vmess: None,
-            hysteria2: None,
-            tuic: None,
         }),
-        NodeProtocol::Trojan(trojan) => Some(ProxyEntry {
-            vless: None,
-            shadowsocks: None,
-            trojan: Some(trojan_proxy(node, trojan, tag)?),
-            vmess: None,
-            hysteria2: None,
-            tuic: None,
+        NodeProtocol::Trojan(trojan) => Some(ProxyEntry::Trojan {
+            trojan: Box::new(trojan_proxy(node, trojan, tag)?),
         }),
-        NodeProtocol::Vmess(vmess) => Some(ProxyEntry {
-            vless: None,
-            shadowsocks: None,
-            trojan: None,
-            vmess: Some(vmess_proxy(node, vmess, tag)?),
-            hysteria2: None,
-            tuic: None,
+        NodeProtocol::Vmess(vmess) => Some(ProxyEntry::Vmess {
+            vmess: Box::new(vmess_proxy(node, vmess, tag)?),
         }),
-        NodeProtocol::Hysteria2(hysteria2) => Some(ProxyEntry {
-            vless: None,
-            shadowsocks: None,
-            trojan: None,
-            vmess: None,
-            hysteria2: Some(hysteria2_proxy(node, hysteria2, tag)?),
-            tuic: None,
+        NodeProtocol::Hysteria2(hysteria2) => Some(ProxyEntry::Hysteria2 {
+            hysteria2: Box::new(hysteria2_proxy(node, hysteria2, tag)?),
         }),
-        NodeProtocol::Tuic(tuic) => Some(ProxyEntry {
-            vless: None,
-            shadowsocks: None,
-            trojan: None,
-            vmess: None,
-            hysteria2: None,
-            tuic: Some(tuic_proxy(node, tuic, tag)?),
+        NodeProtocol::Tuic(tuic) => Some(ProxyEntry::Tuic {
+            tuic: Box::new(tuic_proxy(node, tuic, tag)?),
         }),
     }
 }
@@ -351,19 +321,6 @@ fn tls_block(security: &VlessSecurity) -> Option<TlsTransport> {
     }
 }
 
-fn member_token(
-    member: &PolicyMemberV1,
-    valid_nodes: &[&str],
-) -> Result<Option<String>, AdapterRenderError> {
-    policy_member_token(
-        member,
-        "DIRECT",
-        "REJECT",
-        |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
-        valid_nodes,
-    )
-}
-
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
@@ -373,56 +330,50 @@ fn render_groups(
         let name = plain_group_tag(group.name())?.to_owned();
         let mut policies = Vec::new();
         for member in group.members() {
-            if let Some(token) = member_token(member, valid_nodes)? {
+            if let Some(token) = policy_member_token(
+                member,
+                "DIRECT",
+                "REJECT",
+                |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+                valid_nodes,
+            )? {
                 policies.push(token);
             }
         }
         reject_when_empty(&mut policies, "REJECT");
         groups.push(match group.strategy() {
-            GroupStrategyV1::Select => GroupEntry {
-                select: Some(SelectGroup { name, policies }),
-                auto_test: None,
-                fallback: None,
-                load_balance: None,
+            GroupStrategyV1::Select => GroupEntry::Select {
+                select: SelectGroup { name, policies },
             },
             GroupStrategyV1::UrlTest {
                 url,
                 interval,
                 tolerance,
-            } => GroupEntry {
-                select: None,
-                auto_test: Some(AutoTestGroup {
+            } => GroupEntry::AutoTest {
+                auto_test: AutoTestGroup {
                     name,
                     policies,
                     interval: *interval,
                     tolerance: *tolerance,
                     latency_test_url: probe_url_or_default(url).to_owned(),
-                }),
-                fallback: None,
-                load_balance: None,
+                },
             },
-            GroupStrategyV1::Fallback { url, interval } => GroupEntry {
-                select: None,
-                auto_test: None,
-                fallback: Some(FallbackGroup {
+            GroupStrategyV1::Fallback { url, interval } => GroupEntry::Fallback {
+                fallback: FallbackGroup {
                     name,
                     policies,
                     interval: *interval,
                     latency_test_url: probe_url_or_default(url).to_owned(),
-                }),
-                load_balance: None,
+                },
             },
-            GroupStrategyV1::LoadBalance { url, interval } => GroupEntry {
-                select: None,
-                auto_test: None,
-                fallback: None,
-                load_balance: Some(LoadBalanceGroup {
+            GroupStrategyV1::LoadBalance { url, interval } => GroupEntry::LoadBalance {
+                load_balance: LoadBalanceGroup {
                     name,
                     policies,
                     algorithm: "hash",
                     interval: *interval,
                     latency_test_url: probe_url_or_default(url).to_owned(),
-                }),
+                },
             },
         });
     }
@@ -434,25 +385,38 @@ fn render_rules(
     valid_nodes: &[&str],
 ) -> Result<(Vec<RuleEntry>, u8), AdapterRenderError> {
     map_compiled_rules(rules, |rule| {
-        let Some(policy) = member_token(rule.target(), valid_nodes)? else {
+        let Some(policy) = policy_member_token(
+            rule.target(),
+            "DIRECT",
+            "REJECT",
+            |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+            valid_nodes,
+        )?
+        else {
             return Ok(None);
         };
         let entry = match rule.matcher() {
-            RuleMatcherV1::Domain(value) => RuleEntry::domain(MatchPolicy {
-                match_value: value.clone(),
-                policy,
-                no_resolve: None,
-            }),
-            RuleMatcherV1::DomainSuffix(value) => RuleEntry::domain_suffix(MatchPolicy {
-                match_value: value.clone(),
-                policy,
-                no_resolve: None,
-            }),
-            RuleMatcherV1::DomainKeyword(value) => RuleEntry::domain_keyword(MatchPolicy {
-                match_value: value.clone(),
-                policy,
-                no_resolve: None,
-            }),
+            RuleMatcherV1::Domain(value) => RuleEntry::Domain {
+                domain: MatchPolicy {
+                    match_value: value.clone(),
+                    policy,
+                    no_resolve: None,
+                },
+            },
+            RuleMatcherV1::DomainSuffix(value) => RuleEntry::DomainSuffix {
+                domain_suffix: MatchPolicy {
+                    match_value: value.clone(),
+                    policy,
+                    no_resolve: None,
+                },
+            },
+            RuleMatcherV1::DomainKeyword(value) => RuleEntry::DomainKeyword {
+                domain_keyword: MatchPolicy {
+                    match_value: value.clone(),
+                    policy,
+                    no_resolve: None,
+                },
+            },
             RuleMatcherV1::IpCidr {
                 value,
                 version,
@@ -464,16 +428,20 @@ fn render_rules(
                     no_resolve: no_resolve.then_some(true),
                 };
                 match version {
-                    IpVersion::V4 => RuleEntry::ip_cidr(body),
-                    IpVersion::V6 => RuleEntry::ip_cidr6(body),
+                    IpVersion::V4 => RuleEntry::IpCidr { ip_cidr: body },
+                    IpVersion::V6 => RuleEntry::IpCidr6 { ip_cidr6: body },
                 }
             }
-            RuleMatcherV1::GeoIpCn => RuleEntry::geoip(MatchPolicy {
-                match_value: "CN".to_owned(),
-                policy,
-                no_resolve: None,
-            }),
-            RuleMatcherV1::Match => RuleEntry::default_policy(policy),
+            RuleMatcherV1::GeoIpCn => RuleEntry::GeoIp {
+                geoip: MatchPolicy {
+                    match_value: "CN".to_owned(),
+                    policy,
+                    no_resolve: None,
+                },
+            },
+            RuleMatcherV1::Match => RuleEntry::Default {
+                default: DefaultRule { policy },
+            },
             RuleMatcherV1::UrlRegex(_) | RuleMatcherV1::ProcessName(_) => return Ok(None),
         };
         Ok(Some(entry))
@@ -490,19 +458,14 @@ struct Document {
 }
 
 #[derive(Serialize)]
-struct ProxyEntry {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vless: Option<Box<VlessProxy>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    shadowsocks: Option<ShadowsocksProxy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    trojan: Option<TrojanProxy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vmess: Option<VmessProxy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hysteria2: Option<Hysteria2Proxy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tuic: Option<TuicProxy>,
+#[serde(untagged)]
+enum ProxyEntry {
+    Vless { vless: Box<VlessProxy> },
+    Shadowsocks { shadowsocks: Box<ShadowsocksProxy> },
+    Trojan { trojan: Box<TrojanProxy> },
+    Vmess { vmess: Box<VmessProxy> },
+    Hysteria2 { hysteria2: Box<Hysteria2Proxy> },
+    Tuic { tuic: Box<TuicProxy> },
 }
 
 #[derive(Serialize)]
@@ -689,15 +652,12 @@ struct GrpcTransport {
 }
 
 #[derive(Serialize)]
-struct GroupEntry {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    select: Option<SelectGroup>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    auto_test: Option<AutoTestGroup>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    fallback: Option<FallbackGroup>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    load_balance: Option<LoadBalanceGroup>,
+#[serde(untagged)]
+enum GroupEntry {
+    Select { select: SelectGroup },
+    AutoTest { auto_test: AutoTestGroup },
+    Fallback { fallback: FallbackGroup },
+    LoadBalance { load_balance: LoadBalanceGroup },
 }
 
 #[derive(Serialize)]
@@ -734,89 +694,20 @@ struct LoadBalanceGroup {
 }
 
 #[derive(Serialize)]
-struct RuleEntry {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    domain: Option<MatchPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    domain_suffix: Option<MatchPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    domain_keyword: Option<MatchPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ip_cidr: Option<MatchPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ip_cidr6: Option<MatchPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    geoip: Option<MatchPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    default: Option<DefaultRule>,
+#[serde(untagged)]
+enum RuleEntry {
+    Domain { domain: MatchPolicy },
+    DomainSuffix { domain_suffix: MatchPolicy },
+    DomainKeyword { domain_keyword: MatchPolicy },
+    IpCidr { ip_cidr: MatchPolicy },
+    IpCidr6 { ip_cidr6: MatchPolicy },
+    GeoIp { geoip: MatchPolicy },
+    Default { default: DefaultRule },
 }
 
 #[derive(Serialize)]
 struct DefaultRule {
     policy: String,
-}
-
-impl RuleEntry {
-    fn empty() -> Self {
-        Self {
-            domain: None,
-            domain_suffix: None,
-            domain_keyword: None,
-            ip_cidr: None,
-            ip_cidr6: None,
-            geoip: None,
-            default: None,
-        }
-    }
-
-    fn domain(body: MatchPolicy) -> Self {
-        Self {
-            domain: Some(body),
-            ..Self::empty()
-        }
-    }
-
-    fn domain_suffix(body: MatchPolicy) -> Self {
-        Self {
-            domain_suffix: Some(body),
-            ..Self::empty()
-        }
-    }
-
-    fn domain_keyword(body: MatchPolicy) -> Self {
-        Self {
-            domain_keyword: Some(body),
-            ..Self::empty()
-        }
-    }
-
-    fn ip_cidr(body: MatchPolicy) -> Self {
-        Self {
-            ip_cidr: Some(body),
-            ..Self::empty()
-        }
-    }
-
-    fn ip_cidr6(body: MatchPolicy) -> Self {
-        Self {
-            ip_cidr6: Some(body),
-            ..Self::empty()
-        }
-    }
-
-    fn geoip(body: MatchPolicy) -> Self {
-        Self {
-            geoip: Some(body),
-            ..Self::empty()
-        }
-    }
-
-    fn default_policy(policy: String) -> Self {
-        Self {
-            default: Some(DefaultRule { policy }),
-            ..Self::empty()
-        }
-    }
 }
 
 #[derive(Serialize)]

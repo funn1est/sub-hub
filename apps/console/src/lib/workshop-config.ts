@@ -3,12 +3,12 @@ import {
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
   acl4ssrConfigLabel,
-  type Acl4ssrConfigFile,
+  type ConfigSelectionId,
 } from "./acl4ssr-catalog.ts"
 import type { Messages } from "./i18n.ts"
 
 export type ConfigChoice = {
-  id: "none" | "custom" | Acl4ssrConfigFile
+  id: ConfigSelectionId
   label: string
 }
 
@@ -53,7 +53,7 @@ export function configChoiceGroups(copy: Messages): ConfigChoiceGroup[] {
 
 export function selectedConfigChoice(
   groups: readonly ConfigChoiceGroup[],
-  id: ConfigChoice["id"]
+  id: ConfigSelectionId
 ): ConfigChoice {
   for (const group of groups) {
     const found = group.items.find((item) => item.id === id)

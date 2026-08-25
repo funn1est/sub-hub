@@ -1,4 +1,4 @@
-use crate::{OutputTarget, direct_subscription::render_remote_builtin, skip::SkipCountsV1};
+use crate::{OutputTarget, skip::SkipCountsV1, subscription_prepare::render_remote_builtin};
 
 #[test]
 fn success_keeps_collision_names_and_counts_parse_skips() {

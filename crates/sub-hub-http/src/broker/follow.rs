@@ -33,7 +33,7 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
                 return Err(UniqueFlightHostFailure::Failure);
             }
             let attempt = RemoteAttempt {
-                url: url.as_str().to_owned(),
+                url: url.clone(),
                 deadline_millis,
                 max_body_bytes,
                 capture_subscription_user_info,
@@ -70,7 +70,7 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
                 .map_err(|_error| UniqueFlightHostFailure::Failure)?;
             url = self
                 .accept_outbound(joined.as_str())
-                .map_err(|_reject| UniqueFlightHostFailure::Failure)?;
+                .map_err(|_reject| UniqueFlightHostFailure::Rejected)?;
             redirects += 1;
         }
     }

@@ -50,17 +50,12 @@ impl SelfHosts {
     /// Returns [`SelfHostError`] when a non-empty blob yields zero unique hosts, contains a 17th
     /// unique host, or any item is not a canonical DNS hostname.
     pub fn parse_list(raw: &str) -> Result<Self, SelfHostError> {
-        let raw = raw.strip_prefix('\u{FEFF}').unwrap_or(raw);
-        if raw.is_empty() {
+        if raw.strip_prefix('\u{FEFF}').unwrap_or(raw).is_empty() {
             return Ok(Self::empty());
         }
 
         let mut hosts = Vec::new();
-        for piece in raw.split([',', '\n', '\r']) {
-            let piece = piece.trim_matches(|byte| byte == ' ' || byte == '\t');
-            if piece.is_empty() {
-                continue;
-            }
+        for piece in crate::binding_list::binding_pieces(raw) {
             let host = parse_one_host(piece)?;
             if hosts.iter().any(|existing| existing == &host) {
                 continue;

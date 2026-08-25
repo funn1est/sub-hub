@@ -2,6 +2,7 @@ use http::HeaderValue;
 
 mod access_token;
 mod application;
+mod binding_list;
 mod broker;
 mod cors;
 mod inbound_host;
@@ -18,7 +19,7 @@ mod userinfo;
 pub use access_token::{AccessToken, AccessTokenError, AccessTokens};
 pub use application::Application;
 pub use broker::{
-    HopHeaderBag, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse,
+    HopHeaderBag, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, append_hop_chunk,
     complete_https_hop,
 };
 pub use cors::{CorsOriginError, CorsOrigins, request_origin};

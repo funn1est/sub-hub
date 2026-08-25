@@ -1,9 +1,15 @@
-use std::{fmt, future::Future, pin::Pin, sync::OnceLock};
+use std::{
+    fmt,
+    future::Future,
+    pin::{Pin, pin},
+    sync::OnceLock,
+};
 
+use futures::Stream;
 use http::{HeaderName, StatusCode};
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HopHeaderBag, HttpRequest as ApplicationRequest,
-    RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts,
+    RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, append_hop_chunk,
     canonicalize_inbound_host, complete_https_hop, outbound_request_headers, request_origin,
 };
 use worker::wasm_bindgen::JsCast;
@@ -214,23 +220,45 @@ async fn fetch_and_read(
         headers,
         attempt.capture_subscription_user_info(),
         attempt.max_body_bytes(),
-        |_| async move {
-            response
-                .bytes()
-                .await
-                .map_err(|error| map_fetch_error(&error))
-        },
+        |max_body_bytes| async move { read_bounded_body(&mut response, max_body_bytes).await },
     )
     .await
+}
+
+async fn read_bounded_body(
+    response: &mut Response,
+    max_body_bytes: usize,
+) -> Result<Vec<u8>, RemoteFetchError> {
+    if matches!(response.body(), worker::ResponseBody::Stream(_)) {
+        let stream = response.stream().map_err(|error| map_fetch_error(&error))?;
+        let mut stream = pin!(stream);
+        let mut body = Vec::new();
+        loop {
+            match futures::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+                None => return Ok(body),
+                Some(Err(error)) => return Err(map_fetch_error(&error)),
+                Some(Ok(chunk)) => append_hop_chunk(&mut body, &chunk, max_body_bytes)?,
+            }
+        }
+    }
+
+    let body = response
+        .bytes()
+        .await
+        .map_err(|error| map_fetch_error(&error))?;
+    if body.len() > max_body_bytes {
+        return Err(RemoteFetchError::Failure);
+    }
+    Ok(body)
 }
 
 fn application_from_environment(
     environment: &Env,
 ) -> Result<Application<CloudflareRemoteAdapter>, InvalidBinding> {
     application_from_bindings(
-        optional_var(environment, SELF_HOSTS_BINDING)?.as_deref(),
-        optional_binding(environment, ACCESS_TOKEN_BINDING)?.as_deref(),
-        optional_binding(environment, CORS_ORIGINS_BINDING)?.as_deref(),
+        optional_env(environment, SELF_HOSTS_BINDING, false)?.as_deref(),
+        optional_env(environment, ACCESS_TOKEN_BINDING, true)?.as_deref(),
+        optional_env(environment, CORS_ORIGINS_BINDING, true)?.as_deref(),
     )
 }
 
@@ -253,22 +281,10 @@ fn application_from_bindings(
     ))
 }
 
-fn optional_var(environment: &Env, name: &'static str) -> Result<Option<String>, InvalidBinding> {
-    let key = worker::wasm_bindgen::JsValue::from_str(name);
-    let has_binding = worker::js_sys::Reflect::has(environment.as_ref(), &key)
-        .map_err(|_| InvalidBinding(name))?;
-    if !has_binding {
-        return Ok(None);
-    }
-    environment
-        .var(name)
-        .map(|value| Some(value.to_string()))
-        .map_err(|_| InvalidBinding(name))
-}
-
-fn optional_binding(
+fn optional_env(
     environment: &Env,
     name: &'static str,
+    allow_secret: bool,
 ) -> Result<Option<String>, InvalidBinding> {
     let key = worker::wasm_bindgen::JsValue::from_str(name);
     let has_binding = worker::js_sys::Reflect::has(environment.as_ref(), &key)
@@ -276,11 +292,13 @@ fn optional_binding(
     if !has_binding {
         return Ok(None);
     }
-    let value = environment
-        .var(name)
-        .or_else(|_| environment.secret(name))
-        .map_err(|_| InvalidBinding(name))?
-        .to_string();
+    let value = if allow_secret {
+        environment.var(name).or_else(|_| environment.secret(name))
+    } else {
+        environment.var(name)
+    }
+    .map_err(|_| InvalidBinding(name))?
+    .to_string();
     Ok(Some(value))
 }
 

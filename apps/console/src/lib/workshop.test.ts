@@ -34,8 +34,8 @@ function fieldsFromPaste(workshop: PasteSet): WorkshopFields {
   return {
     serviceOrigin: workshop.serviceOrigin,
     accessToken: workshop.accessToken,
-    sources: workshop.sources === "keep" ? [""] : workshop.sources,
-    target: workshop.target === "keep" ? "clash" : workshop.target,
+    sources: workshop.sources ?? [""],
+    target: workshop.target ?? "clash",
     configUrl: workshop.configUrl,
     appendInfo: workshop.appendInfo,
   }
@@ -317,7 +317,7 @@ describe("parseSubscriptionUrl", () => {
       return
     }
     expect(parsed.warnings).toContain("invalid-target")
-    expect(parsed.workshop.target).toBe("keep")
+    expect(parsed.workshop.target).toBeUndefined()
   })
 })
 

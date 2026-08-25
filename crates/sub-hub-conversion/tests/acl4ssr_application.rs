@@ -134,12 +134,12 @@ fn duplicate_rule_set_flight_replays_typed_entries_per_occurrence() {
         "ruleset=PROXY,[]FINAL\n",
         "overwrite_original_rules=true\n",
     );
-    let canonical = SHARED_LIST.to_owned();
+    let canonical = url::Url::parse(SHARED_LIST).expect("test URL");
     let output = common::render_acl4ssr_accepting(
         VALID_DIRECT,
         config.as_bytes(),
         OutputTarget::Mihomo,
-        |_| canonical.clone(),
+        |_| Ok(canonical.clone()),
         |url| {
             assert_eq!(url, SHARED_LIST);
             b"DOMAIN,example.org\n".to_vec()

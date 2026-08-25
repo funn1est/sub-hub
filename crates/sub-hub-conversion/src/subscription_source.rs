@@ -327,7 +327,7 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
         .any(|window| window == needle)
 }
 
-fn has_bare_carriage_return(input: &[u8]) -> bool {
+pub(crate) fn has_bare_carriage_return(input: &[u8]) -> bool {
     input
         .iter()
         .enumerate()

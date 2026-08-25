@@ -8,7 +8,7 @@ use crate::{
     node::vless::{ClientFingerprint, RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
-    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, PolicyMemberV1, RuleMatcherV1},
+    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, RuleMatcherV1},
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, hysteria2_has_gecko, hysteria2_has_pin,
         hysteria2_singbox_ports, keep_named, keep_tagged, map_compiled_rules, plain_group_tag,
@@ -302,19 +302,6 @@ fn shadowsocks_outbound<'a>(
     }
 }
 
-fn member_tag(
-    member: &PolicyMemberV1,
-    valid_nodes: &[&str],
-) -> Result<Option<String>, AdapterRenderError> {
-    policy_member_token(
-        member,
-        "direct",
-        "reject",
-        |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
-        valid_nodes,
-    )
-}
-
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
@@ -324,7 +311,13 @@ fn render_groups(
         let tag = plain_group_tag(group.name())?.to_owned();
         let mut members = Vec::new();
         for member in group.members() {
-            if let Some(token) = member_tag(member, valid_nodes)? {
+            if let Some(token) = policy_member_token(
+                member,
+                "direct",
+                "reject",
+                |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+                valid_nodes,
+            )? {
                 members.push(token);
             }
         }
@@ -374,7 +367,14 @@ fn render_rules(
     valid_nodes: &[&str],
 ) -> Result<(Vec<RouteRule>, u8), AdapterRenderError> {
     map_compiled_rules(rules, |rule| {
-        let Some(outbound) = member_tag(rule.target(), valid_nodes)? else {
+        let Some(outbound) = policy_member_token(
+            rule.target(),
+            "direct",
+            "reject",
+            |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+            valid_nodes,
+        )?
+        else {
             return Ok(None);
         };
         let route = match rule.matcher() {

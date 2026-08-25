@@ -15,11 +15,9 @@ use std::{
 };
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HopHeaderBag, HttpRequest, HttpResponse, RemoteAdapter,
-    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, canonicalize_inbound_host,
-    complete_https_hop, outbound_request_headers, request_origin,
+    RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, append_hop_chunk,
+    canonicalize_inbound_host, complete_https_hop, outbound_request_headers, request_origin,
 };
-use url::Url;
-
 mod console;
 mod public_destination;
 
@@ -300,7 +298,7 @@ async fn fetch_under_deadline(
     resolver: &dyn DestinationResolver,
     attempt: RemoteAttempt,
 ) -> Result<RemoteResponse, RemoteFetchError> {
-    let url = Url::parse(attempt.url()).map_err(|_| RemoteFetchError::Failure)?;
+    let url = attempt.destination().clone();
     let host = url.host_str().ok_or(RemoteFetchError::Failure)?.to_owned();
     let port = url
         .port_or_known_default()
@@ -348,14 +346,7 @@ async fn fetch_under_deadline(
                 .await
                 .map_err(|_| RemoteFetchError::Failure)?
             {
-                let new_length = body
-                    .len()
-                    .checked_add(chunk.len())
-                    .ok_or(RemoteFetchError::Failure)?;
-                if new_length > max_body_bytes {
-                    return Err(RemoteFetchError::Failure);
-                }
-                body.extend_from_slice(&chunk);
+                append_hop_chunk(&mut body, &chunk, max_body_bytes)?;
             }
             Ok(body)
         },

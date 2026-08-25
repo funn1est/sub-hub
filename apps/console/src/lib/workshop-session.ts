@@ -15,27 +15,29 @@ import {
   acl4ssrConfigUrl,
   configPresetOf,
   configSelectionId,
-  type Acl4ssrConfigFile,
+  type ConfigSelectionId,
 } from "./acl4ssr-catalog.ts"
-import { writeTextWithFallback } from "./clipboard.ts"
+import {
+  saveFileInBrowser,
+  writeClipboardInBrowser,
+} from "./browser-ports.ts"
+import {
+  createWorkshopProbe,
+} from "./workshop-probe.ts"
 import type { WorkshopFields } from "./persist.ts"
 import {
   applyPaste,
-  clashInstallUrl,
   evaluateWorkshop,
   parseServiceOrigin,
   previewMediaType,
   runPreview,
-  runVersionProbe,
   subscriptionPasteFrom,
   type PasteWarning,
   type PreviewState,
-  type VersionProbe,
+  type VersionState,
+  type WorkshopFetch,
   type WorkshopView,
 } from "./workshop.ts"
-
-export type VersionState =
-  { status: "idle" } | { status: "checking" } | VersionProbe
 
 export type WorkshopNotice = "imported" | "copied" | "copy-failed"
 
@@ -46,22 +48,11 @@ export type SourceSelection = {
   selectionEnd: number | null
 }
 
-export type ConfigSelectionId = "none" | "custom" | Acl4ssrConfigFile
-
 export type SavedPreviewFile = {
   body: string
   mediaType: string
   filename: string
 }
-
-type SessionFetch = (
-  url: string,
-  init?: { signal?: AbortSignal }
-) => Promise<{
-  status: number
-  text: () => Promise<string>
-  headers: { get: (name: string) => string | null }
-}>
 
 export type WorkshopSessionEnv = {
   pageHttps: boolean
@@ -70,7 +61,7 @@ export type WorkshopSessionEnv = {
 }
 
 export type WorkshopSessionPorts = {
-  fetchImpl?: SessionFetch
+  fetchImpl?: WorkshopFetch
   writeClipboard?: (text: string) => Promise<void>
   saveFile?: (file: SavedPreviewFile) => void
   notify?: (notice: WorkshopNotice) => void
@@ -79,14 +70,10 @@ export type WorkshopSessionPorts = {
 export type WorkshopSessionView = WorkshopView & {
   fields: WorkshopFields
   canonicalOrigin: string | null
-  canCollapseService: boolean
   configSelection: ConfigSelectionId
-  showCustomConfigField: boolean
   pasteWarnings: readonly PasteWarning[]
   version: VersionState
   preview: PreviewState
-  previewEnabled: boolean
-  clashInstallHref: string | null
 }
 
 export type WorkshopSessionActions = {
@@ -109,16 +96,6 @@ export type WorkshopSession = {
   actions: WorkshopSessionActions
 }
 
-type ProbeRun =
-  | { kind: "idle" }
-  | {
-      kind: "checking"
-      origin: string
-      gen: number
-      controller: AbortController
-    }
-  | { kind: "result"; origin: string; state: VersionProbe }
-
 /** Paste replaces a source field only when it is empty or fully selected. */
 export function pasteReplacesValue(selection: SourceSelection): boolean {
   return (
@@ -135,7 +112,7 @@ export function createWorkshopSession(options: {
 }): WorkshopSession {
   const { env } = options
   const ports = options.ports ?? {}
-  const fetchImpl: SessionFetch =
+  const fetchImpl: WorkshopFetch =
     ports.fetchImpl ?? ((url, init) => fetch(url, init))
   const consoleOrigin = parseServiceOrigin(env.consoleOrigin ?? "")
 
@@ -145,8 +122,6 @@ export function createWorkshopSession(options: {
   let pasteWarnings: readonly PasteWarning[] = []
   let preview: PreviewState = { status: "idle" }
   let previewSeq = 0
-  let probe: ProbeRun = { kind: "idle" }
-  let probeGen = 0
   let view: WorkshopSessionView | null = null
 
   const emit = () => {
@@ -156,70 +131,26 @@ export function createWorkshopSession(options: {
     }
   }
 
-  const abortProbe = () => {
-    if (probe.kind === "checking") {
-      probe.controller.abort()
-    }
-  }
-
-  const finishProbe = (origin: string, gen: number, state: VersionProbe) => {
-    if (gen !== probeGen) {
-      return
-    }
-    const fieldOrigin = parseServiceOrigin(fields.serviceOrigin)
-    if (
-      fieldOrigin === null &&
-      state.status === "ok" &&
-      origin === consoleOrigin
-    ) {
-      probe = { kind: "result", origin, state }
+  const probe = createWorkshopProbe({
+    consoleOrigin,
+    fetchImpl,
+    fieldOrigin: () => parseServiceOrigin(fields.serviceOrigin),
+    adoptOrigin: (origin) => {
       setFields({ ...fields, serviceOrigin: origin })
-      return
-    }
-    if (fieldOrigin === origin) {
-      probe = { kind: "result", origin, state }
-      emit()
-      return
-    }
-    probe = { kind: "idle" }
-  }
-
-  const startProbe = (origin: string) => {
-    if (
-      (probe.kind === "result" || probe.kind === "checking") &&
-      probe.origin === origin
-    ) {
-      return
-    }
-    probeGen += 1
-    const gen = probeGen
-    abortProbe()
-    const controller = new AbortController()
-    probe = { kind: "checking", origin, gen, controller }
-    void runVersionProbe({ origin, signal: controller.signal, fetchImpl }).then(
-      (state) => {
-        finishProbe(origin, gen, state)
-      }
-    )
-  }
-
-  const ensureProbe = () => {
-    const origin = parseServiceOrigin(fields.serviceOrigin)
-    if (origin === null) {
-      probeGen += 1
-      abortProbe()
-      probe = { kind: "idle" }
-      return
-    }
-    startProbe(origin)
-  }
+    },
+    notify: emit,
+  })
 
   /** Every conversion-field change invalidates Preview and re-aims the probe. */
-  const setFields = (next: WorkshopFields) => {
+  function setFields(
+    next: WorkshopFields,
+    nextPasteWarnings: readonly PasteWarning[] = []
+  ) {
     fields = withSourceFloor(next)
+    pasteWarnings = nextPasteWarnings
     previewSeq += 1
     preview = { status: "idle" }
-    ensureProbe()
+    probe.ensure(fields.serviceOrigin)
     emit()
   }
 
@@ -237,23 +168,10 @@ export function createWorkshopSession(options: {
       ...jobView,
       fields,
       canonicalOrigin,
-      canCollapseService: canonicalOrigin !== null && !jobView.tokenInvalid,
       configSelection,
-      showCustomConfigField: configSelection === "custom",
       pasteWarnings,
-      version:
-        canonicalOrigin === null
-          ? { status: "idle" }
-          : probe.kind === "result" && probe.origin === canonicalOrigin
-            ? probe.state
-            : { status: "checking" },
+      version: probe.versionFor(canonicalOrigin),
       preview,
-      previewEnabled:
-        jobView.assembled.previewable && preview.status !== "loading",
-      clashInstallHref:
-        jobView.assembled.clashInstall && jobView.assembled.url !== null
-          ? clashInstallUrl(jobView.assembled.url)
-          : null,
     }
     return view
   }
@@ -268,8 +186,7 @@ export function createWorkshopSession(options: {
         return "ignored"
       }
       pickingCustom = false
-      pasteWarnings = parsed.warnings
-      setFields(applyPaste(fields, parsed))
+      setFields(applyPaste(fields, parsed), parsed.warnings)
       ports.notify?.("imported")
       return "imported"
     },
@@ -346,13 +263,7 @@ export function createWorkshopSession(options: {
     },
   }
 
-  ensureProbe()
-  if (
-    parseServiceOrigin(fields.serviceOrigin) === null &&
-    consoleOrigin !== null
-  ) {
-    startProbe(consoleOrigin)
-  }
+  probe.ensure(fields.serviceOrigin)
 
   return {
     getView,
@@ -368,50 +279,4 @@ export function createWorkshopSession(options: {
 
 function withSourceFloor(fields: WorkshopFields): WorkshopFields {
   return fields.sources.length > 0 ? fields : { ...fields, sources: [""] }
-}
-
-function writeClipboardInBrowser(text: string): Promise<void> {
-  const clipboard = navigator.clipboard
-  return writeTextWithFallback(text, {
-    writeText:
-      clipboard === undefined ? undefined : clipboard.writeText.bind(clipboard),
-    execCommandCopy,
-  })
-}
-
-function execCommandCopy(text: string): boolean {
-  const textarea = document.createElement("textarea")
-  textarea.value = text
-  textarea.setAttribute("readonly", "")
-  textarea.style.position = "fixed"
-  textarea.style.top = "0"
-  textarea.style.left = "0"
-  textarea.style.width = "1px"
-  textarea.style.height = "1px"
-  textarea.style.padding = "0"
-  textarea.style.border = "none"
-  textarea.style.opacity = "0"
-  document.body.appendChild(textarea)
-  textarea.focus()
-  textarea.select()
-  textarea.setSelectionRange(0, text.length)
-  try {
-    return document.execCommand("copy")
-  } finally {
-    document.body.removeChild(textarea)
-  }
-}
-
-function saveFileInBrowser(file: SavedPreviewFile): void {
-  const blob = new Blob([file.body], { type: file.mediaType })
-  const objectUrl = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = objectUrl
-  link.download = file.filename
-  link.rel = "noopener"
-  link.style.display = "none"
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2500)
 }

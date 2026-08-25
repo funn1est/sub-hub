@@ -1,7 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use sub_hub_conversion::{
-    OutputTarget, SkipCountsV1, UniqueFlightDrive, UniqueFlightFillFailure, UniqueFlightSessionV1,
-};
+use sub_hub_conversion::{OutputTarget, SkipCountsV1, UniqueFlightDrive, UniqueFlightFillFailure};
 
 mod common;
 
@@ -133,19 +131,17 @@ fn zero_valid_nodes_and_error_formatting_are_closed_and_secret_safe() {
         }
     );
 
-    let failure = match UniqueFlightSessionV1::start(
+    let failure = match common::start_occurrences(
         &[" secret-canary.example ".to_owned()],
         [None],
         None,
         OutputTarget::Mihomo,
-        common::DECODED_CAP,
-        false,
     ) {
         UniqueFlightDrive::Ended(Err(failure)) => failure,
         UniqueFlightDrive::Ended(Ok(_)) => {
             panic!("leading ASCII space is invalid unique-flight input")
         }
-        UniqueFlightDrive::Need(need) => panic!("expected Ended, got {need:?}"),
+        UniqueFlightDrive::Fetch(fetch) => panic!("expected Ended, got {fetch:?}"),
     };
     assert_eq!(failure, UniqueFlightFillFailure::InvalidInput);
     for formatted in [format!("{failure:?}"), failure.to_string()] {

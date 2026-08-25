@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card.tsx"
 import { Spinner } from "@/components/ui/spinner.tsx"
 import { t } from "@/lib/i18n.ts"
-import type { VersionState } from "@/lib/workshop-session.ts"
+import type { VersionState } from "@/lib/workshop.ts"
 
 export function SectionCard({
   icon,
@@ -98,33 +98,25 @@ export function VersionBadge({
 export function VersionAlert({
   state,
   copy,
-  padded = false,
 }: {
   state: VersionState
   copy: ReturnType<typeof t>
-  padded?: boolean
 }) {
-  let alert: React.ReactNode = null
   if (state.status === "other") {
-    alert = (
+    return (
       <Alert>
         <CircleAlertIcon />
         <AlertTitle>{copy.versionOther}</AlertTitle>
       </Alert>
     )
-  } else if (state.status === "unreachable") {
-    alert = (
+  }
+  if (state.status === "unreachable") {
+    return (
       <Alert>
         <CircleAlertIcon />
         <AlertTitle>{copy.versionUnreachable}</AlertTitle>
       </Alert>
     )
   }
-  if (alert === null) {
-    return null
-  }
-  if (padded) {
-    return <CardContent>{alert}</CardContent>
-  }
-  return alert
+  return null
 }

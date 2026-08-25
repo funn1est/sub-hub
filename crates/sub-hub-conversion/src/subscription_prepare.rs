@@ -1,3 +1,9 @@
+//! Subscription prepare: Direct and Remote sources share one Keep-pass entry.
+//!
+//! Unique-flight fill consumes [`PreparedSubscriptionV1`]. Prefix adjudication
+//! for a later unique failure lives here so the Unique-flight table can zip
+//! bodies without owning parse grammar.
+
 use std::fmt;
 
 use crate::{

@@ -1,6 +1,6 @@
 mod acl4ssr;
-mod direct_subscription;
 mod node;
+mod subscription_prepare;
 
 mod mihomo;
 
@@ -39,15 +39,15 @@ pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 pub(crate) use acl4ssr::{
     Acl4SsrPreparationError, Acl4SsrRenderError, PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
 };
-pub(crate) use direct_subscription::{
+pub use render::{ConversionRenderError, RenderedConfig};
+pub use skip::SkipCountsV1;
+pub(crate) use subscription_prepare::{
     PreparedSubscriptionV1, SubscriptionPreparationError, SubscriptionSourceV1,
     prepare_subscription_v1,
 };
-pub use render::{ConversionRenderError, RenderedConfig};
-pub use skip::SkipCountsV1;
 pub use target::OutputTarget;
 pub(crate) use unique_fill::UniqueFlightFillV1;
 pub use unique_fill::{
-    UniqueFlightBodies, UniqueFlightDrive, UniqueFlightFetch, UniqueFlightFillFailure,
-    UniqueFlightHostFailure, UniqueFlightNeed, UniqueFlightOutbound, UniqueFlightSessionV1,
+    UniqueFlightBodies, UniqueFlightDrive, UniqueFlightFetch, UniqueFlightFetchPlan,
+    UniqueFlightFillFailure, UniqueFlightHostFailure, UniqueFlightSessionV1,
 };

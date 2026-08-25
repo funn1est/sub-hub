@@ -1,7 +1,9 @@
-//! Conversion Service session budget. `BrokerSession` consumes these numbers;
-//! it does not invent unique, concurrency, attempt, deadline, or decoded caps.
+//! Conversion Service session budget. Unique-flight fill owns unique-remote
+//! and decoded-byte caps (`start` receives both once from [`SessionBudget::production`]).
+//! `BrokerSession` consumes concurrency, attempt, and deadline caps; it does
+//! not expose unique/decoded getters.
 
-/// First-seen unique remotes reserved in one Conversion Service session.
+/// Unique-remote cap Unique-flight fill receives at start.
 pub(crate) const MAX_UNIQUE_REMOTE_RESOURCES: usize = 40;
 /// Concurrent unique fetches while a session still has a full attempt budget.
 pub(crate) const MAX_ACTIVE_RESOURCES: usize = 4;

@@ -15,7 +15,18 @@ export {
   runVersionProbe,
   type PreviewState,
   type VersionProbe,
+  type VersionState,
 } from "./preview.ts"
+
+/** Injected Workshop fetch port. Preview, version-probe, and session share it. */
+export type WorkshopFetch = (
+  url: string,
+  init?: { signal?: AbortSignal }
+) => Promise<{
+  status: number
+  text: () => Promise<string>
+  headers: { get: (name: string) => string | null }
+}>
 
 /** GET document media type for a Preview download. */
 export { subscriptionMediaType as previewMediaType } from "./service-contract.ts"
@@ -50,14 +61,11 @@ export type PasteWarning =
   | "empty-sources"
   | "http-sources"
 
-export type PasteKeep = "keep"
-
-/** Successful paste: set these keys; `"keep"` leaves the current field. */
 export type PasteSet = {
   serviceOrigin: string
   accessToken: string
-  sources: string[] | PasteKeep
-  target: Target | PasteKeep
+  sources?: string[]
+  target?: Target
   configUrl: string
   appendInfo: boolean
 }
@@ -360,8 +368,8 @@ export function parseSubscriptionUrl(raw: string): PasteResult {
     workshop: {
       serviceOrigin: origin,
       accessToken: decoded.accessToken,
-      sources: decoded.sources === undefined ? "keep" : decoded.sources,
-      target: decoded.target === undefined ? "keep" : decoded.target,
+      sources: decoded.sources,
+      target: decoded.target,
       configUrl: decoded.configUrl,
       appendInfo: decoded.appendInfo,
     },
@@ -377,8 +385,8 @@ export function applyPaste(
   return {
     serviceOrigin: set.serviceOrigin,
     accessToken: set.accessToken,
-    sources: set.sources === "keep" ? fields.sources : set.sources,
-    target: set.target === "keep" ? fields.target : set.target,
+    sources: set.sources ?? fields.sources,
+    target: set.target ?? fields.target,
     configUrl: set.configUrl,
     appendInfo: set.appendInfo,
   }
@@ -387,8 +395,8 @@ export function applyPaste(
 function looksLikeAssembledSubscription(workshop: PasteSet): boolean {
   return (
     workshop.accessToken.length > 0 ||
-    workshop.target !== "keep" ||
-    (workshop.sources !== "keep" && workshop.sources.length > 0) ||
+    workshop.target !== undefined ||
+    (workshop.sources !== undefined && workshop.sources.length > 0) ||
     workshop.configUrl.length > 0 ||
     workshop.appendInfo === false
   )

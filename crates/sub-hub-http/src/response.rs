@@ -13,16 +13,13 @@ pub struct HttpResponse {
 pub(crate) enum ApplicationError {
     InvalidTarget,
     InvalidRequest,
-    NoValidNodes { skips: SkipCountsV1 },
-    ConversionLimit,
     NotFound,
     Unauthorized,
     SubMethodNotAllowed,
     VersionMethodNotAllowed,
     UriTooLong,
     Internal,
-    RemoteFailure,
-    RemoteTimeout,
+    Fill(UniqueFlightFillFailure),
 }
 
 impl HttpResponse {
@@ -154,27 +151,33 @@ pub(crate) fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_rege
 }
 
 /// Maps one Unique-flight fill ending onto GET.
-pub(crate) const fn map_fill_outcome(error: UniqueFlightFillFailure) -> ApplicationError {
-    match error {
-        UniqueFlightFillFailure::Internal => ApplicationError::Internal,
-        UniqueFlightFillFailure::ConversionLimit => ApplicationError::ConversionLimit,
-        UniqueFlightFillFailure::InvalidInput => ApplicationError::InvalidRequest,
-        UniqueFlightFillFailure::RemoteFailure => ApplicationError::RemoteFailure,
-        UniqueFlightFillFailure::RemoteTimeout => ApplicationError::RemoteTimeout,
-        UniqueFlightFillFailure::NoValidNodes { skips } => ApplicationError::NoValidNodes { skips },
-    }
-}
-
 pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
     let (status, body, allow): (StatusCode, &[u8], Option<&'static str>) = match error {
         ApplicationError::InvalidTarget => (StatusCode::BAD_REQUEST, b"Invalid target!", None),
         ApplicationError::InvalidRequest => (StatusCode::BAD_REQUEST, b"Invalid request!", None),
-        ApplicationError::NoValidNodes { .. } => {
-            (StatusCode::BAD_REQUEST, b"No nodes were found!", None)
-        }
-        ApplicationError::ConversionLimit => {
-            (StatusCode::BAD_REQUEST, b"Resource limit exceeded!", None)
-        }
+        ApplicationError::Fill(fill) => match fill {
+            UniqueFlightFillFailure::InvalidInput
+            | UniqueFlightFillFailure::InvalidRemoteContent => {
+                (StatusCode::BAD_REQUEST, b"Invalid request!", None)
+            }
+            UniqueFlightFillFailure::NoValidNodes { .. } => {
+                (StatusCode::BAD_REQUEST, b"No nodes were found!", None)
+            }
+            UniqueFlightFillFailure::ConversionLimit => {
+                (StatusCode::BAD_REQUEST, b"Resource limit exceeded!", None)
+            }
+            UniqueFlightFillFailure::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                b"Internal Server Error",
+                None,
+            ),
+            UniqueFlightFillFailure::RemoteFailure => {
+                (StatusCode::BAD_GATEWAY, b"Bad Gateway", None)
+            }
+            UniqueFlightFillFailure::RemoteTimeout => {
+                (StatusCode::GATEWAY_TIMEOUT, b"Gateway Timeout", None)
+            }
+        },
         ApplicationError::NotFound => (StatusCode::NOT_FOUND, b"Not Found", None),
         ApplicationError::Unauthorized => (StatusCode::UNAUTHORIZED, b"Unauthorized!", None),
         ApplicationError::SubMethodNotAllowed => (
@@ -193,8 +196,6 @@ pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
             b"Internal Server Error",
             None,
         ),
-        ApplicationError::RemoteFailure => (StatusCode::BAD_GATEWAY, b"Bad Gateway", None),
-        ApplicationError::RemoteTimeout => (StatusCode::GATEWAY_TIMEOUT, b"Gateway Timeout", None),
     };
     let mut response = plain_response(status, body.to_vec());
     if let Some(allow) = allow {
@@ -202,7 +203,7 @@ pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
             .headers
             .insert(header::ALLOW, HeaderValue::from_static(allow));
     }
-    if let ApplicationError::NoValidNodes { skips } = error {
+    if let ApplicationError::Fill(UniqueFlightFillFailure::NoValidNodes { skips }) = error {
         attach_conversion_headers(&mut response, skips, 0);
     }
     response
@@ -247,35 +248,48 @@ fn plain_response(status: StatusCode, body: Vec<u8>) -> HttpResponse {
 
 #[cfg(test)]
 mod fill_outcome_tests {
-    use super::{ApplicationError, map_fill_outcome};
+    use super::{ApplicationError, error_response};
+    use http::StatusCode;
     use sub_hub_conversion::{SkipCountsV1, UniqueFlightFillFailure};
 
     #[test]
-    fn map_fill_outcome_covers_the_closed_unique_flight_fill_ending() {
+    fn fill_ending_maps_onto_get_once() {
         let skips = SkipCountsV1::parse_only(1);
-        assert_eq!(
-            map_fill_outcome(UniqueFlightFillFailure::ConversionLimit),
-            ApplicationError::ConversionLimit
-        );
-        assert_eq!(
-            map_fill_outcome(UniqueFlightFillFailure::NoValidNodes { skips }),
-            ApplicationError::NoValidNodes { skips }
-        );
-        assert_eq!(
-            map_fill_outcome(UniqueFlightFillFailure::RemoteTimeout),
-            ApplicationError::RemoteTimeout
-        );
-        assert_eq!(
-            map_fill_outcome(UniqueFlightFillFailure::RemoteFailure),
-            ApplicationError::RemoteFailure
-        );
-        assert_eq!(
-            map_fill_outcome(UniqueFlightFillFailure::InvalidInput),
-            ApplicationError::InvalidRequest
-        );
-        assert_eq!(
-            map_fill_outcome(UniqueFlightFillFailure::Internal),
-            ApplicationError::Internal
-        );
+        let conversion_limit = error_response(ApplicationError::Fill(
+            UniqueFlightFillFailure::ConversionLimit,
+        ));
+        assert_eq!(conversion_limit.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(conversion_limit.body(), b"Resource limit exceeded!");
+
+        let no_nodes = error_response(ApplicationError::Fill(
+            UniqueFlightFillFailure::NoValidNodes { skips },
+        ));
+        assert_eq!(no_nodes.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(no_nodes.body(), b"No nodes were found!");
+
+        let timeout = error_response(ApplicationError::Fill(
+            UniqueFlightFillFailure::RemoteTimeout,
+        ));
+        assert_eq!(timeout.status(), StatusCode::GATEWAY_TIMEOUT);
+
+        let remote = error_response(ApplicationError::Fill(
+            UniqueFlightFillFailure::RemoteFailure,
+        ));
+        assert_eq!(remote.status(), StatusCode::BAD_GATEWAY);
+
+        let invalid = error_response(ApplicationError::Fill(
+            UniqueFlightFillFailure::InvalidInput,
+        ));
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(invalid.body(), b"Invalid request!");
+
+        let remote_content = error_response(ApplicationError::Fill(
+            UniqueFlightFillFailure::InvalidRemoteContent,
+        ));
+        assert_eq!(remote_content.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(remote_content.body(), b"Invalid request!");
+
+        let internal = error_response(ApplicationError::Fill(UniqueFlightFillFailure::Internal));
+        assert_eq!(internal.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

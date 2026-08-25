@@ -30,6 +30,9 @@ export type Acl4ssrConfigFile =
   | (typeof ACL4SSR_MINI_FILES)[number]
   | (typeof ACL4SSR_FULL_FILES)[number]
 
+/** Workshop combobox / session selection id for ACL4SSR config presets. */
+export type ConfigSelectionId = "none" | "custom" | Acl4ssrConfigFile
+
 export type ConfigPreset =
   | { kind: "none" }
   | { kind: "online"; file: (typeof ACL4SSR_ONLINE_FILES)[number] }
@@ -72,7 +75,7 @@ export function configPresetOf(configUrl: string): ConfigPreset {
 export function configSelectionId(
   preset: ConfigPreset,
   pickingCustom: boolean
-): "none" | "custom" | Acl4ssrConfigFile {
+): ConfigSelectionId {
   if (pickingCustom || preset.kind === "custom") {
     return "custom"
   }

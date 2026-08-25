@@ -132,6 +132,9 @@ describe("createWorkshopSession", () => {
     expect(view().pasteWarnings).toEqual(["unknown-keys"])
     expect(notices).toEqual(["imported"])
     expect(view().preview.status).toBe("idle")
+
+    session.actions.patch({ target: "clash" })
+    expect(view().pasteWarnings).toEqual([])
   })
 
   it("ignores provider sources and unselected filled fields", () => {
@@ -184,13 +187,17 @@ describe("createWorkshopSession", () => {
     })
     const running = session.actions.preview()
     expect(view().preview.status).toBe("loading")
-    expect(view().previewEnabled).toBe(false)
+    expect(view().assembled.previewable && view().preview.status !== "loading").toBe(
+      false
+    )
     session.actions.patch({ target: "loon" })
     expect(view().preview.status).toBe("idle")
     gate.resolve(response(200, "proxies: []"))
     await running
     expect(view().preview.status).toBe("idle")
-    expect(view().previewEnabled).toBe(true)
+    expect(view().assembled.previewable && view().preview.status !== "loading").toBe(
+      true
+    )
   })
 
   it("does not start Preview when the Subscription URL is incomplete", async () => {
@@ -207,21 +214,19 @@ describe("createWorkshopSession", () => {
     session.actions.selectConfig("ACL4SSR_Online.ini")
     expect(view().fields.configUrl).toBe(acl4ssrConfigUrl("ACL4SSR_Online.ini"))
     expect(view().configSelection).toBe("ACL4SSR_Online.ini")
-    expect(view().showCustomConfigField).toBe(false)
+    expect(view().configSelection === "custom").toBe(false)
 
     session.actions.selectConfig("custom")
     expect(view().fields.configUrl).toBe(acl4ssrConfigUrl("ACL4SSR_Online.ini"))
-    expect(view().showCustomConfigField).toBe(true)
+    expect(view().configSelection === "custom").toBe(true)
 
     session.actions.editCustomConfigUrl("https://example.com/custom.ini")
     expect(view().configSelection).toBe("custom")
-    expect(view().showCustomConfigField).toBe(true)
 
     session.actions.editCustomConfigUrl(
       acl4ssrConfigUrl("ACL4SSR_Online_Mini.ini")
     )
     expect(view().configSelection).toBe("ACL4SSR_Online_Mini.ini")
-    expect(view().showCustomConfigField).toBe(false)
 
     session.actions.selectConfig("none")
     expect(view().fields.configUrl).toBe("")
@@ -276,7 +281,24 @@ describe("createWorkshopSession", () => {
     await flush()
     expect(view().fields.serviceOrigin).toBe(ORIGIN)
     expect(view().version).toEqual({ status: "ok", body: VERSION_OK })
+    expect(view().pasteWarnings).toEqual([])
+    expect(view().preview.status).toBe("idle")
     expect(calls).toEqual([`${ORIGIN}/version`])
+  })
+
+  it("discovers console origin again after the origin field is cleared", async () => {
+    const { session, view, calls } = makeSession({
+      fields: { serviceOrigin: "" },
+      consoleOrigin: ORIGIN,
+    })
+    await flush()
+    expect(view().fields.serviceOrigin).toBe(ORIGIN)
+    session.actions.patch({ serviceOrigin: "" })
+    expect(view().fields.serviceOrigin).toBe("")
+    expect(view().version.status).toBe("idle")
+    expect(calls).toEqual([`${ORIGIN}/version`, `${ORIGIN}/version`])
+    await flush()
+    expect(view().fields.serviceOrigin).toBe(ORIGIN)
   })
 
   it("does not adopt console origin when the version probe fails", async () => {

@@ -388,7 +388,7 @@ fn host_port_capability_rejects_initial_and_redirect_destinations_differently() 
             Some("target=clash&url=https%3A%2F%2Fupstream.example%2Fsub"),
             "127.0.0.1",
         )));
-    assert_eq!(redirect.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(redirect.status(), StatusCode::BAD_REQUEST);
     assert!(redirect_fetch.load(Ordering::SeqCst));
 }
 
@@ -947,7 +947,7 @@ fn earlier_invalid_remote_container_precedes_a_later_timeout() {
         panic!("earlier source settled");
     };
 
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 struct ExpiredTotalDeadlineRemote {

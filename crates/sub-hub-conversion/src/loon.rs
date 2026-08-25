@@ -4,7 +4,7 @@ use crate::{
     node::vmess::{VmessCipher, VmessSecurity},
     node::{NodeProtocol, ProxyNode},
     policy::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
+        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1,
     },
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text_sections, hysteria2_has_gecko,
@@ -404,19 +404,6 @@ fn render_shadowsocks_line(
     ))
 }
 
-fn member_token(
-    member: &PolicyMemberV1,
-    valid_nodes: &[&str],
-) -> Result<Option<String>, AdapterRenderError> {
-    policy_member_token(
-        member,
-        "DIRECT",
-        "REJECT",
-        |name| loon_group_tag(name).map(|tag| Some(tag.to_owned())),
-        valid_nodes,
-    )
-}
-
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
@@ -426,7 +413,13 @@ fn render_groups(
         let name = loon_group_tag(group.name())?;
         let mut members = Vec::new();
         for member in group.members() {
-            if let Some(token) = member_token(member, valid_nodes)? {
+            if let Some(token) = policy_member_token(
+                member,
+                "DIRECT",
+                "REJECT",
+                |name| loon_group_tag(name).map(|tag| Some(tag.to_owned())),
+                valid_nodes,
+            )? {
                 members.push(token);
             }
         }
@@ -478,7 +471,14 @@ fn render_rules(
     valid_nodes: &[&str],
 ) -> Result<(Vec<String>, u8), AdapterRenderError> {
     map_compiled_rules(rules, |rule| {
-        let Some(policy) = member_token(rule.target(), valid_nodes)? else {
+        let Some(policy) = policy_member_token(
+            rule.target(),
+            "DIRECT",
+            "REJECT",
+            |name| loon_group_tag(name).map(|tag| Some(tag.to_owned())),
+            valid_nodes,
+        )?
+        else {
             return Ok(None);
         };
         let line = match rule.matcher() {

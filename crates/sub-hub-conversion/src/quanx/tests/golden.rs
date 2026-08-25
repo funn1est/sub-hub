@@ -1,5 +1,5 @@
 use crate::OutputTarget;
-use crate::direct_subscription::render_remote_builtin;
+use crate::subscription_prepare::render_remote_builtin;
 
 #[test]
 fn builtin_tcp_vless_matches_the_frozen_quanx_shape() {

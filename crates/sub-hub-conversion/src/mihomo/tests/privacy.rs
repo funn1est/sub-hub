@@ -1,4 +1,4 @@
-use crate::{ConversionRenderError, OutputTarget, direct_subscription::render_remote_builtin};
+use crate::{ConversionRenderError, OutputTarget, subscription_prepare::render_remote_builtin};
 
 #[test]
 fn successful_output_debug_redacts_yaml_names_endpoints_and_credentials() {

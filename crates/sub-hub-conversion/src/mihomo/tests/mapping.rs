@@ -1,6 +1,6 @@
 use super::rendered_yaml;
 use crate::OutputTarget;
-use crate::direct_subscription::render_remote_builtin;
+use crate::subscription_prepare::render_remote_builtin;
 
 #[test]
 fn vless_websocket_tls_projects_every_supported_capability() {

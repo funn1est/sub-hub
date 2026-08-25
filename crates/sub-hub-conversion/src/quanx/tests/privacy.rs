@@ -1,5 +1,5 @@
 use crate::OutputTarget;
-use crate::direct_subscription::render_remote_builtin;
+use crate::subscription_prepare::render_remote_builtin;
 
 #[test]
 fn debug_output_does_not_retain_node_names() {

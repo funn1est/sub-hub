@@ -401,19 +401,6 @@ fn encode_alpn_hex(protocols: &[String]) -> Option<String> {
     Some(encode_hex(&bytes))
 }
 
-fn member_token(
-    member: &PolicyMemberV1,
-    valid_nodes: &[&str],
-) -> Result<Option<String>, AdapterRenderError> {
-    policy_member_token(
-        member,
-        "direct",
-        "reject",
-        |name| Ok(quanx_group_tag(name).map(str::to_owned)),
-        valid_nodes,
-    )
-}
-
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
@@ -425,7 +412,14 @@ fn render_groups(
         let group_url = automatic_url(group.strategy());
         let mut members = Vec::new();
         for member in group.members() {
-            let Some(token) = member_token(member, valid_nodes)? else {
+            let Some(token) = policy_member_token(
+                member,
+                "direct",
+                "reject",
+                |name| Ok(quanx_group_tag(name).map(str::to_owned)),
+                valid_nodes,
+            )?
+            else {
                 continue;
             };
             let token = match (member, group_url) {

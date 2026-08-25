@@ -40,31 +40,31 @@ pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
     })
 }
 
-enum ShortIdParameter {
+pub(crate) enum ShortIdParameter {
     Empty,
     Value(RealityShortId),
 }
 
-struct Parameters {
-    transport: VlessTransportKind,
-    security: VlessSecurityKind,
-    path: Option<String>,
-    host: Option<String>,
-    service_name: Option<String>,
-    mode: Option<GrpcMode>,
-    server_name: Option<String>,
-    alpn: Option<Vec<String>>,
-    fingerprint: Option<ClientFingerprint>,
-    public_key: Option<RealityPublicKey>,
-    short_id: Option<ShortIdParameter>,
-    flow: Option<VlessFlow>,
+/// Shared stream-query fields for VLESS and Trojan share-URIs.
+pub(crate) struct StreamQueryBase {
+    pub transport: VlessTransportKind,
+    pub security: VlessSecurityKind,
+    pub path: Option<String>,
+    pub host: Option<String>,
+    pub service_name: Option<String>,
+    pub mode: Option<GrpcMode>,
+    pub server_name: Option<String>,
+    pub alpn: Option<Vec<String>>,
+    pub fingerprint: Option<ClientFingerprint>,
+    pub public_key: Option<RealityPublicKey>,
+    pub short_id: Option<ShortIdParameter>,
 }
 
-impl Default for Parameters {
-    fn default() -> Self {
+impl StreamQueryBase {
+    pub(crate) fn new(security: VlessSecurityKind) -> Self {
         Self {
             transport: VlessTransportKind::Tcp,
-            security: VlessSecurityKind::None,
+            security,
             path: None,
             host: None,
             service_name: None,
@@ -74,22 +74,25 @@ impl Default for Parameters {
             fingerprint: None,
             public_key: None,
             short_id: None,
-            flow: None,
         }
     }
 }
 
-struct ParameterContext {
+pub(crate) struct ParameterContext {
     transport: Result<VlessTransportKind, NodeRejection>,
     security: Result<VlessSecurityKind, NodeRejection>,
 }
 
 impl ParameterContext {
-    fn from_pairs(pairs: &[QueryPair<'_>]) -> Self {
+    pub(crate) fn from_pairs(
+        pairs: &[QueryPair<'_>],
+        default_security: VlessSecurityKind,
+        parse_security: fn(&str) -> Result<VlessSecurityKind, NodeRejection>,
+    ) -> Self {
         let transport = parameter_value(pairs, "type")
             .map_or(Ok(VlessTransportKind::Tcp), parse_transport_kind);
-        let security = parameter_value(pairs, "security")
-            .map_or(Ok(VlessSecurityKind::None), parse_security_kind);
+        let security =
+            parameter_value(pairs, "security").map_or(Ok(default_security), parse_security);
         Self {
             transport,
             security,
@@ -108,13 +111,13 @@ impl ParameterContext {
             .is_ok_and(|actual| *actual == expected)
     }
 
-    fn security_uses_tls(&self) -> bool {
+    pub(crate) fn security_uses_tls(&self) -> bool {
         self.security
             .as_ref()
             .is_ok_and(|security| security.uses_tls())
     }
 
-    fn flow_is_compatible(&self, flow: VlessFlow) -> bool {
+    pub(crate) fn flow_is_compatible(&self, flow: VlessFlow) -> bool {
         match (self.transport.as_ref(), self.security.as_ref()) {
             (Ok(transport), Ok(security)) => flow.is_compatible_with(*transport, *security),
             _ => false,
@@ -122,13 +125,88 @@ impl ParameterContext {
     }
 }
 
+/// Applies a shared stream-query key. Returns `false` when `key` is protocol-local.
+pub(crate) fn apply_shared_stream_query_pair(
+    parameters: &mut StreamQueryBase,
+    context: &ParameterContext,
+    key: &str,
+    value: Cow<'_, str>,
+) -> Result<bool, NodeRejection> {
+    match key {
+        "type" => parameters.transport = context.transport.clone()?,
+        "security" => parameters.security = context.security.clone()?,
+        "path" => {
+            let value = nonempty_owned(value)?;
+            require_compatible(context.transport_is(VlessTransportKind::WebSocket))?;
+            parameters.path = Some(value);
+        }
+        "host" => {
+            let value = nonempty_owned(value)?;
+            require_compatible(context.transport_is(VlessTransportKind::WebSocket))?;
+            parameters.host = Some(value);
+        }
+        "serviceName" => {
+            let value = nonempty_owned(value)?;
+            require_compatible(context.transport_is(VlessTransportKind::Grpc))?;
+            parameters.service_name = Some(value);
+        }
+        "mode" => {
+            require_nonempty(&value)?;
+            let mode = parse_grpc_mode(&value)?;
+            require_compatible(context.transport_is(VlessTransportKind::Grpc))?;
+            parameters.mode = Some(mode);
+        }
+        "sni" => {
+            let value = nonempty_owned(value)?;
+            require_compatible(context.security_uses_tls())?;
+            parameters.server_name = Some(value);
+        }
+        "alpn" => {
+            require_nonempty(&value)?;
+            let alpn = parse_alpn(&value)?;
+            require_compatible(context.security_uses_tls())?;
+            parameters.alpn = Some(alpn);
+        }
+        "fp" => {
+            require_nonempty(&value)?;
+            let fingerprint = parse_fingerprint(&value)?;
+            require_compatible(context.security_uses_tls())?;
+            parameters.fingerprint = Some(fingerprint);
+        }
+        "pbk" => {
+            require_nonempty(&value)?;
+            let public_key = parse_public_key(&value)?;
+            require_compatible(context.security_is(VlessSecurityKind::Reality))?;
+            parameters.public_key = Some(public_key);
+        }
+        "sid" => {
+            let short_id = if value.is_empty() {
+                ShortIdParameter::Empty
+            } else {
+                ShortIdParameter::Value(parse_short_id(&value)?)
+            };
+            require_compatible(context.security_is(VlessSecurityKind::Reality))?;
+            parameters.short_id = Some(short_id);
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+struct Parameters {
+    base: StreamQueryBase,
+    flow: Option<VlessFlow>,
+}
+
 fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
-    let mut parameters = Parameters::default();
+    let mut base = StreamQueryBase::new(VlessSecurityKind::None);
+    let mut flow = None;
     let Some(query) = query else {
-        return Ok(parameters);
+        return Ok(Parameters { base, flow });
     };
     let pairs = scan_query(query)?;
-    let context = ParameterContext::from_pairs(&pairs);
+    let context =
+        ParameterContext::from_pairs(&pairs, VlessSecurityKind::None, parse_security_kind);
 
     for pair in pairs {
         let key = pair.key;
@@ -142,74 +220,20 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
                     ));
                 }
             }
-            "type" => parameters.transport = context.transport.clone()?,
-            "security" => parameters.security = context.security.clone()?,
-            "path" => {
-                let value = nonempty_owned(value)?;
-                require_compatible(context.transport_is(VlessTransportKind::WebSocket))?;
-                parameters.path = Some(value);
-            }
-            "host" => {
-                let value = nonempty_owned(value)?;
-                require_compatible(context.transport_is(VlessTransportKind::WebSocket))?;
-                parameters.host = Some(value);
-            }
-            "serviceName" => {
-                let value = nonempty_owned(value)?;
-                require_compatible(context.transport_is(VlessTransportKind::Grpc))?;
-                parameters.service_name = Some(value);
-            }
-            "mode" => {
-                require_nonempty(&value)?;
-                let mode = parse_grpc_mode(&value)?;
-                require_compatible(context.transport_is(VlessTransportKind::Grpc))?;
-                parameters.mode = Some(mode);
-            }
-            "sni" => {
-                let value = nonempty_owned(value)?;
-                require_compatible(context.security_uses_tls())?;
-                parameters.server_name = Some(value);
-            }
-            "alpn" => {
-                require_nonempty(&value)?;
-                let alpn = parse_alpn(&value)?;
-                require_compatible(context.security_uses_tls())?;
-                parameters.alpn = Some(alpn);
-            }
-            "fp" => {
-                require_nonempty(&value)?;
-                let fingerprint = parse_fingerprint(&value)?;
-                require_compatible(context.security_uses_tls())?;
-                parameters.fingerprint = Some(fingerprint);
-            }
-            "pbk" => {
-                require_nonempty(&value)?;
-                let public_key = parse_public_key(&value)?;
-                require_compatible(context.security_is(VlessSecurityKind::Reality))?;
-                parameters.public_key = Some(public_key);
-            }
-            "sid" => {
-                let short_id = if value.is_empty() {
-                    ShortIdParameter::Empty
-                } else {
-                    ShortIdParameter::Value(parse_short_id(&value)?)
-                };
-                require_compatible(context.security_is(VlessSecurityKind::Reality))?;
-                parameters.short_id = Some(short_id);
-            }
             "flow" => {
                 if value.is_empty() {
                     continue;
                 }
-                let flow = parse_flow(&value)?;
-                require_compatible(context.flow_is_compatible(flow))?;
-                parameters.flow = Some(flow);
+                let parsed = parse_flow(&value)?;
+                require_compatible(context.flow_is_compatible(parsed))?;
+                flow = Some(parsed);
             }
+            _ if apply_shared_stream_query_pair(&mut base, &context, key, value)? => {}
             _ => return Err(unsupported_parameter(key)),
         }
     }
 
-    Ok(parameters)
+    Ok(Parameters { base, flow })
 }
 
 fn unsupported_parameter(key: &str) -> NodeRejection {
@@ -297,17 +321,20 @@ fn build_components(
     endpoint: &Endpoint,
 ) -> Result<(VlessTransport, VlessSecurity, Option<VlessFlow>), NodeRejection> {
     let Parameters {
-        transport: transport_kind,
-        security: security_kind,
-        path,
-        host,
-        service_name,
-        mode,
-        server_name,
-        alpn,
-        fingerprint,
-        public_key,
-        short_id,
+        base:
+            StreamQueryBase {
+                transport: transport_kind,
+                security: security_kind,
+                path,
+                host,
+                service_name,
+                mode,
+                server_name,
+                alpn,
+                fingerprint,
+                public_key,
+                short_id,
+            },
         flow,
     } = parameters;
 

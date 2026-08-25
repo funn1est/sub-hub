@@ -1,5 +1,5 @@
 use crate::OutputTarget;
-use crate::direct_subscription::render_remote_builtin;
+use crate::subscription_prepare::render_remote_builtin;
 
 const SOURCE: &[u8] = concat!(
     "vless://00000000-0000-4000-8000-000000000001@EXAMPLE.COM:443#PROXY\n",

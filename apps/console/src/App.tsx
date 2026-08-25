@@ -117,27 +117,28 @@ export function App() {
             setChrome((current) => ({ ...current, theme }))
           }
         />
+        {needRefresh ? (
+          <div className="mx-auto w-full max-w-3xl px-4 pt-6 sm:px-6">
+            <Alert>
+              <AlertTitle>{copy.pwaUpdate}</AlertTitle>
+              <AlertAction>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    void updateServiceWorker(true)
+                    setNeedRefresh(false)
+                  }}
+                >
+                  {copy.pwaReload}
+                </Button>
+              </AlertAction>
+            </Alert>
+          </div>
+        ) : null}
         <Workshop
-          session={session}
+          view={view}
+          actions={session.actions}
           locale={chrome.locale}
-          banner={
-            needRefresh ? (
-              <Alert>
-                <AlertTitle>{copy.pwaUpdate}</AlertTitle>
-                <AlertAction>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      void updateServiceWorker(true)
-                      setNeedRefresh(false)
-                    }}
-                  >
-                    {copy.pwaReload}
-                  </Button>
-                </AlertAction>
-              </Alert>
-            ) : null
-          }
         />
       </div>
     </ThemeProvider>

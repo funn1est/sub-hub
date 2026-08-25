@@ -35,17 +35,12 @@ impl CorsOrigins {
     /// Returns [`CorsOriginError`] when the blob is too long, yields zero unique origins,
     /// contains a ninth unique origin, or any item is not an exact `http`/`https` origin.
     pub fn parse_list(raw: &str) -> Result<Self, CorsOriginError> {
-        let raw = raw.strip_prefix('\u{FEFF}').unwrap_or(raw);
         if raw.len() > MAX_CORS_ORIGIN_LIST_BYTES {
             return Err(CorsOriginError);
         }
 
         let mut origins = Vec::new();
-        for piece in raw.split([',', '\n', '\r']) {
-            let piece = piece.trim_matches(|byte| byte == ' ' || byte == '\t');
-            if piece.is_empty() {
-                continue;
-            }
+        for piece in crate::binding_list::binding_pieces(raw) {
             let origin = parse_one_origin(piece)?;
             if origins.iter().any(|existing| existing == &origin) {
                 continue;

@@ -12,6 +12,7 @@ use super::Acl4SsrPreparationError;
 use crate::{
     MAX_CONFIG_BYTES,
     node_name::{is_policy_token, validate_group_name},
+    subscription_source::has_bare_carriage_return,
 };
 const MAX_GROUPS: usize = 128;
 const MAX_MEMBERS_PER_GROUP: usize = 256;
@@ -544,11 +545,4 @@ fn validate_group_cycles(
 
 pub(super) fn ascii_outer_trim(input: &str) -> &str {
     input.trim_matches([' ', '\t'])
-}
-
-pub(super) fn has_bare_carriage_return(input: &[u8]) -> bool {
-    input
-        .iter()
-        .enumerate()
-        .any(|(index, byte)| *byte == b'\r' && input.get(index + 1) != Some(&b'\n'))
 }

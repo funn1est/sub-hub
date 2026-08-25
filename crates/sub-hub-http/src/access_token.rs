@@ -73,17 +73,12 @@ impl AccessTokens {
     /// Returns [`AccessTokenError`] when the blob is too long, yields zero unique tokens,
     /// contains a ninth unique token, or any item fails [`AccessToken::parse`].
     pub fn parse_list(raw: &str) -> Result<Self, AccessTokenError> {
-        let raw = raw.strip_prefix('\u{FEFF}').unwrap_or(raw);
         if raw.len() > MAX_ACCESS_TOKEN_LIST_BYTES {
             return Err(AccessTokenError);
         }
 
         let mut tokens = Vec::new();
-        for piece in raw.split([',', '\n', '\r']) {
-            let piece = piece.trim_matches(|byte| byte == ' ' || byte == '\t');
-            if piece.is_empty() {
-                continue;
-            }
+        for piece in crate::binding_list::binding_pieces(raw) {
             let token = AccessToken::parse(piece)?;
             if tokens
                 .iter()

@@ -124,7 +124,8 @@ impl HttpsHopPending {
         self.max_body_bytes
     }
 
-    /// Finishes a successful hop after the host has read at most [`Self::max_body_bytes`].
+    /// Finishes a successful hop. The body reader may stop at
+    /// [`Self::max_body_bytes`]; this check is the closed oversize reject.
     ///
     /// # Errors
     ///
@@ -239,10 +240,37 @@ where
     }
 }
 
+/// Append one streamed hop chunk, stopping at the hop-provided cap.
+///
+/// Hosts must not invent a different cap. [`HttpsHopPending::finish`] is the
+/// closed oversize check after the reader returns.
+///
+/// # Errors
+///
+/// Returns [`RemoteFetchError::Failure`] when the running length overflows or
+/// exceeds `max_body_bytes`.
+pub fn append_hop_chunk(
+    body: &mut Vec<u8>,
+    chunk: &[u8],
+    max_body_bytes: usize,
+) -> Result<(), RemoteFetchError> {
+    let new_length = body
+        .len()
+        .checked_add(chunk.len())
+        .ok_or(RemoteFetchError::Failure)?;
+    if new_length > max_body_bytes {
+        return Err(RemoteFetchError::Failure);
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
+}
+
 /// Finishes one outbound hop: interpret a header bag, then body octets only when asked.
 ///
 /// Hosts supply [`HopHeaderBag`] and a body reader. They do not name Redirect
-/// or Success, and they do not apply the body cap a second time.
+/// or Success. The reader receives [`HttpsHopPending::max_body_bytes`] so a
+/// missing `Content-Length` can stop streaming; it must not invent a different
+/// cap. [`HttpsHopPending::finish`] is the closed oversize check.
 ///
 /// # Errors
 ///
@@ -280,7 +308,16 @@ where
 mod tests {
     use http::StatusCode;
 
-    use super::{HttpsHopOutcome, begin_https_hop};
+    use super::{HttpsHopOutcome, append_hop_chunk, begin_https_hop};
+
+    #[test]
+    fn append_hop_chunk_stops_at_the_hop_cap() {
+        let mut body = Vec::new();
+        append_hop_chunk(&mut body, b"abcd", 8).expect("under cap");
+        append_hop_chunk(&mut body, b"efgh", 8).expect("at cap");
+        assert_eq!(body, b"abcdefgh");
+        assert!(append_hop_chunk(&mut body, b"x", 8).is_err());
+    }
 
     #[test]
     fn begin_https_hop_reads_body_only_on_success() {
@@ -374,7 +411,10 @@ mod tests {
             headers,
             false,
             16,
-            |_| async { Ok(b"body".to_vec()) },
+            |max_body_bytes| async move {
+                assert_eq!(max_body_bytes, 16);
+                Ok(b"body".to_vec())
+            },
         ))
         .expect("success hop");
         assert_eq!(complete.body.as_slice(), b"body");

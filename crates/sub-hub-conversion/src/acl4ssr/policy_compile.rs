@@ -10,7 +10,6 @@ use super::{
     Acl4SsrRenderError,
     ini::{
         Config, Directive, Group, GroupMember, GroupType, RuleSource, TargetRef, ascii_outer_trim,
-        has_bare_carriage_return,
     },
 };
 use crate::{
@@ -20,6 +19,7 @@ use crate::{
         PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
     },
     render::MAX_OUTPUT_BYTES,
+    subscription_source::has_bare_carriage_return,
 };
 const MAX_EXPANDED_MEMBERS: usize = 200_000;
 const MAX_RULES: usize = 200_000;
@@ -92,7 +92,42 @@ pub(super) fn compile_acl4ssr_policy(
     ))
 }
 
-pub(super) fn consume_rule_sets(
+pub(super) fn validate_rule_sets(
+    config: &Config,
+    unique_bodies: &[&[u8]],
+    fill: &UniqueFlightFillV1,
+    parsed_rule_sets: &mut [Option<Vec<RuleEntry>>],
+    occurrence_exclusive: usize,
+) -> Result<(), Acl4SsrRenderError> {
+    consume_rule_sets(
+        config,
+        unique_bodies,
+        fill,
+        parsed_rule_sets,
+        occurrence_exclusive,
+        false,
+    )
+    .map(|_| ())
+}
+
+pub(super) fn materialize_rule_sets(
+    config: &Config,
+    unique_bodies: &[&[u8]],
+    fill: &UniqueFlightFillV1,
+    parsed_rule_sets: &mut [Option<Vec<RuleEntry>>],
+    occurrence_exclusive: usize,
+) -> Result<Vec<CompiledRuleV1>, Acl4SsrRenderError> {
+    consume_rule_sets(
+        config,
+        unique_bodies,
+        fill,
+        parsed_rule_sets,
+        occurrence_exclusive,
+        true,
+    )
+}
+
+fn consume_rule_sets(
     config: &Config,
     unique_bodies: &[&[u8]],
     fill: &UniqueFlightFillV1,
@@ -120,7 +155,7 @@ pub(super) fn consume_rule_sets(
                 let flight = fill
                     .flight_of(remote_index)
                     .ok_or(Acl4SsrRenderError::RuleSetAlignment)?;
-                let entries = parsed.entries(flight, &mut rule_count)?;
+                let entries = parsed.entries(flight.get(), &mut rule_count)?;
                 if collect {
                     for entry in entries {
                         push_compiled_rule(

@@ -19,7 +19,7 @@ use crate::{
     node_name::resolve_node_names,
     render::{ConversionRenderError, MAX_OUTPUT_BYTES, render_named_policy},
     subscription_source::ParsedSubscriptionSources,
-    unique_fill::DecodedBudget,
+    unique_fill::{DecodedBudget, SessionUrlIndex},
 };
 
 pub(crate) struct PreparedAcl4SsrV1 {
@@ -36,6 +36,7 @@ impl PreparedAcl4SsrV1 {
 
     /// Next Rule Set occurrence URL still waiting for Outbound accept.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn next_rule_set_url(&self, pushed: usize) -> Option<&str> {
         self.requests.get(pushed).map(Acl4SsrRuleSetRequestV1::url)
     }
@@ -52,9 +53,10 @@ impl PreparedAcl4SsrV1 {
         self,
         canonical_urls: &[&str],
     ) -> Result<PreparedAcl4SsrRuleSetsV1, Acl4SsrRenderError> {
-        self.finish_rule_sets(UniqueFlightFillV1::bind_remote(
-            canonical_urls.iter().copied(),
-        ))
+        let mut unique_remotes = crate::unique_fill::UniqueUrls::empty();
+        let fill =
+            UniqueFlightFillV1::bind_remote(&mut unique_remotes, canonical_urls.iter().copied());
+        self.finish_rule_sets(fill)
     }
 
     /// Completes Rule Set bind once `fill` is declaration-aligned.
@@ -111,15 +113,13 @@ impl PreparedAcl4SsrRuleSetsV1 {
         unique_rule_set_bodies: &[&[u8]],
         occurrence_exclusive: usize,
     ) -> Result<(), Acl4SsrRenderError> {
-        policy_compile::consume_rule_sets(
+        policy_compile::validate_rule_sets(
             &self.prepared.config,
             unique_rule_set_bodies,
             &self.fill,
             &mut self.parsed_rule_sets,
             occurrence_exclusive,
-            false,
-        )?;
-        Ok(())
+        )
     }
 
     /// How many declaration occurrences are covered by the first `unique_loaded` flights.
@@ -128,11 +128,22 @@ impl PreparedAcl4SsrRuleSetsV1 {
         self.fill.covered_occurrence_count(unique_loaded)
     }
 
+    pub(crate) fn remaining_unique_indices(&self, loaded: usize) -> &[SessionUrlIndex] {
+        self.fill
+            .stage_unique_indices()
+            .get(loaded..)
+            .unwrap_or(&[])
+    }
+
+    pub(crate) fn unique_flight_count(&self) -> usize {
+        self.fill.flight_count()
+    }
+
     /// Canonical URLs in declaration order.
     #[must_use]
     #[cfg(test)]
-    pub(crate) fn occurrence_urls(&self) -> Vec<String> {
-        self.fill.occurrence_urls()
+    pub(crate) fn occurrence_urls(&self, ledger: &crate::unique_fill::UniqueUrls) -> Vec<String> {
+        self.fill.occurrence_urls(ledger)
     }
 
     /// Grammar and budget check for a loaded unique prefix.
@@ -185,10 +196,10 @@ impl PreparedAcl4SsrRuleSetsV1 {
             already_decoded_bytes,
             decoded_byte_cap,
         ) {
-            Err(()) => Err(Acl4SsrRenderError::Internal),
-            Ok(DecodedBudget::Overflow) => Err(Acl4SsrRenderError::ConversionLimit),
-            Ok(DecodedBudget::Within) => self.check_loaded_prefix(unique_rule_set_bodies, None),
-            Ok(DecodedBudget::Crossing(occurrence)) => {
+            None => Err(Acl4SsrRenderError::Internal),
+            Some(DecodedBudget::Overflow) => Err(Acl4SsrRenderError::ConversionLimit),
+            Some(DecodedBudget::Within) => self.check_loaded_prefix(unique_rule_set_bodies, None),
+            Some(DecodedBudget::Crossing(occurrence)) => {
                 self.check_loaded_prefix(unique_rule_set_bodies, Some(occurrence))
             }
         }
@@ -333,13 +344,12 @@ fn render(
     target: OutputTarget,
 ) -> Result<crate::RenderedConfig, Acl4SsrRenderError> {
     let occurrence_count = bound.fill.occurrence_count();
-    let rules = policy_compile::consume_rule_sets(
+    let rules = policy_compile::materialize_rule_sets(
         &bound.prepared.config,
         unique_bodies,
         &bound.fill,
         &mut bound.parsed_rule_sets,
         occurrence_count,
-        true,
     )?;
     let prepared = bound.prepared;
 
@@ -409,14 +419,16 @@ mod tests {
             "https://rules.example/first.list",
             "https://rules.example/first.list",
         ];
+        let mut ledger = crate::unique_fill::UniqueUrls::empty();
+        let fill = crate::UniqueFlightFillV1::bind_remote(&mut ledger, urls);
         assert_eq!(
-            crate::UniqueFlightFillV1::bind_remote(urls).unique_urls(),
-            &["https://rules.example/first.list".to_owned()]
+            fill.unique_urls(&ledger),
+            &["https://rules.example/first.list"]
         );
-        let bound = bind_urls(two_remote_rule_sets(), &urls).unwrap();
+        let bound = two_remote_rule_sets().finish_rule_sets(fill).unwrap();
         assert_eq!(bound.covered_occurrence_count(1), 2);
         assert_eq!(
-            bound.occurrence_urls(),
+            bound.occurrence_urls(&ledger),
             urls.iter().map(|url| (*url).to_owned()).collect::<Vec<_>>()
         );
 
@@ -424,9 +436,10 @@ mod tests {
             "https://rules.example/first.list",
             "https://rules.example/second.list",
         ];
+        let mut ledger = crate::unique_fill::UniqueUrls::empty();
         assert_eq!(
-            crate::UniqueFlightFillV1::bind_remote(distinct)
-                .unique_urls()
+            crate::UniqueFlightFillV1::bind_remote(&mut ledger, distinct)
+                .unique_urls(&ledger)
                 .len(),
             2
         );
@@ -477,12 +490,16 @@ mod tests {
             Some("https://rules.example/second.list")
         );
         assert_eq!(prepared.next_rule_set_url(2), None);
+        let mut unique_remotes = crate::unique_fill::UniqueUrls::empty();
         let mut fill = crate::UniqueFlightFillV1::empty();
-        let first = "https://rules.example/first.list";
-        assert_eq!(fill.unique_count_if_push(first), 1);
-        assert_eq!(fill.push_remote(first), 1);
-        assert_eq!(fill.unique_count_if_push(first), 1);
-        assert_eq!(fill.push_remote(first), 1);
+        let first = url::Url::parse("https://rules.example/first.list").expect("test URL");
+        let first_index = unique_remotes.try_insert(&first, 40).expect("under cap");
+        fill.push_session_index(first_index);
+        assert_eq!(
+            unique_remotes.try_insert(&first, 40).expect("reuse"),
+            first_index
+        );
+        fill.push_session_index(first_index);
         let bound = prepared.finish_rule_sets(fill).unwrap();
         assert_eq!(bound.covered_occurrence_count(1), 2);
     }

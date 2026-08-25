@@ -1,48 +1,44 @@
 //! Unique-flight fill: one Conversion Service GET.
 //!
-//! Application calls [`run`]. HTTP supplies Outbound accept and unique fetches;
-//! it does not name Subscription versus Config versus Rule Set after fill starts.
-//! Fill ends in one [`UniqueFlightFillFailure`]; host preflight is
-//! [`UniqueFlightHostFailure`] on the same Need.
+//! Application calls [`run`]. HTTP supplies unique fetches and a synchronous
+//! Outbound-accept callback on every fulfill. Unique-flight fill owns unique
+//! capacity and whether that callback runs. HTTP does not name Subscription
+//! versus Config versus Rule Set after fill starts. Fill ends in one
+//! [`UniqueFlightFillFailure`].
 
 use sub_hub_conversion::{
     RenderedConfig, UniqueFlightBodies, UniqueFlightDrive, UniqueFlightFetch,
-    UniqueFlightFillFailure, UniqueFlightHostFailure, UniqueFlightNeed, UniqueFlightOutbound,
-    UniqueFlightSessionV1,
+    UniqueFlightFillFailure, UniqueFlightHostFailure, UniqueFlightSessionV1,
 };
 use url::Url;
 
 use crate::{
-    RemoteAdapter,
-    broker::{BrokerSession, RemoteLoadBatch, RemoteResource},
+    RemoteAdapter, SessionBudget,
+    broker::{BrokerSession, RemoteResource, UniqueFetchBatch},
+    remote_url::OutboundReject,
     userinfo::{SubscriptionUserInfoV1, parse_subscription_user_info},
 };
 
-pub(crate) struct ConversionFill {
-    pub(crate) document: RenderedConfig,
-    pub(crate) eligible_metadata: Option<SubscriptionUserInfoV1>,
-}
-
 /// One GET: Ask in, Unique-flight fill ending out.
 pub(crate) async fn run<A>(
-    broker: &mut BrokerSession<'_, A>,
+    broker: &BrokerSession<'_, A>,
     sources: &[String],
     occurrence_urls: &[Option<Url>],
     append_info: bool,
     config_url: Option<Url>,
     target: sub_hub_conversion::OutputTarget,
-) -> Result<ConversionFill, UniqueFlightFillFailure>
+) -> Result<(RenderedConfig, Option<SubscriptionUserInfoV1>), UniqueFlightFillFailure>
 where
     A: RemoteAdapter,
 {
+    let budget = SessionBudget::production();
     let mut drive = UniqueFlightSessionV1::start(
         sources,
-        occurrence_urls
-            .iter()
-            .map(|url| url.as_ref().map(Url::as_str)),
-        config_url.as_ref().map(Url::as_str),
+        occurrence_urls.iter().map(Option::as_ref),
+        config_url.as_ref(),
         target,
-        broker.decoded_byte_cap(),
+        budget.total_decoded_bytes,
+        budget.unique_remote_resources,
         append_info,
     );
     let mut eligible_metadata = None;
@@ -50,120 +46,87 @@ where
     loop {
         match drive {
             UniqueFlightDrive::Ended(Ok(document)) => {
-                return Ok(ConversionFill {
-                    document,
-                    eligible_metadata,
-                });
+                return Ok((document, eligible_metadata));
             }
             UniqueFlightDrive::Ended(Err(failure)) => return Err(failure),
-            UniqueFlightDrive::Need(need) => match *need {
-                UniqueFlightNeed::Outbound(need) => {
-                    drive = drive_outbound(broker, need);
-                }
-                UniqueFlightNeed::Fetch(need) => {
-                    drive = broker.complete_fetch(need, &mut eligible_metadata).await;
-                }
-            },
+            UniqueFlightDrive::Fetch(fetch) => {
+                drive = complete_fetch(broker, fetch, &mut eligible_metadata).await;
+            }
         }
     }
 }
 
-fn drive_outbound<A: RemoteAdapter>(
+async fn complete_fetch<A: RemoteAdapter>(
     broker: &BrokerSession<'_, A>,
-    need: UniqueFlightOutbound,
+    fetch: UniqueFlightFetch,
+    eligible_metadata: &mut Option<SubscriptionUserInfoV1>,
 ) -> UniqueFlightDrive {
-    let Ok(accepted) = broker.accept_outbound(need.url()) else {
-        return need.reject(UniqueFlightHostFailure::Failure);
-    };
-    if need.unique_reservation(accepted.as_str()) > broker.unique_remote_limit() {
-        return need.reject(UniqueFlightHostFailure::ConversionLimit);
+    let plan = fetch.plan(broker.active_resource_limit());
+    if let Err(host) = broker.preflight_attempts(plan.leftover_count) {
+        return finish_fetch(
+            fetch,
+            UniqueFlightBodies::Failed {
+                loaded: Vec::new(),
+                host,
+            },
+            broker,
+        );
     }
-    need.fulfill(accepted.as_str())
-}
+    let resources = remote_resources(&plan);
+    let capture = plan.capture_subscription_user_info;
 
-impl<A: RemoteAdapter> BrokerSession<'_, A> {
-    pub(crate) async fn complete_fetch(
-        &mut self,
-        need: UniqueFlightFetch,
-        eligible_metadata: &mut Option<SubscriptionUserInfoV1>,
-    ) -> UniqueFlightDrive {
-        let leftover = match parse_unique_urls(need.urls()) {
-            Ok(urls) => urls,
-            Err(host) => {
-                return need.fulfill(UniqueFlightBodies::Failed { loaded: &[], host });
+    match broker.load_remote_resources(&resources).await {
+        UniqueFetchBatch::Complete(responses) => {
+            if capture {
+                *eligible_metadata = responses.first().and_then(|response| {
+                    parse_subscription_user_info(response.subscription_user_info.clone())
+                });
             }
-        };
-        let planned = unique_resources(&leftover, need.max_body_bytes(), false);
-        if let Err(host) = self.preflight_unique_plan(&planned) {
-            return need.fulfill(UniqueFlightBodies::Failed { loaded: &[], host });
+            let bodies = responses
+                .into_iter()
+                .map(|response| response.body)
+                .collect::<Vec<_>>();
+            finish_fetch(fetch, UniqueFlightBodies::Complete(bodies), broker)
         }
-
-        let take = need.take_count(self.active_resource_limit());
-        let Some(hop) = leftover.get(..take) else {
-            return need.fulfill(UniqueFlightBodies::Failed {
-                loaded: &[],
-                host: UniqueFlightHostFailure::Internal,
-            });
-        };
-        let capture = need.capture_subscription_user_info();
-        let resources = unique_resources(hop, need.max_body_bytes(), capture);
-
-        match self.load_batch(&resources).await {
-            Err(host) => need.fulfill(UniqueFlightBodies::Failed { loaded: &[], host }),
-            Ok(RemoteLoadBatch::Complete(responses)) => {
-                if capture {
-                    *eligible_metadata = responses.first().and_then(|response| {
-                        parse_subscription_user_info(response.subscription_user_info.clone())
-                    });
-                }
-                let owned = responses
-                    .into_iter()
-                    .map(|response| response.body)
-                    .collect::<Vec<_>>();
-                let bodies = owned.iter().map(Vec::as_slice).collect::<Vec<_>>();
-                need.fulfill(UniqueFlightBodies::Complete(&bodies))
-            }
-            Ok(RemoteLoadBatch::Failed {
-                loaded,
-                failed_unique_index,
-                error,
-            }) => {
-                let mut owned = Vec::new();
-                let mut host = error;
-                for response in loaded.into_iter().take(failed_unique_index) {
-                    let Some(response) = response else {
-                        host = UniqueFlightHostFailure::Internal;
-                        break;
-                    };
-                    owned.push(response.body);
-                }
-                let bodies = owned.iter().map(Vec::as_slice).collect::<Vec<_>>();
-                need.fulfill(UniqueFlightBodies::Failed {
-                    loaded: &bodies,
-                    host,
-                })
-            }
+        UniqueFetchBatch::Failed { loaded, host } => {
+            finish_fetch(fetch, UniqueFlightBodies::Failed { loaded, host }, broker)
+        }
+        UniqueFetchBatch::Misaligned => {
+            drop(fetch);
+            UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal))
         }
     }
 }
 
-fn parse_unique_urls(urls: &[String]) -> Result<Vec<Url>, UniqueFlightHostFailure> {
-    urls.iter()
-        .map(|url| Url::parse(url).map_err(|_error| UniqueFlightHostFailure::Internal))
-        .collect()
+fn finish_fetch<A: RemoteAdapter>(
+    fetch: UniqueFlightFetch,
+    bodies: UniqueFlightBodies,
+    broker: &BrokerSession<'_, A>,
+) -> UniqueFlightDrive {
+    fetch.fulfill(bodies, accept_outbound(broker))
 }
 
-fn unique_resources(
-    urls: &[Url],
-    max_body_bytes: usize,
-    capture_subscription_user_info: bool,
-) -> Vec<RemoteResource> {
-    urls.iter()
-        .cloned()
+fn remote_resources(plan: &sub_hub_conversion::UniqueFlightFetchPlan<'_>) -> Vec<RemoteResource> {
+    plan.urls()
         .map(|url| RemoteResource {
-            url,
-            max_body_bytes,
-            capture_subscription_user_info,
+            url: url.clone(),
+            max_body_bytes: plan.max_body_bytes,
+            capture_subscription_user_info: plan.capture_subscription_user_info,
         })
         .collect()
+}
+
+fn accept_outbound<'b, A: RemoteAdapter>(
+    broker: &'b BrokerSession<'_, A>,
+) -> impl FnMut(&str) -> Result<Url, UniqueFlightHostFailure> + 'b {
+    |url| {
+        broker
+            .accept_outbound(url)
+            .map_err(host_failure_from_outbound_reject)
+    }
+}
+
+/// Policy and port rejections both map to 400 Invalid request today.
+const fn host_failure_from_outbound_reject(_reject: OutboundReject) -> UniqueFlightHostFailure {
+    UniqueFlightHostFailure::Rejected
 }

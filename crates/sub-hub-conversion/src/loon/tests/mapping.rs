@@ -1,7 +1,7 @@
 use crate::OutputTarget;
 use crate::SubscriptionSourceV1;
-use crate::direct_subscription::{render_acl4ssr_target, render_remote_builtin};
 use crate::prepare_subscription_v1;
+use crate::subscription_prepare::{render_acl4ssr_target, render_remote_builtin};
 
 #[test]
 fn unsupported_vless_combinations_are_skipped() {

@@ -133,6 +133,11 @@ export type VersionProbe =
   | { status: "other" }
   | { status: "unreachable" }
 
+export type VersionState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | VersionProbe
+
 export async function runVersionProbe(input: {
   origin: string
   signal?: AbortSignal
