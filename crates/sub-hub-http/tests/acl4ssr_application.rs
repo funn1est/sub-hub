@@ -517,8 +517,8 @@ fn earlier_invalid_rule_set_precedes_later_rule_set_timeout() {
         HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
     ));
 
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(response.body(), b"Bad Gateway");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.body(), b"Invalid request!");
 }
 
 #[derive(Clone)]
@@ -573,8 +573,8 @@ fn earlier_invalid_rule_set_precedes_later_aggregate_byte_crossing() {
         HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
     ));
 
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(response.body(), b"Bad Gateway");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.body(), b"Invalid request!");
 }
 
 #[derive(Clone)]

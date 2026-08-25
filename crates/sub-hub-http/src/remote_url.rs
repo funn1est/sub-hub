@@ -5,15 +5,23 @@ use url::{Host, Url};
 
 use crate::{MAX_GET_TARGET_BYTES, SelfHosts, self_hosts::is_canonical_dns_name};
 
+/// Closed Outbound accept rejection. Policy is lexical HTTPS; Port is the host gate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum OutboundReject {
+    Policy,
+    Port,
+}
+
 pub(crate) fn accept_outbound_url(
     input: &str,
     self_hosts: &SelfHosts,
     inbound_host: &str,
     supports_https_port: impl FnOnce(u16) -> bool,
-) -> Result<Url, ()> {
-    let url = canonical_remote_url(input, self_hosts, inbound_host)?;
+) -> Result<Url, OutboundReject> {
+    let url = canonical_remote_url(input, self_hosts, inbound_host)
+        .map_err(|()| OutboundReject::Policy)?;
     if !supports_https_port(url.port_or_known_default().unwrap_or(443)) {
-        return Err(());
+        return Err(OutboundReject::Port);
     }
     Ok(url)
 }
@@ -82,14 +90,14 @@ fn is_lexically_forbidden_host(host: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::accept_outbound_url;
+    use super::{OutboundReject, accept_outbound_url};
     use crate::SelfHosts;
 
     fn hosts() -> SelfHosts {
         SelfHosts::new(["service.example"]).expect("valid self hostname")
     }
 
-    fn accept(input: &str) -> Result<String, ()> {
+    fn accept(input: &str) -> Result<String, OutboundReject> {
         accept_outbound_url(input, &hosts(), "inbound.example", |_| true)
             .map(|url| url.as_str().to_owned())
     }
@@ -124,7 +132,7 @@ mod tests {
             "https://service.example/sub",
             "https://upstream.example/sub ",
         ] {
-            assert_eq!(accept(input), Err(()), "{input}");
+            assert_eq!(accept(input), Err(OutboundReject::Policy), "{input}");
         }
     }
 
@@ -145,7 +153,7 @@ mod tests {
                 "inbound.example",
                 |port| port == 443
             ),
-            Err(())
+            Err(OutboundReject::Port)
         );
     }
 }

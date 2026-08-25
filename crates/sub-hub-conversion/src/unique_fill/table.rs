@@ -20,9 +20,61 @@ pub(crate) struct UniqueFlightFillV1 {
     table: FirstSeen,
 }
 
+/// First-seen canonical URLs. Session capacity and hop zip share this type.
+#[derive(Clone)]
+pub(crate) struct UniqueUrls {
+    urls: Vec<String>,
+}
+
+impl UniqueUrls {
+    pub(crate) fn from_urls(urls: Vec<String>) -> Self {
+        Self { urls }
+    }
+
+    pub(crate) const fn empty() -> Self {
+        Self { urls: Vec::new() }
+    }
+
+    pub(crate) fn as_slice(&self) -> &[String] {
+        &self.urls
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.urls.len()
+    }
+
+    pub(crate) fn remember(&mut self, url: &str) {
+        if !self.contains(url) {
+            self.urls.push(url.to_owned());
+        }
+    }
+
+    pub(crate) fn count_if_push(&self, url: &str) -> usize {
+        if self.contains(url) {
+            self.urls.len()
+        } else {
+            self.urls.len() + 1
+        }
+    }
+
+    fn contains(&self, url: &str) -> bool {
+        self.urls.iter().any(|existing| existing == url)
+    }
+
+    fn index_or_insert(&mut self, url: &str) -> usize {
+        self.urls
+            .iter()
+            .position(|existing| existing == url)
+            .unwrap_or_else(|| {
+                self.urls.push(url.to_owned());
+                self.urls.len() - 1
+            })
+    }
+}
+
 /// First-seen index. Private to this plan; Rule frontend asks [`UniqueFlightFillV1`].
 struct FirstSeen {
-    unique_urls: Vec<String>,
+    unique: UniqueUrls,
     flight_by_occurrence: Vec<Option<usize>>,
 }
 
@@ -39,55 +91,42 @@ impl FirstSeen {
     where
         I: IntoIterator<Item = Option<&'a str>>,
     {
-        let mut unique_urls = Vec::new();
+        let mut unique = UniqueUrls::empty();
         let mut flight_by_occurrence = Vec::new();
         for url in occurrence_canonical {
             match url {
                 None => flight_by_occurrence.push(None),
                 Some(url) => {
-                    let flight = unique_urls
-                        .iter()
-                        .position(|existing: &String| existing == url)
-                        .unwrap_or_else(|| {
-                            unique_urls.push(url.to_owned());
-                            unique_urls.len() - 1
-                        });
+                    let flight = unique.index_or_insert(url);
                     flight_by_occurrence.push(Some(flight));
                 }
             }
         }
         Self {
-            unique_urls,
+            unique,
             flight_by_occurrence,
         }
     }
 
     fn empty() -> Self {
         Self {
-            unique_urls: Vec::new(),
+            unique: UniqueUrls::empty(),
             flight_by_occurrence: Vec::new(),
         }
     }
 
     fn push_remote(&mut self, url: &str) -> usize {
-        let flight = self
-            .unique_urls
-            .iter()
-            .position(|existing: &String| existing == url)
-            .unwrap_or_else(|| {
-                self.unique_urls.push(url.to_owned());
-                self.unique_urls.len() - 1
-            });
+        let flight = self.unique.index_or_insert(url);
         self.flight_by_occurrence.push(Some(flight));
-        self.unique_urls.len()
+        self.unique.len()
     }
 
     fn unique_urls(&self) -> &[String] {
-        &self.unique_urls
+        self.unique.as_slice()
     }
 
     fn flight_count(&self) -> usize {
-        self.unique_urls.len()
+        self.unique.len()
     }
 
     fn occurrence_count(&self) -> usize {
@@ -98,7 +137,7 @@ impl FirstSeen {
     fn occurrence_urls(&self) -> Vec<String> {
         self.flight_by_occurrence
             .iter()
-            .filter_map(|flight| flight.map(|index| self.unique_urls[index].clone()))
+            .filter_map(|flight| flight.map(|index| self.unique.as_slice()[index].clone()))
             .collect()
     }
 
@@ -258,11 +297,7 @@ impl UniqueFlightFillV1 {
     #[must_use]
     #[cfg(test)]
     pub(crate) fn unique_count_if_push(&self, url: &str) -> usize {
-        if self.unique_urls().iter().any(|existing| existing == url) {
-            self.flight_count()
-        } else {
-            self.flight_count() + 1
-        }
+        self.table.unique.count_if_push(url)
     }
 
     pub(crate) fn flight_of(&self, occurrence: usize) -> Option<usize> {

@@ -106,29 +106,32 @@ impl<A: RemoteAdapter> Application<A> {
             .any(|source| query::is_https_source(source))
             || parsed.config.is_some();
         let inbound_host = if needs_remote {
-            inbound_host
-                .filter(|host| is_valid_inbound_host(host))
-                .ok_or(ApplicationError::InvalidRequest)?
-                .to_owned()
+            Some(
+                inbound_host
+                    .filter(|host| is_valid_inbound_host(host))
+                    .ok_or(ApplicationError::InvalidRequest)?
+                    .to_owned(),
+            )
         } else {
-            String::new()
+            None
         };
+        let inbound_deny = inbound_host.as_deref().unwrap_or("");
         let config_url = match parsed.config.as_deref() {
             Some(config) => Some(
-                accept_outbound_url(config, &self.self_hosts, &inbound_host, |port| {
+                accept_outbound_url(config, &self.self_hosts, inbound_deny, |port| {
                     self.adapter.supports_https_port(port)
                 })
-                .map_err(|()| ApplicationError::InvalidRequest)?,
+                .map_err(|_reject| ApplicationError::InvalidRequest)?,
             ),
             None => None,
         };
         let mut occurrence_urls = Vec::with_capacity(parsed.sources.len());
         for source in &parsed.sources {
             if query::is_https_source(source) {
-                let url = accept_outbound_url(source, &self.self_hosts, &inbound_host, |port| {
+                let url = accept_outbound_url(source, &self.self_hosts, inbound_deny, |port| {
                     self.adapter.supports_https_port(port)
                 })
-                .map_err(|()| ApplicationError::InvalidRequest)?;
+                .map_err(|_reject| ApplicationError::InvalidRequest)?;
                 occurrence_urls.push(Some(url));
             } else {
                 occurrence_urls.push(None);
@@ -153,7 +156,11 @@ impl<A: RemoteAdapter> Application<A> {
             config_url,
             occurrence_urls,
         } = plan;
-        let mut broker = BrokerSession::new(&self.adapter, &self.self_hosts, &inbound_host);
+        let mut broker = BrokerSession::new(
+            &self.adapter,
+            &self.self_hosts,
+            inbound_host.as_deref().unwrap_or(""),
+        );
         let filled = run(
             &mut broker,
             &parsed.sources,
@@ -186,7 +193,7 @@ impl<A> fmt::Debug for Application<A> {
 
 struct SubRequestPlan {
     parsed: query::SubQuery,
-    inbound_host: String,
+    inbound_host: Option<String>,
     config_url: Option<Url>,
     occurrence_urls: Vec<Option<Url>>,
 }

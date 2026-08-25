@@ -287,7 +287,7 @@ fn rule_set_grammar_in_a_loaded_prefix_beats_a_later_host_timeout() {
             loaded: &[b"# semantic empty"],
             host: UniqueFlightHostFailure::Timeout,
         })),
-        UniqueFlightFillFailure::RemoteFailure
+        UniqueFlightFillFailure::InvalidInput
     );
 }
 

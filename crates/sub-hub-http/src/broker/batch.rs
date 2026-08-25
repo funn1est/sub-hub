@@ -1,10 +1,11 @@
 //! Unique-flight batch scheduler. Concurrent when the session still has a full
-//! attempt budget; otherwise declaration-order serial. Redirect follow lives in
-//! [`super::follow`].
+//! attempt budget; otherwise one-at-a-time in declaration order. Redirect
+//! follow lives in [`super::follow`].
 
 use futures::{StreamExt, stream::FuturesUnordered};
+use sub_hub_conversion::UniqueFlightHostFailure;
 
-use super::{BrokerError, BrokerSession, RemoteAdapter, RemoteLoadBatch, RemoteResource};
+use super::{BrokerSession, RemoteAdapter, RemoteLoadBatch, RemoteResource};
 
 impl<A: RemoteAdapter> BrokerSession<'_, A> {
     pub(super) async fn load_remote_resources(
@@ -20,23 +21,25 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
                 .checked_add(maximum)
                 .is_some_and(|total| total <= self.budget.session_attempts)
         });
-        if !has_full_attempt_budget {
-            return self.load_remote_resources_in_order(resources).await;
-        }
+        let active_cap = if has_full_attempt_budget {
+            self.budget.active_resources
+        } else {
+            1
+        };
         let mut next_index = 0;
         let mut active_indices = vec![false; resources.len()];
         let mut active = FuturesUnordered::new();
         let mut loaded = (0..resources.len()).map(|_| None).collect::<Vec<_>>();
-        let mut selected_failure: Option<(usize, BrokerError)> = None;
+        let mut selected_failure: Option<(usize, UniqueFlightHostFailure)> = None;
 
         loop {
             while selected_failure.is_none()
                 && next_index < resources.len()
-                && active.len() < self.budget.active_resources
+                && active.len() < active_cap
             {
                 let now = self.adapter.monotonic_millis();
                 if now >= self.total_deadline_millis {
-                    selected_failure = Some((next_index, BrokerError::Timeout));
+                    selected_failure = Some((next_index, UniqueFlightHostFailure::Timeout));
                     break;
                 }
                 let resource_deadline = now
@@ -91,45 +94,7 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
             None => RemoteLoadBatch::Failed {
                 loaded: (0..resources.len()).map(|_| None).collect(),
                 failed_unique_index: 0,
-                error: BrokerError::Internal,
-            },
-        }
-    }
-
-    async fn load_remote_resources_in_order(
-        &self,
-        resources: &[RemoteResource],
-    ) -> RemoteLoadBatch {
-        let mut loaded = (0..resources.len()).map(|_| None).collect::<Vec<_>>();
-        for (index, resource) in resources.iter().cloned().enumerate() {
-            let now = self.adapter.monotonic_millis();
-            if now >= self.total_deadline_millis {
-                return RemoteLoadBatch::Failed {
-                    loaded,
-                    failed_unique_index: index,
-                    error: BrokerError::Timeout,
-                };
-            }
-            let resource_deadline = now
-                .saturating_add(self.budget.fetch_deadline_millis)
-                .min(self.total_deadline_millis);
-            match self.load_remote(resource, resource_deadline).await {
-                Ok(response) => loaded[index] = Some(response),
-                Err(error) => {
-                    return RemoteLoadBatch::Failed {
-                        loaded,
-                        failed_unique_index: index,
-                        error,
-                    };
-                }
-            }
-        }
-        match loaded.into_iter().collect::<Option<Vec<_>>>() {
-            Some(responses) => RemoteLoadBatch::Complete(responses),
-            None => RemoteLoadBatch::Failed {
-                loaded: (0..resources.len()).map(|_| None).collect(),
-                failed_unique_index: 0,
-                error: BrokerError::Internal,
+                error: UniqueFlightHostFailure::Internal,
             },
         }
     }
@@ -139,7 +104,10 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
         index: usize,
         resource: RemoteResource,
         deadline_millis: u64,
-    ) -> (usize, Result<super::RemoteResponse, BrokerError>) {
+    ) -> (
+        usize,
+        Result<super::RemoteResponse, UniqueFlightHostFailure>,
+    ) {
         let result = self.load_remote(resource, deadline_millis).await;
         (index, result)
     }

@@ -176,12 +176,12 @@ fn duplicate_rule_set_occurrences_still_consume_the_semantic_rule_budget() {
 }
 
 #[test]
-fn invalid_config_and_invalid_rule_set_are_closed_remote_failures() {
+fn invalid_config_and_invalid_rule_set_are_invalid_input() {
     let invalid_config =
         "[custom]\nenable_rule_generator=true\noverwrite_original_rules=true\nunknown=true\n";
     assert_eq!(
         render_mihomo(invalid_config, |_| panic!("no Rule Set fetch")).unwrap_err(),
-        UniqueFlightFillFailure::RemoteFailure
+        UniqueFlightFillFailure::InvalidInput
     );
 
     let config = concat!(
@@ -194,7 +194,7 @@ fn invalid_config_and_invalid_rule_set_are_closed_remote_failures() {
     );
     assert_eq!(
         render_mihomo(config, |_| b"# comment only\n".to_vec()).unwrap_err(),
-        UniqueFlightFillFailure::RemoteFailure
+        UniqueFlightFillFailure::InvalidInput
     );
 }
 
@@ -296,13 +296,13 @@ fn generic_url_regex_and_malformed_rule_sets_fail_closed() {
     ] {
         assert_eq!(
             render_mihomo(config, |_| invalid.to_vec()).unwrap_err(),
-            UniqueFlightFillFailure::RemoteFailure
+            UniqueFlightFillFailure::InvalidInput
         );
     }
     let comma_flood = format!("UNKNOWN,{}", ",".repeat(4 * 1024 * 1024 - 8));
     assert_eq!(
         render_mihomo(config, |_| comma_flood.as_bytes().to_vec()).unwrap_err(),
-        UniqueFlightFillFailure::RemoteFailure
+        UniqueFlightFillFailure::InvalidInput
     );
 }
 

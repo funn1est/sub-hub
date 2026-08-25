@@ -24,8 +24,6 @@ export function clashInstallUrl(subscriptionUrl: string): string {
   return `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`
 }
 
-export type SubscriptionAssemblyInput = WorkshopFields
-
 export type Assembled = {
   url: string | null
   getTarget: string | null
@@ -52,12 +50,20 @@ export type PasteWarning =
   | "empty-sources"
   | "http-sources"
 
+export type PasteKeep = "keep"
+
+/** Successful paste: set these keys; `"keep"` leaves the current field. */
+export type PasteSet = {
+  serviceOrigin: string
+  accessToken: string
+  sources: string[] | PasteKeep
+  target: Target | PasteKeep
+  configUrl: string
+  appendInfo: boolean
+}
+
 export type PasteResult =
-  | {
-      ok: true
-      workshop: Partial<SubscriptionAssemblyInput>
-      warnings: PasteWarning[]
-    }
+  | { ok: true; workshop: PasteSet; warnings: PasteWarning[] }
   | { ok: false; reason: "invalid-url" }
 
 export function parseServiceOrigin(raw: string): string | null {
@@ -132,55 +138,71 @@ const emptyAssembled: Assembled = {
   clashInstall: false,
 }
 
-export function assembleSubscription(
-  input: SubscriptionAssemblyInput
-): Assembled {
+export function assembleSubscription(input: WorkshopFields): Assembled {
+  return evaluateWorkshop(input).assembled
+}
+
+/** Field chrome and assemble share one Workshop job diagnosis. */
+export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
   const origin = parseServiceOrigin(input.serviceOrigin)
   const token = parseAccessToken(input.accessToken)
   const sources = nonemptySources(input.sources)
   const config = input.configUrl.trim()
-
-  if (
-    origin === null ||
-    !token.ok ||
-    sources.length === 0 ||
-    sources.some((source) => source.includes("|") || isHttpSource(source)) ||
-    !isTarget(input.target) ||
-    (config.length > 0 && parseHttpsResourceUrl(config) === null)
-  ) {
-    return emptyAssembled
+  const originInvalid = input.serviceOrigin.trim().length > 0 && origin === null
+  const tokenInvalid = !token.ok
+  const configInvalid =
+    config.length > 0 && parseHttpsResourceUrl(config) === null
+  const sourceInvalid = input.sources.map(sourceRowInvalid)
+  const sourcesOk =
+    sources.length > 0 &&
+    !sources.some((source) => source.includes("|") || isHttpSource(source))
+  const assembled =
+    origin !== null &&
+    token.ok &&
+    sourcesOk &&
+    isTarget(input.target) &&
+    !configInvalid
+      ? assembledFrom({
+          origin,
+          token: token.token,
+          sources,
+          target: input.target,
+          configUrl: config,
+          appendInfo: input.appendInfo,
+        })
+      : emptyAssembled
+  return {
+    assembled,
+    originInvalid,
+    tokenInvalid,
+    configInvalid,
+    sourceInvalid,
   }
+}
 
+function assembledFrom(input: {
+  origin: string
+  token: string
+  sources: string[]
+  target: Target
+  configUrl: string
+  appendInfo: boolean
+}): Assembled {
   const getTarget = encodeSubGetTarget({
-    accessToken: token.token,
+    accessToken: input.token,
     target: input.target,
-    sources,
-    configUrl: config,
+    sources: input.sources,
+    configUrl: input.configUrl,
     appendInfo: input.appendInfo,
   })
   const overLimit =
     new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES
   return {
-    url: `${origin}${getTarget}`,
+    url: `${input.origin}${getTarget}`,
     getTarget,
     overLimit,
     previewable: !overLimit,
     clashInstall: input.target === "clash" || input.target === "mihomo",
-  }
-}
-
-/** Field chrome and assemble share one Workshop job diagnosis. */
-export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
-  return {
-    assembled: assembleSubscription(input),
-    originInvalid:
-      input.serviceOrigin.trim().length > 0 &&
-      parseServiceOrigin(input.serviceOrigin) === null,
-    tokenInvalid: !parseAccessToken(input.accessToken).ok,
-    configInvalid:
-      input.configUrl.trim().length > 0 &&
-      parseHttpsResourceUrl(input.configUrl) === null,
-    sourceInvalid: input.sources.map(sourceRowInvalid),
   }
 }
 
@@ -191,7 +213,7 @@ type PasteDecode =
       accessToken: string
       target?: Target
       sources?: string[]
-      configUrl?: string
+      configUrl: string
       appendInfo: boolean
       warnings: PasteWarning[]
     }
@@ -338,8 +360,8 @@ export function parseSubscriptionUrl(raw: string): PasteResult {
     workshop: {
       serviceOrigin: origin,
       accessToken: decoded.accessToken,
-      sources: decoded.sources,
-      target: decoded.target,
+      sources: decoded.sources === undefined ? "keep" : decoded.sources,
+      target: decoded.target === undefined ? "keep" : decoded.target,
       configUrl: decoded.configUrl,
       appendInfo: decoded.appendInfo,
     },
@@ -351,24 +373,23 @@ export function applyPaste(
   fields: WorkshopFields,
   parsed: Extract<PasteResult, { ok: true }>
 ): WorkshopFields {
+  const set = parsed.workshop
   return {
-    serviceOrigin: parsed.workshop.serviceOrigin ?? fields.serviceOrigin,
-    accessToken: parsed.workshop.accessToken ?? fields.accessToken,
-    sources: parsed.workshop.sources ?? fields.sources,
-    target: parsed.workshop.target ?? fields.target,
-    configUrl: parsed.workshop.configUrl ?? fields.configUrl,
-    appendInfo: parsed.workshop.appendInfo ?? fields.appendInfo,
+    serviceOrigin: set.serviceOrigin,
+    accessToken: set.accessToken,
+    sources: set.sources === "keep" ? fields.sources : set.sources,
+    target: set.target === "keep" ? fields.target : set.target,
+    configUrl: set.configUrl,
+    appendInfo: set.appendInfo,
   }
 }
 
-function looksLikeAssembledSubscription(
-  workshop: Partial<SubscriptionAssemblyInput>
-): boolean {
+function looksLikeAssembledSubscription(workshop: PasteSet): boolean {
   return (
-    (workshop.accessToken?.length ?? 0) > 0 ||
-    workshop.target !== undefined ||
-    (workshop.sources?.length ?? 0) > 0 ||
-    (workshop.configUrl?.length ?? 0) > 0 ||
+    workshop.accessToken.length > 0 ||
+    workshop.target !== "keep" ||
+    (workshop.sources !== "keep" && workshop.sources.length > 0) ||
+    workshop.configUrl.length > 0 ||
     workshop.appendInfo === false
   )
 }

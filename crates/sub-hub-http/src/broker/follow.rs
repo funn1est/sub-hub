@@ -1,17 +1,16 @@
 //! Unique-resource hop loop. Follows redirects and re-runs Outbound accept.
 //! Internal seam: batch scheduling does not live here.
 
-use super::{
-    BrokerError, BrokerSession, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResource,
-};
+use super::{BrokerSession, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResource};
 use crate::{MAX_GET_TARGET_BYTES, remote_https::is_followed_redirect};
+use sub_hub_conversion::UniqueFlightHostFailure;
 
 impl<A: RemoteAdapter> BrokerSession<'_, A> {
     pub(super) async fn load_remote(
         &self,
         resource: RemoteResource,
         deadline_millis: u64,
-    ) -> Result<super::RemoteResponse, BrokerError> {
+    ) -> Result<super::RemoteResponse, UniqueFlightHostFailure> {
         let RemoteResource {
             mut url,
             max_body_bytes,
@@ -20,7 +19,7 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
         let mut redirects = 0;
         loop {
             if self.adapter.monotonic_millis() >= deadline_millis {
-                return Err(BrokerError::Timeout);
+                return Err(UniqueFlightHostFailure::Timeout);
             }
             if self
                 .attempts
@@ -31,7 +30,7 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
                 )
                 .is_err()
             {
-                return Err(BrokerError::Failure);
+                return Err(UniqueFlightHostFailure::Failure);
             }
             let attempt = RemoteAttempt {
                 url: url.as_str().to_owned(),
@@ -42,34 +41,36 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
             let response = match self.adapter.fetch_once(attempt).await {
                 Ok(response) => response,
                 Err(RemoteFetchError::Failure) => {
-                    return Err(BrokerError::Failure);
+                    return Err(UniqueFlightHostFailure::Failure);
                 }
                 Err(RemoteFetchError::Timeout) => {
-                    return Err(BrokerError::Timeout);
+                    return Err(UniqueFlightHostFailure::Timeout);
                 }
             };
             if self.adapter.monotonic_millis() >= deadline_millis {
-                return Err(BrokerError::Timeout);
+                return Err(UniqueFlightHostFailure::Timeout);
             }
             if response.status.is_success() {
                 if response.body.is_empty() || response.body.len() > max_body_bytes {
-                    return Err(BrokerError::Failure);
+                    return Err(UniqueFlightHostFailure::Failure);
                 }
                 return Ok(response);
             }
             if !is_followed_redirect(response.status) || redirects == self.budget.max_redirects {
-                return Err(BrokerError::Failure);
+                return Err(UniqueFlightHostFailure::Failure);
             }
             let Some(location) = response.location else {
-                return Err(BrokerError::Failure);
+                return Err(UniqueFlightHostFailure::Failure);
             };
             if location.len() > MAX_GET_TARGET_BYTES {
-                return Err(BrokerError::Failure);
+                return Err(UniqueFlightHostFailure::Failure);
             }
-            let joined = url.join(&location).map_err(|_error| BrokerError::Failure)?;
+            let joined = url
+                .join(&location)
+                .map_err(|_error| UniqueFlightHostFailure::Failure)?;
             url = self
                 .accept_outbound(joined.as_str())
-                .map_err(|()| BrokerError::Failure)?;
+                .map_err(|_reject| UniqueFlightHostFailure::Failure)?;
             redirects += 1;
         }
     }

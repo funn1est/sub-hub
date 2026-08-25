@@ -2,16 +2,13 @@ import * as React from "react"
 import {
   CircleAlertIcon,
   CopyIcon,
-  DownloadIcon,
   EyeIcon,
   EyeOffIcon,
-  FileCode2Icon,
   GlobeIcon,
   Link2Icon,
   PlusIcon,
   ServerIcon,
   Settings2Icon,
-  ShieldAlertIcon,
   Trash2Icon,
 } from "lucide-react"
 
@@ -35,10 +32,8 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card.tsx"
 import {
   Field,
@@ -53,42 +48,27 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group.tsx"
-import { ScrollArea } from "@/components/ui/scroll-area.tsx"
 import { Spinner } from "@/components/ui/spinner.tsx"
 import { Switch } from "@/components/ui/switch.tsx"
 import { Textarea } from "@/components/ui/textarea.tsx"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx"
-import {
-  knownErrorTitle,
-  skippedSummary,
-  t,
-  type Messages,
-} from "@/lib/i18n.ts"
+import { t } from "@/lib/i18n.ts"
 import type { Locale } from "@/lib/persist.ts"
-import {
-  ACL4SSR_FULL_FILES,
-  ACL4SSR_MINI_FILES,
-  ACL4SSR_ONLINE_FILES,
-  acl4ssrConfigLabel,
-  type Acl4ssrConfigFile,
-} from "@/lib/acl4ssr-catalog.ts"
 import { TARGETS, isTarget } from "@/lib/service-contract.ts"
-import type {
-  ConfigSelectionId,
-  VersionState,
-  WorkshopSession,
-} from "@/lib/workshop-session.ts"
-import type { PreviewState } from "@/lib/workshop.ts"
-
-type ConfigChoice = {
-  id: "none" | "custom" | Acl4ssrConfigFile
-  label: string
-}
-
-type ConfigChoiceGroup = {
-  value: string
-  items: ConfigChoice[]
-}
+import {
+  configChoiceGroups,
+  selectedConfigChoice,
+  type ConfigChoice,
+  type ConfigChoiceGroup,
+} from "@/lib/workshop-config.ts"
+import type { WorkshopSession } from "@/lib/workshop-session.ts"
+import { PreviewCard } from "@/components/workshop-preview.tsx"
+import {
+  SectionCard,
+  SectionHeading,
+  VersionAlert,
+  VersionBadge,
+} from "@/components/workshop-section.tsx"
 
 const urlField = {
   inputMode: "url" as const,
@@ -514,299 +494,4 @@ export function Workshop({ session, locale, banner }: WorkshopProps) {
       </p>
     </main>
   )
-}
-
-function SectionCard({
-  icon,
-  title,
-  description,
-  action,
-  children,
-}: {
-  icon: React.ReactNode
-  title: string
-  description?: string
-  action?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <Card>
-      <CardHeader className="border-b">
-        <SectionHeading icon={icon} title={title} description={description} />
-        {action ? <CardAction>{action}</CardAction> : null}
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  )
-}
-
-function SectionHeading({
-  icon,
-  title,
-  description,
-  descriptionClassName,
-}: {
-  icon: React.ReactNode
-  title: string
-  description?: string
-  descriptionClassName?: string
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground [&_svg]:size-4">
-        {icon}
-      </span>
-      <div className="flex min-w-0 flex-col gap-1">
-        <CardTitle>{title}</CardTitle>
-        {description ? (
-          <CardDescription className={descriptionClassName}>
-            {description}
-          </CardDescription>
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
-function VersionBadge({
-  state,
-  copy,
-}: {
-  state: VersionState
-  copy: ReturnType<typeof t>
-}) {
-  if (state.status === "idle") {
-    return null
-  }
-  if (state.status === "checking") {
-    return (
-      <Badge variant="outline">
-        <Spinner />
-        <span className="sr-only">{copy.versionChecking}</span>
-      </Badge>
-    )
-  }
-  if (state.status === "ok") {
-    return (
-      <Badge variant="secondary" className="max-w-full truncate">
-        {state.body}
-      </Badge>
-    )
-  }
-  return <Badge variant="destructive">{copy.versionIssue}</Badge>
-}
-
-function VersionAlert({
-  state,
-  copy,
-  padded = false,
-}: {
-  state: VersionState
-  copy: ReturnType<typeof t>
-  padded?: boolean
-}) {
-  let alert: React.ReactNode = null
-  if (state.status === "other") {
-    alert = (
-      <Alert>
-        <CircleAlertIcon />
-        <AlertTitle>{copy.versionOther}</AlertTitle>
-      </Alert>
-    )
-  } else if (state.status === "unreachable") {
-    alert = (
-      <Alert>
-        <CircleAlertIcon />
-        <AlertTitle>{copy.versionUnreachable}</AlertTitle>
-      </Alert>
-    )
-  }
-  if (alert === null) {
-    return null
-  }
-  if (padded) {
-    return <CardContent>{alert}</CardContent>
-  }
-  return alert
-}
-
-function PreviewCard({
-  locale,
-  preview,
-  copy,
-  onDownload,
-}: {
-  locale: Locale
-  preview: PreviewState
-  copy: ReturnType<typeof t>
-  onDownload: () => void
-}) {
-  if (preview.status === "idle") {
-    return null
-  }
-
-  if (preview.status === "loading") {
-    return (
-      <Card>
-        <CardHeader className="border-b">
-          <SectionHeading icon={<FileCode2Icon />} title={copy.preview} />
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner />
-            {copy.previewing}
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (preview.status === "unreachable") {
-    const title =
-      preview.cause === "mixed-content"
-        ? copy.unreachableMixed
-        : preview.cause === "local-network"
-          ? copy.unreachableLna
-          : copy.unreachableCors
-    return (
-      <Card>
-        <CardHeader className="border-b">
-          <SectionHeading icon={<FileCode2Icon />} title={copy.preview} />
-        </CardHeader>
-        <CardContent>
-          <Alert>
-            <CircleAlertIcon />
-            <AlertTitle>{title}</AlertTitle>
-          </Alert>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  const errorTitle =
-    preview.kind.kind === "known-error"
-      ? knownErrorTitle(locale, preview.kind.body)
-      : `${copy.status} ${preview.httpStatus}`
-  const skipped = preview.skipped
-
-  return (
-    <Card>
-      <CardHeader className="border-b">
-        <SectionHeading
-          icon={<FileCode2Icon />}
-          title={copy.preview}
-          description={errorTitle}
-        />
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-4">
-          {preview.kind.kind === "known-error" ? (
-            <Alert variant="destructive">
-              <CircleAlertIcon />
-              <AlertTitle>{errorTitle}</AlertTitle>
-              <AlertDescription className="font-mono">
-                {preview.kind.body}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          {skipped !== null ? (
-            <Alert>
-              <CircleAlertIcon />
-              <AlertTitle>{copy.skipped}</AlertTitle>
-              <AlertDescription>
-                {skippedSummary(locale, skipped)}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          <Alert>
-            <ShieldAlertIcon />
-            <AlertTitle>{copy.secretWarning}</AlertTitle>
-          </Alert>
-          {preview.headers.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium">{copy.headers}</p>
-              <ul className="flex flex-col gap-px overflow-hidden rounded-lg bg-muted/60 p-1">
-                {preview.headers.map((header) => (
-                  <li
-                    key={header.name}
-                    className="flex flex-wrap gap-x-3 gap-y-1 rounded-md px-2.5 py-1.5 font-mono text-xs"
-                  >
-                    <span className="text-muted-foreground">{header.name}</span>
-                    <span className="min-w-0 break-all">{header.value}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-2">
-            <p className="text-sm font-medium">{copy.body}</p>
-            {preview.truncated ? (
-              <p className="text-sm text-muted-foreground">{copy.truncated}</p>
-            ) : null}
-            <ScrollArea className="h-[min(20rem,50svh)] rounded-lg border bg-muted/30">
-              <pre className="p-3 font-mono text-xs break-all whitespace-pre-wrap">
-                {preview.viewText}
-              </pre>
-            </ScrollArea>
-          </div>
-        </div>
-      </CardContent>
-      {preview.httpStatus === 200 ? (
-        <CardFooter>
-          <Button type="button" variant="outline" onClick={onDownload}>
-            <DownloadIcon data-icon="inline-start" />
-            {copy.download}
-          </Button>
-        </CardFooter>
-      ) : null}
-    </Card>
-  )
-}
-
-function configChoiceGroups(copy: Messages): ConfigChoiceGroup[] {
-  return [
-    {
-      value: copy.configNone,
-      items: [{ id: "none", label: copy.configNone }],
-    },
-    {
-      value: copy.configOnline,
-      items: ACL4SSR_ONLINE_FILES.map((file) => ({
-        id: file,
-        label: acl4ssrConfigLabel(file),
-      })),
-    },
-    {
-      value: copy.configMini,
-      items: ACL4SSR_MINI_FILES.map((file) => ({
-        id: file,
-        label: acl4ssrConfigLabel(file),
-      })),
-    },
-    {
-      value: copy.configFull,
-      items: ACL4SSR_FULL_FILES.map((file) => ({
-        id: file,
-        label: acl4ssrConfigLabel(file),
-      })),
-    },
-    {
-      value: copy.configCustom,
-      items: [{ id: "custom", label: copy.configCustom }],
-    },
-  ]
-}
-
-function selectedConfigChoice(
-  groups: readonly ConfigChoiceGroup[],
-  id: ConfigSelectionId
-): ConfigChoice {
-  for (const group of groups) {
-    const found = group.items.find((item) => item.id === id)
-    if (found !== undefined) {
-      return found
-    }
-  }
-  const fallback = groups[0]?.items[0]
-  return fallback ?? { id: "none", label: "" }
 }

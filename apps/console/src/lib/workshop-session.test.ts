@@ -91,7 +91,11 @@ function makeSession(input: {
 describe("pasteReplacesValue", () => {
   it("replaces only an empty or fully selected field", () => {
     expect(
-      pasteReplacesValue({ value: "", selectionStart: null, selectionEnd: null })
+      pasteReplacesValue({
+        value: "",
+        selectionStart: null,
+        selectionEnd: null,
+      })
     ).toBe(true)
     expect(
       pasteReplacesValue({ value: "  ", selectionStart: 1, selectionEnd: 1 })
@@ -253,13 +257,12 @@ describe("createWorkshopSession", () => {
     expect(view().version.status).toBe("idle")
   })
 
-  it("adopts a guessed origin only while the field is empty", () => {
+  it("does not adopt a later origin after the field is filled", () => {
     const { session, view } = makeSession({})
-    session.actions.adoptOrigin(ORIGIN)
+    session.actions.patch({ serviceOrigin: ORIGIN })
     expect(view().fields.serviceOrigin).toBe(ORIGIN)
-    expect(view().canCollapseService).toBe(true)
-    session.actions.adoptOrigin("https://other.example")
-    expect(view().fields.serviceOrigin).toBe(ORIGIN)
+    session.actions.patch({ serviceOrigin: "https://other.example" })
+    expect(view().fields.serviceOrigin).toBe("https://other.example")
   })
 
   it("adopts console origin after a successful same-origin version probe", async () => {

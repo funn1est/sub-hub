@@ -20,7 +20,6 @@ import {
 import {
   createWorkshopSession,
   type WorkshopNotice,
-  type WorkshopSession,
 } from "@/lib/workshop-session.ts"
 import { parseServiceOrigin } from "@/lib/workshop.ts"
 
@@ -47,34 +46,35 @@ function toastNotice(locale: Locale, notice: WorkshopNotice) {
   toast.add({ type: "error", title: copy.copyFailed })
 }
 
-type BootSession = {
-  session: WorkshopSession
-  setNotifyLocale: (locale: Locale) => void
+function createNotifyPort(initial: Locale) {
+  let locale = initial
+  return {
+    setLocale(next: Locale) {
+      locale = next
+    },
+    notify(notice: WorkshopNotice) {
+      toastNotice(locale, notice)
+    },
+  }
 }
 
 export function App() {
   const [boot] = React.useState(loadInitial)
-  const [bootSession] = React.useState<BootSession>(() => {
-    let locale = boot.locale
-    return {
-      session: createWorkshopSession({
-        initialFields: workshopFieldsOf(boot),
-        env: {
-          pageHttps: window.location.protocol === "https:",
-          consoleOrigin: import.meta.env.DEV
-            ? undefined
-            : (parseServiceOrigin(window.location.origin) ?? undefined),
-        },
-        ports: {
-          notify: (notice) => toastNotice(locale, notice),
-        },
-      }),
-      setNotifyLocale: (next) => {
-        locale = next
+  const [notifyPort] = React.useState(() => createNotifyPort(boot.locale))
+  const [session] = React.useState(() =>
+    createWorkshopSession({
+      initialFields: workshopFieldsOf(boot),
+      env: {
+        pageHttps: window.location.protocol === "https:",
+        consoleOrigin: import.meta.env.DEV
+          ? undefined
+          : (parseServiceOrigin(window.location.origin) ?? undefined),
       },
-    }
-  })
-  const session = bootSession.session
+      ports: {
+        notify: notifyPort.notify,
+      },
+    })
+  )
   const [chrome, setChrome] = React.useState<ConsoleChrome>({
     locale: boot.locale,
     theme: boot.theme,
@@ -91,8 +91,8 @@ export function App() {
   } = useRegisterSW({ immediate: true })
 
   React.useEffect(() => {
-    bootSession.setNotifyLocale(chrome.locale)
-  }, [bootSession, chrome.locale])
+    notifyPort.setLocale(chrome.locale)
+  }, [chrome.locale, notifyPort])
 
   React.useEffect(() => {
     savePersisted(window.localStorage, composePersisted(view.fields, chrome))
@@ -110,10 +110,9 @@ export function App() {
         <ConsoleChromeBar
           locale={chrome.locale}
           theme={chrome.theme}
-          onLocaleChange={(locale) => {
-            bootSession.setNotifyLocale(locale)
+          onLocaleChange={(locale) =>
             setChrome((current) => ({ ...current, locale }))
-          }}
+          }
           onThemeChange={(theme) =>
             setChrome((current) => ({ ...current, theme }))
           }

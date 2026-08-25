@@ -98,7 +98,6 @@ export type WorkshopSessionActions = {
   selectConfig: (id: ConfigSelectionId) => void
   editCustomConfigUrl: (value: string) => void
   blurOrigin: () => void
-  adoptOrigin: (origin: string) => void
   preview: () => Promise<void>
   copy: () => Promise<void>
   download: () => void
@@ -109,6 +108,16 @@ export type WorkshopSession = {
   subscribe: (listener: () => void) => () => void
   actions: WorkshopSessionActions
 }
+
+type ProbeRun =
+  | { kind: "idle" }
+  | {
+      kind: "checking"
+      origin: string
+      gen: number
+      controller: AbortController
+    }
+  | { kind: "result"; origin: string; state: VersionProbe }
 
 /** Paste replaces a source field only when it is empty or fully selected. */
 export function pasteReplacesValue(selection: SourceSelection): boolean {
@@ -136,10 +145,8 @@ export function createWorkshopSession(options: {
   let pasteWarnings: readonly PasteWarning[] = []
   let preview: PreviewState = { status: "idle" }
   let previewSeq = 0
-  let probe: { origin: string; state: VersionProbe } | null = null
-  let probeSeq = 0
-  let probeController: AbortController | null = null
-  let probeInFlight: string | null = null
+  let probe: ProbeRun = { kind: "idle" }
+  let probeGen = 0
   let view: WorkshopSessionView | null = null
 
   const emit = () => {
@@ -149,40 +156,49 @@ export function createWorkshopSession(options: {
     }
   }
 
-  const finishProbe = (origin: string, state: VersionProbe) => {
-    probeInFlight = null
-    probeController = null
+  const abortProbe = () => {
+    if (probe.kind === "checking") {
+      probe.controller.abort()
+    }
+  }
+
+  const finishProbe = (origin: string, gen: number, state: VersionProbe) => {
+    if (gen !== probeGen) {
+      return
+    }
     const fieldOrigin = parseServiceOrigin(fields.serviceOrigin)
-    if (fieldOrigin === null) {
-      if (state.status !== "ok" || origin !== consoleOrigin) {
-        return
-      }
-      probe = { origin, state }
+    if (
+      fieldOrigin === null &&
+      state.status === "ok" &&
+      origin === consoleOrigin
+    ) {
+      probe = { kind: "result", origin, state }
       setFields({ ...fields, serviceOrigin: origin })
       return
     }
     if (fieldOrigin === origin) {
-      probe = { origin, state }
+      probe = { kind: "result", origin, state }
       emit()
+      return
     }
+    probe = { kind: "idle" }
   }
 
   const startProbe = (origin: string) => {
-    if (probe?.origin === origin || probeInFlight === origin) {
+    if (
+      (probe.kind === "result" || probe.kind === "checking") &&
+      probe.origin === origin
+    ) {
       return
     }
-    probeSeq += 1
-    const seq = probeSeq
-    probeController?.abort()
+    probeGen += 1
+    const gen = probeGen
+    abortProbe()
     const controller = new AbortController()
-    probeController = controller
-    probeInFlight = origin
+    probe = { kind: "checking", origin, gen, controller }
     void runVersionProbe({ origin, signal: controller.signal, fetchImpl }).then(
       (state) => {
-        if (seq !== probeSeq) {
-          return
-        }
-        finishProbe(origin, state)
+        finishProbe(origin, gen, state)
       }
     )
   }
@@ -190,10 +206,9 @@ export function createWorkshopSession(options: {
   const ensureProbe = () => {
     const origin = parseServiceOrigin(fields.serviceOrigin)
     if (origin === null) {
-      probeSeq += 1
-      probeController?.abort()
-      probeController = null
-      probeInFlight = null
+      probeGen += 1
+      abortProbe()
+      probe = { kind: "idle" }
       return
     }
     startProbe(origin)
@@ -229,9 +244,9 @@ export function createWorkshopSession(options: {
       version:
         canonicalOrigin === null
           ? { status: "idle" }
-          : probe === null || probe.origin !== canonicalOrigin
-            ? { status: "checking" }
-            : probe.state,
+          : probe.kind === "result" && probe.origin === canonicalOrigin
+            ? probe.state
+            : { status: "checking" },
       preview,
       previewEnabled:
         jobView.assembled.previewable && preview.status !== "loading",
@@ -279,12 +294,6 @@ export function createWorkshopSession(options: {
       if (canonical !== null && canonical !== fields.serviceOrigin) {
         setFields({ ...fields, serviceOrigin: canonical })
       }
-    },
-    adoptOrigin: (origin) => {
-      if (fields.serviceOrigin.trim() !== "") {
-        return
-      }
-      setFields({ ...fields, serviceOrigin: origin })
     },
     preview: async () => {
       const current = getView()

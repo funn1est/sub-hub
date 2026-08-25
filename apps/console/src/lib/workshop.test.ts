@@ -18,8 +18,9 @@ import {
   parseServiceOrigin,
   parseSubscriptionUrl,
   subscriptionPasteFrom,
-  type SubscriptionAssemblyInput,
+  type PasteSet,
 } from "./workshop.ts"
+import type { WorkshopFields } from "./persist.ts"
 
 const VLESS =
   "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
@@ -29,9 +30,18 @@ const TWO_SOURCES_ENCODED =
   "vless%3A%2F%2Fu%40h%3A443%23A%7Css%3A%2F%2Fp%40h%3A8388%23B"
 const ONLINE_ENCODED = encodeURIComponent(ACL4SSR_ONLINE_URL)
 
-function input(
-  overrides: Partial<SubscriptionAssemblyInput> = {}
-): SubscriptionAssemblyInput {
+function fieldsFromPaste(workshop: PasteSet): WorkshopFields {
+  return {
+    serviceOrigin: workshop.serviceOrigin,
+    accessToken: workshop.accessToken,
+    sources: workshop.sources === "keep" ? [""] : workshop.sources,
+    target: workshop.target === "keep" ? "clash" : workshop.target,
+    configUrl: workshop.configUrl,
+    appendInfo: workshop.appendInfo,
+  }
+}
+
+function input(overrides: Partial<WorkshopFields> = {}): WorkshopFields {
   return {
     serviceOrigin: "http://127.0.0.1:25500",
     accessToken: "",
@@ -239,14 +249,7 @@ describe("parseSubscriptionUrl", () => {
     }
     expect(parsed.warnings).toContain("unknown-keys")
     expect(parsed.warnings).not.toContain("duplicate-keys")
-    const again = assembleSubscription({
-      serviceOrigin: parsed.workshop.serviceOrigin ?? "",
-      accessToken: parsed.workshop.accessToken ?? "",
-      sources: parsed.workshop.sources ?? [""],
-      target: parsed.workshop.target ?? "clash",
-      configUrl: parsed.workshop.configUrl ?? "",
-      appendInfo: parsed.workshop.appendInfo ?? true,
-    })
+    const again = assembleSubscription(fieldsFromPaste(parsed.workshop))
     expect(again.url).toBe(
       `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}`
     )
@@ -314,7 +317,7 @@ describe("parseSubscriptionUrl", () => {
       return
     }
     expect(parsed.warnings).toContain("invalid-target")
-    expect(parsed.workshop.target).toBeUndefined()
+    expect(parsed.workshop.target).toBe("keep")
   })
 })
 
@@ -468,7 +471,7 @@ describe("subscription URL golden", () => {
         id: string
         query: string
         path?: string
-        workshop?: SubscriptionAssemblyInput
+        workshop?: WorkshopFields
         workshopParse?: { ok: true; warnings: string[] }
         assembleOmits?: string[]
       }>
@@ -518,14 +521,7 @@ describe("subscription URL golden", () => {
         if (!parsed.ok) {
           continue
         }
-        const again = assembleSubscription({
-          serviceOrigin: parsed.workshop.serviceOrigin ?? "",
-          accessToken: parsed.workshop.accessToken ?? "",
-          sources: parsed.workshop.sources ?? [""],
-          target: parsed.workshop.target ?? "clash",
-          configUrl: parsed.workshop.configUrl ?? "",
-          appendInfo: parsed.workshop.appendInfo ?? true,
-        })
+        const again = assembleSubscription(fieldsFromPaste(parsed.workshop))
         for (const omitted of testCase.assembleOmits) {
           expect(again.url, testCase.id).not.toContain(omitted)
         }

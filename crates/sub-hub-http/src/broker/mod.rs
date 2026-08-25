@@ -10,7 +10,8 @@ use std::{
 
 use url::Url;
 
-use crate::{SelfHosts, SessionBudget, accept_outbound_url};
+use crate::{SelfHosts, SessionBudget, accept_outbound_url, remote_url::OutboundReject};
+use sub_hub_conversion::UniqueFlightHostFailure;
 
 pub(crate) use hop::HeaderObservation;
 pub use hop::{HopHeaderBag, RemoteResponse, complete_https_hop};
@@ -65,16 +66,8 @@ pub enum RemoteFetchError {
     Timeout,
 }
 
-/// Closed Unique-resource fetch / Session budget outcome. Unique-flight fill
-/// maps this through [`sub_hub_conversion::UniqueFlightHostFailure`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BrokerError {
-    Failure,
-    Timeout,
-    ConversionLimit,
-    Internal,
-}
-
+/// Host I/O stays [`RemoteFetchError`]. Session budget and unique-fetch
+/// outcomes are [`UniqueFlightHostFailure`].
 pub trait RemoteAdapter {
     type FetchFuture<'a>: Future<Output = Result<RemoteResponse, RemoteFetchError>> + 'a
     where
@@ -94,7 +87,7 @@ pub(crate) enum RemoteLoadBatch {
     Failed {
         loaded: Vec<Option<RemoteResponse>>,
         failed_unique_index: usize,
-        error: BrokerError,
+        error: UniqueFlightHostFailure,
     },
 }
 
@@ -143,13 +136,16 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
         }
     }
 
-    fn check_reservation(&self, resources: &[RemoteResource]) -> Result<(), BrokerError> {
+    fn check_reservation(
+        &self,
+        resources: &[RemoteResource],
+    ) -> Result<(), UniqueFlightHostFailure> {
         for (index, resource) in resources.iter().enumerate() {
             if resources[..index]
                 .iter()
                 .any(|candidate| candidate.same_identity(resource))
             {
-                return Err(BrokerError::Internal);
+                return Err(UniqueFlightHostFailure::Internal);
             }
         }
         let additional = resources
@@ -159,7 +155,7 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
         self.check_reservation_capacity(additional)
     }
 
-    pub(crate) fn accept_outbound(&self, raw: &str) -> Result<Url, ()> {
+    pub(crate) fn accept_outbound(&self, raw: &str) -> Result<Url, OutboundReject> {
         accept_outbound_url(raw, self.self_hosts, &self.inbound_host, |port| {
             self.adapter.supports_https_port(port)
         })
@@ -168,19 +164,19 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
     pub(crate) fn check_reservation_capacity(
         &self,
         additional_unique: usize,
-    ) -> Result<(), BrokerError> {
+    ) -> Result<(), UniqueFlightHostFailure> {
         let unique_total = self
             .reserved
             .len()
             .checked_add(additional_unique)
-            .ok_or(BrokerError::ConversionLimit)?;
+            .ok_or(UniqueFlightHostFailure::ConversionLimit)?;
         if unique_total > self.budget.unique_remote_resources {
-            return Err(BrokerError::ConversionLimit);
+            return Err(UniqueFlightHostFailure::ConversionLimit);
         }
         Ok(())
     }
 
-    fn reserve(&mut self, resources: &[RemoteResource]) -> Result<(), BrokerError> {
+    fn reserve(&mut self, resources: &[RemoteResource]) -> Result<(), UniqueFlightHostFailure> {
         self.check_reservation(resources)?;
         for resource in resources {
             if !resource.already_reserved(&self.reserved) {
@@ -193,15 +189,15 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
     pub(crate) fn preflight_unique_plan(
         &self,
         resources: &[RemoteResource],
-    ) -> Result<(), BrokerError> {
+    ) -> Result<(), UniqueFlightHostFailure> {
         self.check_reservation(resources)?;
         let minimum_attempts = self
             .attempts
             .load(Ordering::Relaxed)
             .checked_add(resources.len())
-            .ok_or(BrokerError::Failure)?;
+            .ok_or(UniqueFlightHostFailure::Failure)?;
         if minimum_attempts > self.budget.session_attempts {
-            return Err(BrokerError::Failure);
+            return Err(UniqueFlightHostFailure::Failure);
         }
         Ok(())
     }
@@ -227,7 +223,7 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
     pub(crate) async fn load_batch(
         &mut self,
         resources: &[RemoteResource],
-    ) -> Result<RemoteLoadBatch, BrokerError> {
+    ) -> Result<RemoteLoadBatch, UniqueFlightHostFailure> {
         self.reserve(resources)?;
         Ok(self.load_remote_resources(resources).await)
     }

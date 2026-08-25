@@ -9,6 +9,7 @@
 
 use std::fmt;
 
+use super::table::UniqueUrls;
 use super::{UniqueFlightFillV1, UniqueFlightPrefix};
 use crate::{
     Acl4SsrPreparationError, Acl4SsrRenderError, ConversionRenderError, MAX_CONFIG_BYTES,
@@ -20,16 +21,19 @@ use crate::{
 /// Unique-flight fill session: bind → fill → prefix / grammar-beats-budget →
 /// prepare / decoded accounts → Keep-pass.
 pub struct UniqueFlightSessionV1 {
+    state: SessionState,
+    stage: Stage,
+}
+
+struct SessionState {
     sources: Vec<String>,
     config_canonical: Option<String>,
-    unique_remotes: Vec<String>,
+    unique_remotes: UniqueUrls,
     target: OutputTarget,
     decoded_byte_cap: usize,
     decoded_bytes: usize,
     accounted_unique: usize,
-    accept_buf: Vec<String>,
     append_subscription_user_info: bool,
-    stage: Option<Stage>,
 }
 
 enum Stage {
@@ -41,6 +45,7 @@ enum Stage {
     AcceptRuleSets {
         prepared: PreparedAcl4SsrV1,
         fill: UniqueFlightFillV1,
+        pending_url: String,
     },
     FetchRuleSets {
         bound: PreparedAcl4SsrRuleSetsV1,
@@ -127,7 +132,7 @@ impl UniqueFlightFillFailure {
 
     const fn from_config(error: Acl4SsrPreparationError) -> Self {
         match error {
-            Acl4SsrPreparationError::InvalidConfig => Self::RemoteFailure,
+            Acl4SsrPreparationError::InvalidConfig => Self::InvalidInput,
             Acl4SsrPreparationError::ConversionLimit => Self::ConversionLimit,
             Acl4SsrPreparationError::Internal => Self::Internal,
         }
@@ -135,7 +140,7 @@ impl UniqueFlightFillFailure {
 
     const fn from_rule_set(error: Acl4SsrRenderError) -> Self {
         match error {
-            Acl4SsrRenderError::InvalidRuleSet => Self::RemoteFailure,
+            Acl4SsrRenderError::InvalidRuleSet => Self::InvalidInput,
             Acl4SsrRenderError::RuleSetAlignment | Acl4SsrRenderError::Internal => Self::Internal,
             Acl4SsrRenderError::ConversionLimit => Self::ConversionLimit,
             Acl4SsrRenderError::KeepPass(error) => Self::from_render(error),
@@ -203,80 +208,88 @@ impl UniqueFlightSessionV1 {
         I: IntoIterator<Item = Option<&'a str>>,
     {
         let fill = UniqueFlightFillV1::bind_optional(occurrence_canonical);
-        let unique_remotes = fill.unique_urls().to_vec();
-        let empty_uniques = unique_remotes.is_empty();
-        let mut session = Self {
-            sources: sources.to_vec(),
-            config_canonical: config_canonical.map(str::to_owned),
-            unique_remotes,
-            target,
-            decoded_byte_cap,
-            decoded_bytes: 0,
-            accounted_unique: 0,
-            accept_buf: Vec::new(),
-            append_subscription_user_info,
-            stage: Some(Stage::FetchSubscription(fill)),
+        let unique_remotes = UniqueUrls::from_urls(fill.unique_urls().to_vec());
+        let empty_uniques = unique_remotes.as_slice().is_empty();
+        let session = Self {
+            state: SessionState {
+                sources: sources.to_vec(),
+                config_canonical: config_canonical.map(str::to_owned),
+                unique_remotes,
+                target,
+                decoded_byte_cap,
+                decoded_bytes: 0,
+                accounted_unique: 0,
+                append_subscription_user_info,
+            },
+            stage: Stage::FetchSubscription(fill),
         };
         if empty_uniques {
-            session.apply_event(HostEvent::Bodies(&[]))?;
+            session.apply_event(HostEvent::Bodies(&[]))
+        } else {
+            Ok(session)
         }
-        Ok(session)
     }
 
-    fn into_drive(mut self) -> UniqueFlightDrive {
-        match self.stage.as_ref() {
-            Some(Stage::Ready(_)) => match self.stage.take() {
-                Some(Stage::Ready(document)) => UniqueFlightDrive::Ended(Ok(document)),
-                _ => UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal)),
-            },
-            Some(Stage::AcceptRuleSets { prepared, fill }) => {
-                match prepared.next_rule_set_url(fill.occurrence_count()) {
-                    Some(url) => {
-                        self.accept_buf = vec![url.to_owned()];
-                        UniqueFlightDrive::Need(Box::new(UniqueFlightNeed::Outbound(
-                            UniqueFlightOutbound { session: self },
-                        )))
-                    }
-                    None => UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal)),
+    fn into_drive(self) -> UniqueFlightDrive {
+        let UniqueFlightSessionV1 { state, stage } = self;
+        match stage {
+            Stage::Ready(document) => UniqueFlightDrive::Ended(Ok(document)),
+            Stage::AcceptRuleSets {
+                pending_url,
+                prepared,
+                fill,
+            } => {
+                if pending_url.is_empty() {
+                    UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal))
+                } else {
+                    UniqueFlightDrive::Need(Box::new(UniqueFlightNeed::Outbound(
+                        UniqueFlightOutbound {
+                            session: UniqueFlightSessionV1 {
+                                state,
+                                stage: Stage::AcceptRuleSets {
+                                    pending_url,
+                                    prepared,
+                                    fill,
+                                },
+                            },
+                        },
+                    )))
                 }
             }
-            Some(
-                Stage::FetchSubscription(_)
-                | Stage::FetchConfig { .. }
-                | Stage::FetchRuleSets { .. },
-            ) => UniqueFlightDrive::Need(Box::new(UniqueFlightNeed::Fetch(UniqueFlightFetch {
-                session: self,
-            }))),
-            None => UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal)),
+            stage @ (Stage::FetchSubscription(_)
+            | Stage::FetchConfig { .. }
+            | Stage::FetchRuleSets { .. }) => {
+                UniqueFlightDrive::Need(Box::new(UniqueFlightNeed::Fetch(UniqueFlightFetch {
+                    session: UniqueFlightSessionV1 { state, stage },
+                })))
+            }
         }
     }
 
     fn fetch_urls(&self) -> &[String] {
-        match self.stage.as_ref() {
-            Some(Stage::FetchSubscription(fill) | Stage::FetchConfig { fill, .. }) => {
-                fill.unique_urls()
-            }
-            Some(Stage::FetchRuleSets { unique_urls, .. }) => {
-                unique_urls.get(self.accounted_unique..).unwrap_or(&[])
-            }
-            Some(Stage::AcceptRuleSets { .. } | Stage::Ready(_)) | None => &[],
+        match &self.stage {
+            Stage::FetchSubscription(fill) | Stage::FetchConfig { fill, .. } => fill.unique_urls(),
+            Stage::FetchRuleSets { unique_urls, .. } => unique_urls
+                .get(self.state.accounted_unique..)
+                .unwrap_or(&[]),
+            Stage::AcceptRuleSets { .. } | Stage::Ready(_) => &[],
         }
     }
 
     fn fetch_max_body_bytes(&self) -> usize {
-        match self.stage.as_ref() {
-            Some(Stage::FetchSubscription(_)) => MAX_SUBSCRIPTION_INPUT_BYTES,
-            Some(Stage::FetchConfig { .. }) => MAX_CONFIG_BYTES,
-            Some(Stage::FetchRuleSets { .. }) => MAX_RULE_SET_BYTES,
-            Some(Stage::AcceptRuleSets { .. } | Stage::Ready(_)) | None => 0,
+        match self.stage {
+            Stage::FetchSubscription(_) => MAX_SUBSCRIPTION_INPUT_BYTES,
+            Stage::FetchConfig { .. } => MAX_CONFIG_BYTES,
+            Stage::FetchRuleSets { .. } => MAX_RULE_SET_BYTES,
+            Stage::AcceptRuleSets { .. } | Stage::Ready(_) => 0,
         }
     }
 
     fn fetch_capture_subscription_user_info(&self) -> bool {
-        match self.stage.as_ref() {
-            Some(Stage::FetchSubscription(fill)) => {
-                self.append_subscription_user_info
-                    && self.sources.len() == 1
+        match &self.stage {
+            Stage::FetchSubscription(fill) => {
+                self.state.append_subscription_user_info
+                    && self.state.sources.len() == 1
                     && fill.unique_urls().len() == 1
             }
             _ => false,
@@ -285,38 +298,14 @@ impl UniqueFlightSessionV1 {
 
     fn fetch_take_count(&self, session_concurrency: usize) -> usize {
         let n = self.fetch_urls().len();
-        match self.stage.as_ref() {
-            Some(Stage::FetchSubscription(_)) => n.max(1),
-            Some(Stage::FetchRuleSets { .. }) => session_concurrency.min(n).max(1),
-            Some(Stage::FetchConfig { .. } | Stage::AcceptRuleSets { .. } | Stage::Ready(_))
-            | None => 1,
+        match self.stage {
+            Stage::FetchSubscription(_) => n.max(1),
+            Stage::FetchRuleSets { .. } => session_concurrency.min(n).max(1),
+            Stage::FetchConfig { .. } | Stage::AcceptRuleSets { .. } | Stage::Ready(_) => 1,
         }
     }
 
-    fn unique_reservation_if_accept(&self, accepted: &str) -> usize {
-        match self.stage.as_ref() {
-            Some(Stage::AcceptRuleSets { .. }) => {
-                if self
-                    .unique_remotes
-                    .iter()
-                    .any(|existing| existing == accepted)
-                {
-                    self.unique_remotes.len()
-                } else {
-                    self.unique_remotes.len() + 1
-                }
-            }
-            _ => 0,
-        }
-    }
-
-    fn remember_unique_remote(&mut self, url: &str) {
-        if !self.unique_remotes.iter().any(|existing| existing == url) {
-            self.unique_remotes.push(url.to_owned());
-        }
-    }
-
-    fn apply_event(&mut self, event: HostEvent<'_>) -> Result<(), UniqueFlightFillFailure> {
+    fn apply_event(self, event: HostEvent<'_>) -> Result<Self, UniqueFlightFillFailure> {
         match event {
             HostEvent::Bodies(bodies) => self.feed_bodies(bodies),
             HostEvent::FetchFailed { loaded, host } => self.advance_fetch_failed(loaded, host),
@@ -324,184 +313,184 @@ impl UniqueFlightSessionV1 {
         }
     }
 
-    fn feed_bodies(&mut self, bodies: &[&[u8]]) -> Result<(), UniqueFlightFillFailure> {
-        match self.stage.as_ref() {
-            Some(Stage::FetchSubscription(_) | Stage::FetchConfig { .. }) => {
-                self.feed_unique_bodies(bodies)
-            }
-            Some(Stage::FetchRuleSets { .. }) => self.feed_rule_set_prefix(bodies),
-            Some(Stage::AcceptRuleSets { .. } | Stage::Ready(_)) | None => {
+    fn feed_bodies(self, bodies: &[&[u8]]) -> Result<Self, UniqueFlightFillFailure> {
+        match self.stage {
+            Stage::FetchSubscription(_) => self.feed_subscription(bodies),
+            Stage::FetchConfig { .. } => self.feed_config(bodies),
+            Stage::FetchRuleSets { .. } => self.feed_rule_set_prefix(bodies),
+            Stage::AcceptRuleSets { .. } | Stage::Ready(_) => {
                 Err(UniqueFlightFillFailure::Internal)
             }
         }
     }
 
     fn advance_fetch_failed(
-        &mut self,
+        mut self,
         loaded: &[&[u8]],
         host: UniqueFlightHostFailure,
-    ) -> Result<(), UniqueFlightFillFailure> {
-        match self.stage.as_ref() {
-            Some(Stage::FetchSubscription(_)) => match self.fail_subscription_prefix(loaded) {
-                UniqueFlightPrefix::Misaligned => Err(UniqueFlightFillFailure::Internal),
-                UniqueFlightPrefix::Continue => Err(UniqueFlightFillFailure::from_host(host)),
-                UniqueFlightPrefix::Error(error) => {
-                    Err(UniqueFlightFillFailure::from_subscription(error))
-                }
-            },
-            Some(Stage::FetchRuleSets { .. }) => {
-                self.feed_rule_set_prefix(loaded)?;
-                Err(UniqueFlightFillFailure::from_host(host))
+    ) -> Result<Self, UniqueFlightFillFailure> {
+        match &self.stage {
+            Stage::FetchSubscription(_) => {
+                return match self.fail_subscription_prefix(loaded) {
+                    UniqueFlightPrefix::Misaligned => Err(UniqueFlightFillFailure::Internal),
+                    UniqueFlightPrefix::Continue => Err(UniqueFlightFillFailure::from_host(host)),
+                    UniqueFlightPrefix::Error(error) => {
+                        Err(UniqueFlightFillFailure::from_subscription(error))
+                    }
+                };
             }
-            Some(Stage::FetchConfig { .. }) => Err(UniqueFlightFillFailure::from_host(host)),
-            Some(Stage::AcceptRuleSets { .. } | Stage::Ready(_)) | None => {
-                Err(UniqueFlightFillFailure::Internal)
+            Stage::FetchConfig { .. } => {
+                return Err(UniqueFlightFillFailure::from_host(host));
             }
+            Stage::AcceptRuleSets { .. } | Stage::Ready(_) => {
+                return Err(UniqueFlightFillFailure::Internal);
+            }
+            Stage::FetchRuleSets { .. } => {}
         }
+        self.check_rule_set_prefix(loaded)?;
+        Err(UniqueFlightFillFailure::from_host(host))
     }
 
-    fn feed_unique_bodies(&mut self, bodies: &[&[u8]]) -> Result<(), UniqueFlightFillFailure> {
-        match self.stage.as_ref() {
-            Some(Stage::FetchSubscription(_)) => self.feed_subscription(bodies),
-            Some(Stage::FetchConfig { .. }) => self.feed_config(bodies),
-            Some(Stage::FetchRuleSets { .. } | Stage::AcceptRuleSets { .. } | Stage::Ready(_))
-            | None => Err(UniqueFlightFillFailure::Internal),
-        }
-    }
-
-    fn feed_rule_set_prefix(&mut self, hop: &[&[u8]]) -> Result<(), UniqueFlightFillFailure> {
-        let (unique_count, prior) = match self.stage.as_ref() {
-            Some(Stage::FetchRuleSets {
-                unique_urls,
-                loaded,
-                ..
-            }) => {
-                if self.accounted_unique != loaded.len() {
+    fn check_rule_set_prefix(&mut self, hop: &[&[u8]]) -> Result<(), UniqueFlightFillFailure> {
+        let accounted = self.state.accounted_unique;
+        let decoded_bytes = self.state.decoded_bytes;
+        let cap = self.state.decoded_byte_cap;
+        match &mut self.stage {
+            Stage::FetchRuleSets { bound, loaded, .. } => {
+                if accounted != loaded.len() {
                     return Err(UniqueFlightFillFailure::Internal);
                 }
-                (unique_urls.len(), loaded.clone())
+                let mut combined = loaded.iter().map(Vec::as_slice).collect::<Vec<_>>();
+                combined.extend_from_slice(hop);
+                bound
+                    .check_loaded_prefix_with_decoded_budget(
+                        &combined,
+                        accounted,
+                        decoded_bytes,
+                        cap,
+                    )
+                    .map_err(UniqueFlightFillFailure::from_rule_set)
             }
-            _ => return Err(UniqueFlightFillFailure::Internal),
-        };
-        let mut combined = prior.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        combined.extend_from_slice(hop);
-        let accounted_unique = self.accounted_unique;
-        let decoded_bytes = self.decoded_bytes;
-        let decoded_byte_cap = self.decoded_byte_cap;
-        match self.stage.as_mut() {
-            Some(Stage::FetchRuleSets { bound, .. }) => bound
-                .check_loaded_prefix_with_decoded_budget(
-                    &combined,
-                    accounted_unique,
-                    decoded_bytes,
-                    decoded_byte_cap,
-                )
-                .map_err(UniqueFlightFillFailure::from_rule_set)?,
-            _ => return Err(UniqueFlightFillFailure::Internal),
+            _ => Err(UniqueFlightFillFailure::Internal),
         }
-        let new_sizes = combined
-            .get(accounted_unique..)
-            .ok_or(UniqueFlightFillFailure::Internal)?
-            .iter()
-            .map(|body| body.len());
-        self.credit_decoded(new_sizes)?;
-        self.accounted_unique = combined.len();
-        match self.stage.as_mut() {
-            Some(Stage::FetchRuleSets { loaded, .. }) => {
-                loaded.clear();
-                loaded.extend(combined.iter().map(|body| body.to_vec()));
-            }
-            _ => return Err(UniqueFlightFillFailure::Internal),
-        }
-        if self.accounted_unique == unique_count {
-            self.finish_rule_sets()?;
-        }
-        Ok(())
     }
 
-    fn push_rule_set_canonical(&mut self, url: &str) -> Result<(), UniqueFlightFillFailure> {
-        let remaining = match self.stage.as_mut() {
-            Some(Stage::AcceptRuleSets { prepared, fill }) => {
-                if fill.occurrence_count() >= prepared.rule_set_requests().len() {
-                    return Err(UniqueFlightFillFailure::from_rule_set(
-                        Acl4SsrRenderError::RuleSetAlignment,
-                    ));
-                }
-                fill.push_remote(url);
-                prepared
-                    .next_rule_set_url(fill.occurrence_count())
-                    .is_some()
-            }
+    fn feed_rule_set_prefix(mut self, hop: &[&[u8]]) -> Result<Self, UniqueFlightFillFailure> {
+        self.check_rule_set_prefix(hop)?;
+        let unique_count = match &self.stage {
+            Stage::FetchRuleSets { unique_urls, .. } => unique_urls.len(),
             _ => return Err(UniqueFlightFillFailure::Internal),
         };
-        self.remember_unique_remote(url);
-        if remaining {
-            return Ok(());
+        self.state
+            .credit_decoded(hop.iter().map(|body| body.len()))?;
+        match &mut self.stage {
+            Stage::FetchRuleSets { loaded, .. } => {
+                loaded.extend(hop.iter().map(|body| body.to_vec()));
+            }
+            _ => return Err(UniqueFlightFillFailure::Internal),
         }
-        let Some(Stage::AcceptRuleSets { prepared, fill }) = self.stage.take() else {
+        self.state.accounted_unique = match &self.stage {
+            Stage::FetchRuleSets { loaded, .. } => loaded.len(),
+            _ => return Err(UniqueFlightFillFailure::Internal),
+        };
+        if self.state.accounted_unique == unique_count {
+            self.finish_rule_sets()
+        } else {
+            Ok(self)
+        }
+    }
+
+    fn push_rule_set_canonical(self, url: &str) -> Result<Self, UniqueFlightFillFailure> {
+        let UniqueFlightSessionV1 { mut state, stage } = self;
+        let Stage::AcceptRuleSets {
+            prepared,
+            mut fill,
+            pending_url: _,
+        } = stage
+        else {
             return Err(UniqueFlightFillFailure::Internal);
         };
-        let unique_urls = fill.unique_urls().to_vec();
-        let bound = prepared
-            .finish_rule_sets(fill)
-            .map_err(UniqueFlightFillFailure::from_rule_set)?;
-        self.accounted_unique = 0;
-        if unique_urls.is_empty() {
-            self.render_rule_sets(bound, &[])?;
-        } else {
-            self.stage = Some(Stage::FetchRuleSets {
-                bound,
-                unique_urls,
-                loaded: Vec::new(),
-            });
+        if fill.occurrence_count() >= prepared.rule_set_requests().len() {
+            return Err(UniqueFlightFillFailure::from_rule_set(
+                Acl4SsrRenderError::RuleSetAlignment,
+            ));
         }
-        Ok(())
+        fill.push_remote(url);
+        state.unique_remotes.remember(url);
+        let next = prepared
+            .next_rule_set_url(fill.occurrence_count())
+            .map(str::to_owned);
+        if let Some(pending_url) = next {
+            Ok(Self {
+                state,
+                stage: Stage::AcceptRuleSets {
+                    prepared,
+                    fill,
+                    pending_url,
+                },
+            })
+        } else {
+            let unique_urls = fill.unique_urls().to_vec();
+            let bound = prepared
+                .finish_rule_sets(fill)
+                .map_err(UniqueFlightFillFailure::from_rule_set)?;
+            state.accounted_unique = 0;
+            if unique_urls.is_empty() {
+                keep_pass_rule_sets(state, bound, &[])
+            } else {
+                Ok(Self {
+                    state,
+                    stage: Stage::FetchRuleSets {
+                        bound,
+                        unique_urls,
+                        loaded: Vec::new(),
+                    },
+                })
+            }
+        }
     }
 
     fn fail_subscription_prefix(&self, loaded: &[&[u8]]) -> UniqueFlightPrefix {
         let failed_unique_index = loaded.len();
         let loaded = loaded.iter().copied().map(Some).collect::<Vec<_>>();
-        match self.stage.as_ref() {
-            Some(Stage::FetchSubscription(fill)) => {
-                fill.prefix_error_before_unique_failure(&self.sources, &loaded, failed_unique_index)
-            }
+        match &self.stage {
+            Stage::FetchSubscription(fill) => fill.prefix_error_before_unique_failure(
+                &self.state.sources,
+                &loaded,
+                failed_unique_index,
+            ),
             _ => UniqueFlightPrefix::Misaligned,
         }
     }
 
-    fn feed_subscription(&mut self, bodies: &[&[u8]]) -> Result<(), UniqueFlightFillFailure> {
-        let Some(Stage::FetchSubscription(fill)) = self.stage.take() else {
+    fn feed_subscription(self, bodies: &[&[u8]]) -> Result<Self, UniqueFlightFillFailure> {
+        let UniqueFlightSessionV1 { mut state, stage } = self;
+        let Stage::FetchSubscription(fill) = stage else {
             return Err(UniqueFlightFillFailure::Internal);
         };
         if bodies.len() != fill.unique_urls().len() {
-            self.stage = Some(Stage::FetchSubscription(fill));
             return Err(UniqueFlightFillFailure::Internal);
         }
-        let prepared = match fill.prepare_subscription(&self.sources, bodies) {
-            None => {
-                self.stage = Some(Stage::FetchSubscription(fill));
-                return Err(UniqueFlightFillFailure::Internal);
-            }
-            Some(Err(error)) => {
-                self.stage = Some(Stage::FetchSubscription(fill));
-                return Err(UniqueFlightFillFailure::from_subscription(error));
-            }
+        let prepared = match fill.prepare_subscription(&state.sources, bodies) {
+            None => return Err(UniqueFlightFillFailure::Internal),
+            Some(Err(error)) => return Err(UniqueFlightFillFailure::from_subscription(error)),
             Some(Ok(prepared)) => prepared,
         };
         let Some(sizes) = fill.unique_decoded_bytes(&prepared) else {
-            self.stage = Some(Stage::FetchSubscription(fill));
             return Err(UniqueFlightFillFailure::Internal);
         };
-        if let Err(error) = self.credit_decoded(sizes) {
-            self.stage = Some(Stage::FetchSubscription(fill));
-            return Err(error);
+        state.credit_decoded(sizes)?;
+        state.accounted_unique = 0;
+        Self {
+            state,
+            stage: Stage::FetchSubscription(fill),
         }
-        self.accounted_unique = 0;
-        self.advance_after_subscription(prepared)
+        .advance_after_subscription(prepared)
     }
 
-    fn feed_config(&mut self, bodies: &[&[u8]]) -> Result<(), UniqueFlightFillFailure> {
-        let Some(Stage::FetchConfig { fill, .. }) = self.stage.as_ref() else {
+    fn feed_config(self, bodies: &[&[u8]]) -> Result<Self, UniqueFlightFillFailure> {
+        let UniqueFlightSessionV1 { mut state, stage } = self;
+        let Stage::FetchConfig { prepared, fill } = stage else {
             return Err(UniqueFlightFillFailure::Internal);
         };
         if bodies.len() != fill.unique_urls().len() {
@@ -510,18 +499,94 @@ impl UniqueFlightSessionV1 {
         let Some(body) = bodies.first().copied() else {
             return Err(UniqueFlightFillFailure::Internal);
         };
-        let size = body.len();
-        let Some(Stage::FetchConfig { prepared, fill: _ }) = self.stage.take() else {
-            return Err(UniqueFlightFillFailure::Internal);
-        };
         let prepared = prepared
             .prepare_acl4ssr_config_v1(body)
             .map_err(UniqueFlightFillFailure::from_config)?;
-        self.credit_decoded([size])?;
-        self.accounted_unique = 0;
-        self.advance_after_config(prepared)
+        state.credit_decoded([body.len()])?;
+        state.accounted_unique = 0;
+        after_config(state, prepared)
     }
 
+    fn advance_after_subscription(
+        self,
+        prepared: PreparedSubscriptionV1,
+    ) -> Result<Self, UniqueFlightFillFailure> {
+        let UniqueFlightSessionV1 {
+            mut state,
+            stage: _,
+        } = self;
+        match state.config_canonical.clone() {
+            None => {
+                let document = prepared
+                    .render_builtin_v1(state.target)
+                    .map_err(UniqueFlightFillFailure::from_render)?;
+                Ok(Self {
+                    state,
+                    stage: Stage::Ready(document),
+                })
+            }
+            Some(config) => {
+                state.unique_remotes.remember(&config);
+                Ok(Self {
+                    state,
+                    stage: Stage::FetchConfig {
+                        prepared,
+                        fill: UniqueFlightFillV1::bind_remote([config.as_str()]),
+                    },
+                })
+            }
+        }
+    }
+
+    fn finish_rule_sets(self) -> Result<Self, UniqueFlightFillFailure> {
+        let UniqueFlightSessionV1 { state, stage } = self;
+        let Stage::FetchRuleSets { bound, loaded, .. } = stage else {
+            return Err(UniqueFlightFillFailure::Internal);
+        };
+        let bodies = loaded.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        keep_pass_rule_sets(state, bound, &bodies)
+    }
+}
+
+fn after_config(
+    state: SessionState,
+    prepared: PreparedAcl4SsrV1,
+) -> Result<UniqueFlightSessionV1, UniqueFlightFillFailure> {
+    if prepared.rule_set_requests().is_empty() {
+        let bound = prepared
+            .finish_rule_sets(UniqueFlightFillV1::empty())
+            .map_err(UniqueFlightFillFailure::from_rule_set)?;
+        return keep_pass_rule_sets(state, bound, &[]);
+    }
+    let pending_url = prepared
+        .next_rule_set_url(0)
+        .ok_or(UniqueFlightFillFailure::Internal)?
+        .to_owned();
+    Ok(UniqueFlightSessionV1 {
+        state,
+        stage: Stage::AcceptRuleSets {
+            prepared,
+            fill: UniqueFlightFillV1::empty(),
+            pending_url,
+        },
+    })
+}
+
+fn keep_pass_rule_sets(
+    state: SessionState,
+    bound: PreparedAcl4SsrRuleSetsV1,
+    bodies: &[&[u8]],
+) -> Result<UniqueFlightSessionV1, UniqueFlightFillFailure> {
+    let document = bound
+        .render_v1(state.target, bodies)
+        .map_err(UniqueFlightFillFailure::from_rule_set)?;
+    Ok(UniqueFlightSessionV1 {
+        state,
+        stage: Stage::Ready(document),
+    })
+}
+
+impl SessionState {
     fn credit_decoded(
         &mut self,
         sizes: impl IntoIterator<Item = usize>,
@@ -537,72 +602,15 @@ impl UniqueFlightSessionV1 {
         }
         Ok(())
     }
-
-    fn advance_after_subscription(
-        &mut self,
-        prepared: PreparedSubscriptionV1,
-    ) -> Result<(), UniqueFlightFillFailure> {
-        match self.config_canonical.clone() {
-            None => {
-                let document = prepared
-                    .render_builtin_v1(self.target)
-                    .map_err(UniqueFlightFillFailure::from_render)?;
-                self.stage = Some(Stage::Ready(document));
-            }
-            Some(config) => {
-                self.remember_unique_remote(&config);
-                self.stage = Some(Stage::FetchConfig {
-                    prepared,
-                    fill: UniqueFlightFillV1::bind_remote([config.as_str()]),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    fn advance_after_config(
-        &mut self,
-        prepared: PreparedAcl4SsrV1,
-    ) -> Result<(), UniqueFlightFillFailure> {
-        if prepared.rule_set_requests().is_empty() {
-            let bound = prepared
-                .finish_rule_sets(UniqueFlightFillV1::empty())
-                .map_err(UniqueFlightFillFailure::from_rule_set)?;
-            self.render_rule_sets(bound, &[])?;
-        } else {
-            self.stage = Some(Stage::AcceptRuleSets {
-                prepared,
-                fill: UniqueFlightFillV1::empty(),
-            });
-        }
-        Ok(())
-    }
-
-    fn finish_rule_sets(&mut self) -> Result<(), UniqueFlightFillFailure> {
-        let Some(Stage::FetchRuleSets { bound, loaded, .. }) = self.stage.take() else {
-            return Err(UniqueFlightFillFailure::Internal);
-        };
-        let bodies = loaded.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        self.render_rule_sets(bound, &bodies)
-    }
-
-    fn render_rule_sets(
-        &mut self,
-        bound: PreparedAcl4SsrRuleSetsV1,
-        bodies: &[&[u8]],
-    ) -> Result<(), UniqueFlightFillFailure> {
-        let document = bound
-            .render_v1(self.target, bodies)
-            .map_err(UniqueFlightFillFailure::from_rule_set)?;
-        self.stage = Some(Stage::Ready(document));
-        Ok(())
-    }
 }
 
 impl UniqueFlightOutbound {
     #[must_use]
     pub fn url(&self) -> &str {
-        self.session.accept_buf.first().map_or("", String::as_str)
+        match &self.session.stage {
+            Stage::AcceptRuleSets { pending_url, .. } => pending_url.as_str(),
+            _ => "",
+        }
     }
 
     /// Session-wide first-seen Unique remotes if `accepted` is bound.
@@ -611,17 +619,24 @@ impl UniqueFlightOutbound {
     /// Outbound accept.
     #[must_use]
     pub fn unique_reservation(&self, accepted: &str) -> usize {
-        self.session.unique_reservation_if_accept(accepted)
+        match self.session.stage {
+            Stage::AcceptRuleSets { .. } => {
+                self.session.state.unique_remotes.count_if_push(accepted)
+            }
+            _ => 0,
+        }
     }
 
     #[must_use]
     pub fn fulfill(self, accepted: &str) -> UniqueFlightDrive {
-        if !matches!(self.session.stage, Some(Stage::AcceptRuleSets { .. })) {
+        if !matches!(self.session.stage, Stage::AcceptRuleSets { .. }) {
             return UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal));
         }
-        let mut session = self.session;
-        match session.apply_event(HostEvent::Accepted { url: accepted }) {
-            Ok(()) => session.into_drive(),
+        match self
+            .session
+            .apply_event(HostEvent::Accepted { url: accepted })
+        {
+            Ok(session) => session.into_drive(),
             Err(failure) => UniqueFlightDrive::Ended(Err(failure)),
         }
     }
@@ -629,7 +644,7 @@ impl UniqueFlightOutbound {
     /// Host closed failure of Outbound accept. Does not push the URL.
     #[must_use]
     pub fn reject(self, host: UniqueFlightHostFailure) -> UniqueFlightDrive {
-        if !matches!(self.session.stage, Some(Stage::AcceptRuleSets { .. })) {
+        if !matches!(self.session.stage, Stage::AcceptRuleSets { .. }) {
             return UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal));
         }
         UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::from_host(host)))
@@ -662,7 +677,7 @@ impl UniqueFlightFetch {
     pub fn fulfill(self, bodies: UniqueFlightBodies<'_>) -> UniqueFlightDrive {
         if matches!(
             self.session.stage,
-            Some(Stage::AcceptRuleSets { .. } | Stage::Ready(_)) | None
+            Stage::AcceptRuleSets { .. } | Stage::Ready(_)
         ) {
             return UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal));
         }
@@ -670,9 +685,8 @@ impl UniqueFlightFetch {
             UniqueFlightBodies::Complete(bodies) => HostEvent::Bodies(bodies),
             UniqueFlightBodies::Failed { loaded, host } => HostEvent::FetchFailed { loaded, host },
         };
-        let mut session = self.session;
-        match session.apply_event(event) {
-            Ok(()) => session.into_drive(),
+        match self.session.apply_event(event) {
+            Ok(session) => session.into_drive(),
             Err(failure) => UniqueFlightDrive::Ended(Err(failure)),
         }
     }
@@ -682,13 +696,13 @@ impl fmt::Debug for UniqueFlightSessionV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("UniqueFlightSessionV1")
-            .field("source_count", &self.sources.len())
-            .field("has_config", &self.config_canonical.is_some())
-            .field("unique_remote_count", &self.unique_remotes.len())
-            .field("target", &self.target)
-            .field("decoded_bytes", &self.decoded_bytes)
-            .field("decoded_byte_cap", &self.decoded_byte_cap)
-            .field("accounted_unique", &self.accounted_unique)
+            .field("source_count", &self.state.sources.len())
+            .field("has_config", &self.state.config_canonical.is_some())
+            .field("unique_remote_count", &self.state.unique_remotes.len())
+            .field("target", &self.state.target)
+            .field("decoded_bytes", &self.state.decoded_bytes)
+            .field("decoded_byte_cap", &self.state.decoded_byte_cap)
+            .field("accounted_unique", &self.state.accounted_unique)
             .finish_non_exhaustive()
     }
 }
