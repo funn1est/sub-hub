@@ -42,7 +42,7 @@ import type {
   WorkshopSessionActions,
   WorkshopSessionView,
 } from "@/lib/workshop-session.ts"
-import { clashInstallUrl } from "@/lib/workshop.ts"
+import { clashInstallUrl, urlField } from "@/lib/workshop.ts"
 import { PreviewCard } from "@/components/workshop-preview.tsx"
 import { WorkshopOptions } from "@/components/workshop-options.tsx"
 import { SourceFields } from "@/components/workshop-source-fields.tsx"
@@ -52,13 +52,6 @@ import {
   VersionAlert,
   VersionBadge,
 } from "@/components/workshop-section.tsx"
-
-const urlField = {
-  inputMode: "url" as const,
-  autoCapitalize: "none" as const,
-  autoCorrect: "off" as const,
-  spellCheck: false,
-}
 
 type WorkshopProps = {
   view: WorkshopSessionView
@@ -70,11 +63,9 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
   const copy = t(locale)
   const fields = view.fields
   const assembled = view.assembled
-  const canCollapseService =
-    view.canonicalOrigin !== null && !view.tokenInvalid
+  const canCollapseService = view.serviceCollapsible
   const showCustomConfigField = view.configSelection === "custom"
-  const previewEnabled =
-    assembled.previewable && view.preview.status !== "loading"
+  const previewEnabled = view.previewReady
   const clashInstallHref =
     assembled.clashInstall && assembled.url !== null
       ? clashInstallUrl(assembled.url)

@@ -8,15 +8,24 @@ import {
   percentDecodeValue,
   type Target,
 } from "./service-contract.ts"
-import type { WorkshopFields } from "./persist.ts"
 
-export {
-  runPreview,
-  runVersionProbe,
-  type PreviewState,
-  type VersionProbe,
-  type VersionState,
-} from "./preview.ts"
+/** Conversion fields the Workshop job assembles, pastes, and previews. */
+export type WorkshopFields = {
+  serviceOrigin: string
+  accessToken: string
+  sources: string[]
+  target: Target
+  configUrl: string
+  appendInfo: boolean
+}
+
+/** Shared input attrs for origin / source / config URL fields. */
+export const urlField = {
+  inputMode: "url" as const,
+  autoCapitalize: "none" as const,
+  autoCorrect: "off" as const,
+  spellCheck: false,
+}
 
 /** Injected Workshop fetch port. Preview, version-probe, and session share it. */
 export type WorkshopFetch = (
@@ -27,9 +36,6 @@ export type WorkshopFetch = (
   text: () => Promise<string>
   headers: { get: (name: string) => string | null }
 }>
-
-/** GET document media type for a Preview download. */
-export { subscriptionMediaType as previewMediaType } from "./service-contract.ts"
 
 export function clashInstallUrl(subscriptionUrl: string): string {
   return `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`
@@ -45,6 +51,7 @@ export type Assembled = {
 
 export type WorkshopView = {
   assembled: Assembled
+  canonicalOrigin: string | null
   originInvalid: boolean
   tokenInvalid: boolean
   configInvalid: boolean
@@ -146,10 +153,6 @@ const emptyAssembled: Assembled = {
   clashInstall: false,
 }
 
-export function assembleSubscription(input: WorkshopFields): Assembled {
-  return evaluateWorkshop(input).assembled
-}
-
 /** Field chrome and assemble share one Workshop job diagnosis. */
 export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
   const origin = parseServiceOrigin(input.serviceOrigin)
@@ -168,7 +171,6 @@ export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
     origin !== null &&
     token.ok &&
     sourcesOk &&
-    isTarget(input.target) &&
     !configInvalid
       ? assembledFrom({
           origin,
@@ -181,6 +183,7 @@ export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
       : emptyAssembled
   return {
     assembled,
+    canonicalOrigin: origin,
     originInvalid,
     tokenInvalid,
     configInvalid,

@@ -1,8 +1,10 @@
 import {
-  parseServiceOrigin,
   runVersionProbe,
   type VersionProbe,
   type VersionState,
+} from "./preview.ts"
+import {
+  parseServiceOrigin,
   type WorkshopFetch,
 } from "./workshop.ts"
 

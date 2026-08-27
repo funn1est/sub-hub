@@ -12,15 +12,18 @@ import {
 } from "./acl4ssr-catalog.ts"
 import {
   applyPaste,
-  assembleSubscription,
   clashInstallUrl,
   evaluateWorkshop,
   parseServiceOrigin,
   parseSubscriptionUrl,
   subscriptionPasteFrom,
   type PasteSet,
+  type WorkshopFields,
 } from "./workshop.ts"
-import type { WorkshopFields } from "./persist.ts"
+
+function assembleSubscription(fields: WorkshopFields) {
+  return evaluateWorkshop(fields).assembled
+}
 
 const VLESS =
   "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
@@ -429,6 +432,7 @@ describe("applyPaste and evaluateWorkshop", () => {
     const ready = evaluateWorkshop(input())
     expect(ready.assembled.previewable).toBe(true)
     expect(ready.assembled.clashInstall).toBe(true)
+    expect(ready.canonicalOrigin).toBe("http://127.0.0.1:25500")
     expect(ready.originInvalid).toBe(false)
     expect(ready.sourceInvalid).toEqual([false])
 

@@ -10,16 +10,12 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group.tsx"
 import { t } from "@/lib/i18n.ts"
-import type { WorkshopFields } from "@/lib/persist.ts"
-import type { PasteWarning } from "@/lib/workshop.ts"
+import {
+  urlField,
+  type PasteWarning,
+  type WorkshopFields,
+} from "@/lib/workshop.ts"
 import type { WorkshopSessionActions } from "@/lib/workshop-session.ts"
-
-const urlField = {
-  inputMode: "url" as const,
-  autoCapitalize: "none" as const,
-  autoCorrect: "off" as const,
-  spellCheck: false,
-}
 
 export function SourceFields({
   fields,
@@ -55,11 +51,9 @@ export function SourceFields({
                 enterKeyHint="next"
                 aria-invalid={invalid || undefined}
                 {...urlField}
-                onChange={(event) => {
-                  const next = fields.sources.slice()
-                  next[index] = event.target.value
-                  actions.patch({ sources: next })
-                }}
+                onChange={(event) =>
+                  actions.setSource(index, event.target.value)
+                }
                 onPaste={(event) => {
                   const field = event.currentTarget
                   const outcome = actions.pasteIntoSource(
@@ -80,13 +74,7 @@ export function SourceFields({
                   <InputGroupButton
                     size="icon-xs"
                     aria-label={copy.removeSource}
-                    onClick={() => {
-                      actions.patch({
-                        sources: fields.sources.filter(
-                          (_, item) => item !== index
-                        ),
-                      })
-                    }}
+                    onClick={() => actions.removeSource(index)}
                   >
                     <Trash2Icon />
                   </InputGroupButton>
@@ -100,7 +88,7 @@ export function SourceFields({
         type="button"
         variant="outline"
         className="w-full"
-        onClick={() => actions.patch({ sources: [...fields.sources, ""] })}
+        onClick={() => actions.addSource()}
       >
         <PlusIcon data-icon="inline-start" />
         {copy.addSource}

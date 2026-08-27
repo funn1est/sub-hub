@@ -187,17 +187,13 @@ describe("createWorkshopSession", () => {
     })
     const running = session.actions.preview()
     expect(view().preview.status).toBe("loading")
-    expect(view().assembled.previewable && view().preview.status !== "loading").toBe(
-      false
-    )
+    expect(view().previewReady).toBe(false)
     session.actions.patch({ target: "loon" })
     expect(view().preview.status).toBe("idle")
     gate.resolve(response(200, "proxies: []"))
     await running
     expect(view().preview.status).toBe("idle")
-    expect(view().assembled.previewable && view().preview.status !== "loading").toBe(
-      true
-    )
+    expect(view().previewReady).toBe(true)
   })
 
   it("does not start Preview when the Subscription URL is incomplete", async () => {

@@ -1,19 +1,12 @@
-import { isTarget, type Target } from "./service-contract.ts"
+import { isTarget } from "./service-contract.ts"
+import type { WorkshopFields } from "./workshop.ts"
+
+export type { WorkshopFields } from "./workshop.ts"
 
 export const PERSIST_KEY = "sub-hub.console.v1"
 
 export type Locale = "zh" | "en"
 export type Theme = "system" | "light" | "dark"
-
-/** Conversion fields the Workshop job assembles, pastes, and previews. */
-export type WorkshopFields = {
-  serviceOrigin: string
-  accessToken: string
-  sources: string[]
-  target: Target
-  configUrl: string
-  appendInfo: boolean
-}
 
 /** Workshop conversion record plus Console chrome. */
 export type PersistedWorkshop = WorkshopFields & {

@@ -25,21 +25,14 @@ import { InputGroup, InputGroupInput } from "@/components/ui/input-group.tsx"
 import { Switch } from "@/components/ui/switch.tsx"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx"
 import { t } from "@/lib/i18n.ts"
-import type { WorkshopFields } from "@/lib/persist.ts"
 import { TARGETS, isTarget } from "@/lib/service-contract.ts"
 import {
   type ConfigChoice,
   type ConfigChoiceGroup,
 } from "@/lib/workshop-config.ts"
 import type { WorkshopSessionActions } from "@/lib/workshop-session.ts"
+import { urlField, type WorkshopFields } from "@/lib/workshop.ts"
 import { SectionCard } from "@/components/workshop-section.tsx"
-
-const urlField = {
-  inputMode: "url" as const,
-  autoCapitalize: "none" as const,
-  autoCorrect: "off" as const,
-  spellCheck: false,
-}
 
 export function WorkshopOptions({
   fields,

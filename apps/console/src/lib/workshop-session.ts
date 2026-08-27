@@ -24,18 +24,20 @@ import {
 import {
   createWorkshopProbe,
 } from "./workshop-probe.ts"
-import type { WorkshopFields } from "./persist.ts"
+import { subscriptionMediaType } from "./service-contract.ts"
+import {
+  runPreview,
+  type PreviewState,
+  type VersionState,
+} from "./preview.ts"
 import {
   applyPaste,
   evaluateWorkshop,
   parseServiceOrigin,
-  previewMediaType,
-  runPreview,
   subscriptionPasteFrom,
   type PasteWarning,
-  type PreviewState,
-  type VersionState,
   type WorkshopFetch,
+  type WorkshopFields,
   type WorkshopView,
 } from "./workshop.ts"
 
@@ -69,15 +71,19 @@ export type WorkshopSessionPorts = {
 
 export type WorkshopSessionView = WorkshopView & {
   fields: WorkshopFields
-  canonicalOrigin: string | null
   configSelection: ConfigSelectionId
   pasteWarnings: readonly PasteWarning[]
   version: VersionState
   preview: PreviewState
+  previewReady: boolean
+  serviceCollapsible: boolean
 }
 
 export type WorkshopSessionActions = {
   patch: (partial: Partial<WorkshopFields>) => void
+  setSource: (index: number, value: string) => void
+  addSource: () => void
+  removeSource: (index: number) => void
   pasteIntoSource: (
     text: string,
     selection: SourceSelection
@@ -159,7 +165,6 @@ export function createWorkshopSession(options: {
       return view
     }
     const jobView = evaluateWorkshop(fields)
-    const canonicalOrigin = parseServiceOrigin(fields.serviceOrigin)
     const configSelection = configSelectionId(
       configPresetOf(fields.configUrl),
       pickingCustom
@@ -167,11 +172,14 @@ export function createWorkshopSession(options: {
     view = {
       ...jobView,
       fields,
-      canonicalOrigin,
       configSelection,
       pasteWarnings,
-      version: probe.versionFor(canonicalOrigin),
+      version: probe.versionFor(jobView.canonicalOrigin),
       preview,
+      previewReady:
+        jobView.assembled.previewable && preview.status !== "loading",
+      serviceCollapsible:
+        jobView.canonicalOrigin !== null && !jobView.tokenInvalid,
     }
     return view
   }
@@ -179,6 +187,26 @@ export function createWorkshopSession(options: {
   const actions: WorkshopSessionActions = {
     patch: (partial) => {
       setFields({ ...fields, ...partial })
+    },
+    setSource: (index, value) => {
+      if (index < 0 || index >= fields.sources.length) {
+        return
+      }
+      const sources = fields.sources.slice()
+      sources[index] = value
+      setFields({ ...fields, sources })
+    },
+    addSource: () => {
+      setFields({ ...fields, sources: [...fields.sources, ""] })
+    },
+    removeSource: (index) => {
+      if (fields.sources.length <= 1 || index < 0 || index >= fields.sources.length) {
+        return
+      }
+      setFields({
+        ...fields,
+        sources: fields.sources.filter((_, item) => item !== index),
+      })
     },
     pasteIntoSource: (text, selection) => {
       const parsed = subscriptionPasteFrom(text)
@@ -257,7 +285,7 @@ export function createWorkshopSession(options: {
       const save = ports.saveFile ?? saveFileInBrowser
       save({
         body: preview.body,
-        mediaType: previewMediaType(fields.target),
+        mediaType: subscriptionMediaType(fields.target),
         filename: preview.filename,
       })
     },
