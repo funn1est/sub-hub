@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card.tsx"
 import { Spinner } from "@/components/ui/spinner.tsx"
 import { t } from "@/lib/i18n.ts"
-import type { VersionState } from "@/lib/workshop.ts"
+import type { VersionState } from "@/lib/preview.ts"
 
 export function SectionCard({
   icon,

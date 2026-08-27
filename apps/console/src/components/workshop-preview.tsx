@@ -18,7 +18,7 @@ import { Spinner } from "@/components/ui/spinner.tsx"
 import { SectionHeading } from "@/components/workshop-section.tsx"
 import { knownErrorTitle, skippedSummary, t } from "@/lib/i18n.ts"
 import type { Locale } from "@/lib/persist.ts"
-import type { PreviewState } from "@/lib/workshop.ts"
+import type { PreviewState } from "@/lib/preview.ts"
 
 export function PreviewCard({
   locale,

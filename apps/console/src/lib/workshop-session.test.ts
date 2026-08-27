@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 
 import { acl4ssrConfigUrl } from "./acl4ssr-catalog.ts"
-import type { WorkshopFields } from "./persist.ts"
 import {
   createWorkshopSession,
   pasteReplacesValue,
@@ -9,6 +8,7 @@ import {
   type WorkshopNotice,
   type WorkshopSessionPorts,
 } from "./workshop-session.ts"
+import type { WorkshopFields } from "./workshop.ts"
 
 const VLESS =
   "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"

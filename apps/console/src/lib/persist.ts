@@ -1,8 +1,6 @@
 import { isTarget } from "./service-contract.ts"
 import type { WorkshopFields } from "./workshop.ts"
 
-export type { WorkshopFields } from "./workshop.ts"
-
 export const PERSIST_KEY = "sub-hub.console.v1"
 
 export type Locale = "zh" | "en"
