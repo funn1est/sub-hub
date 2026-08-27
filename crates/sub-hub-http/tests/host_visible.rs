@@ -1,25 +1,11 @@
 use http::{Method, StatusCode};
 use serde::Deserialize;
-use sub_hub_http::{
-    Application, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse,
-    SelfHosts,
-};
+use sub_hub_http::{Application, HttpRequest, SelfHosts};
+
+mod common;
+use common::UnreachableRemote;
 
 const HOST_VISIBLE: &str = include_str!("../../../testdata/host-visible-contract.json");
-
-struct UnreachableRemote;
-
-impl RemoteAdapter for UnreachableRemote {
-    type FetchFuture<'a> = std::future::Ready<Result<RemoteResponse, RemoteFetchError>>;
-
-    fn monotonic_millis(&self) -> u64 {
-        0
-    }
-
-    fn fetch_once(&self, _attempt: RemoteAttempt) -> Self::FetchFuture<'_> {
-        std::future::ready(Err(RemoteFetchError::Failure))
-    }
-}
 
 #[derive(Deserialize)]
 struct HostVisibleFile {

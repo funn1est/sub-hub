@@ -2,28 +2,14 @@ use std::collections::BTreeMap;
 
 use http::{Method, StatusCode, header};
 use serde::Deserialize;
-use sub_hub_http::{
-    Application, CorsOrigins, HttpRequest, RemoteAdapter, RemoteAttempt, RemoteFetchError,
-    RemoteResponse, SelfHosts,
-};
+use sub_hub_http::{Application, CorsOrigins, HttpRequest, SelfHosts};
+
+mod common;
+use common::UnreachableRemote;
 
 const GOLDEN: &str = include_str!("../../../testdata/subscription-url/cases.json");
 const VLESS: &str =
     "vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha";
-
-struct UnreachableRemote;
-
-impl RemoteAdapter for UnreachableRemote {
-    type FetchFuture<'a> = std::future::Ready<Result<RemoteResponse, RemoteFetchError>>;
-
-    fn monotonic_millis(&self) -> u64 {
-        0
-    }
-
-    fn fetch_once(&self, _attempt: RemoteAttempt) -> Self::FetchFuture<'_> {
-        std::future::ready(Err(RemoteFetchError::Failure))
-    }
-}
 
 fn handle(path: &str, query: &str) -> sub_hub_http::HttpResponse {
     handle_on(

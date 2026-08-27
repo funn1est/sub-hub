@@ -1,22 +1,8 @@
 use http::{Method, StatusCode, header};
-use sub_hub_http::{
-    AccessTokens, Application, HttpRequest, HttpResponse, RemoteAdapter, RemoteAttempt,
-    RemoteFetchError, RemoteResponse, SelfHosts,
-};
+use sub_hub_http::{AccessTokens, Application, HttpRequest, HttpResponse, SelfHosts};
 
-struct UnreachableRemote;
-
-impl RemoteAdapter for UnreachableRemote {
-    type FetchFuture<'a> = std::future::Ready<Result<RemoteResponse, RemoteFetchError>>;
-
-    fn monotonic_millis(&self) -> u64 {
-        0
-    }
-
-    fn fetch_once(&self, _attempt: RemoteAttempt) -> Self::FetchFuture<'_> {
-        std::future::ready(Err(RemoteFetchError::Failure))
-    }
-}
+mod common;
+use common::UnreachableRemote;
 
 const TOKEN: &str = "deployer-token";
 const DIRECT_QUERY: &str = concat!(
