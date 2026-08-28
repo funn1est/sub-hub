@@ -17,6 +17,8 @@ subscription URLs or tokens, and how to reproduce.
 - Subscription and `config` URLs commonly contain credentials. They appear in
   the query string of `GET /sub`. Do not log complete request URLs. Put a
   reverse proxy in front of Native for TLS, rate limits, and log redaction.
+  The Worker Wrangler config enables Workers Logs with invocation logs off:
+  Fetch invocation messages include the request URL.
 - When `SUB_HUB_ACCESS_TOKEN` is set, conversion is only on
   `GET`/`HEAD /sub/<token>`. `GET /version` stays public. Keep the token list
   in a password manager; Cloudflare cannot show a secret after save.

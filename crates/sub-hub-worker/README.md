@@ -48,6 +48,9 @@ pnpm run deploy -- --replace
 A present-but-empty or malformed secret makes every request return `500`.
 
 Do not log complete request URLs. Query strings commonly contain credentials.
+Wrangler enables Workers Logs with `invocation_logs = false` so Fetch
+invocation messages (method + URL) are not stored. Invalid-binding errors
+still go to `console.error`.
 
 ## Prerequisites
 
@@ -108,13 +111,22 @@ holds real values.
 
 Layout `all` fits the [Workers Free](https://developers.cloudflare.com/workers/platform/limits/)
 plan: the compressed Worker script is under the 3 MB gzip limit (this
-repository's Wasm gzip is well under 1 MB); Console files are Workers
-Static Assets (Free allows 20,000 files, 25 MiB each) and do **not**
-count toward that 3 MB. Static asset requests are [free and
+repository's Wasm gzip is well under 1 MB); `pnpm run test:host` after
+`worker-build --release` fails if gzip reaches 3 MiB, and CI cannot skip
+that check. Console files are Workers Static Assets (Free allows 20,000
+files, 25 MiB each) and do **not** count toward that 3 MB. Static asset
+requests are [free and
 unlimited](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/).
 `/version` and `/sub` invoke the script (`run_worker_first`) and count
 toward the Free 100,000 requests/day and 10 ms CPU/request. Two Workers
 (console-only + conversion-only) also fit Free (100 Workers/account).
+
+A typical ACL4SSR `/sub` may spend most of its wall time in `fetch`
+(not billed as CPU) and then spend Wasm CPU on Keep-pass. Free is 10 ms
+CPU per request. Miniflare does not measure production workerd CPU;
+before a release, check the deployed Worker's CPU in the dashboard
+against a representative `config=` Preview. Exceeding 10 ms is a plan
+limit, not a host-language bug.
 
 ### Smoke the deployed URL
 

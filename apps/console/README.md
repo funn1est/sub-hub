@@ -74,9 +74,15 @@ pnpm test
 pnpm run build
 ```
 
-Output is `dist/`. `public/_headers` is copied into `dist/` and sets
-`Referrer-Policy: no-referrer` plus a CSP of `default-src 'self'` with
-`connect-src 'self' http: https:` and `script-src 'self'`.
+Output is `dist/`. `public/_headers` is copied into `dist/` and is honored
+by Workers Static Assets: `Referrer-Policy: no-referrer`,
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and a CSP of
+`default-src 'self'` with `connect-src 'self' http: https:`,
+`script-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`, and
+`base-uri 'self'`. Hashed `/assets/*` and `/workbox-*` files are
+`Cache-Control: public, max-age=31536000, immutable`. HTML and `sw.js`
+keep Cloudflare's default revalidate. `*.workers.dev` responses send
+`X-Robots-Tag: noindex`.
 
 The service worker uses `registerType: prompt`, does not runtime-cache
 `/sub` or `/version`, and does not navigate-fallback those paths.

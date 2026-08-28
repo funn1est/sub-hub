@@ -194,12 +194,30 @@ test("all and worker wrangler configs share identity; only all has assets", () =
   assert.doesNotMatch(allToml, /SUB_HUB_SELF_HOSTS/);
 });
 
+test("Workers Logs stay on without recording GET URLs", () => {
+  const files = [
+    path.join(here, "..", "wrangler.toml"),
+    path.join(here, "..", "wrangler.worker.toml"),
+    path.join(here, "..", "..", "..", "apps", "console", "wrangler.toml"),
+  ];
+  for (const file of files) {
+    const text = fs.readFileSync(file, "utf8");
+    assert.match(text, /^\[observability\]$/m);
+    assert.match(text, /^enabled = true$/m);
+    assert.match(text, /^\[observability\.logs\]$/m);
+    assert.match(text, /^invocation_logs = false$/m);
+  }
+});
+
 test("compressed Wasm fits Workers Free 3 MB gzip", () => {
   const wasm = path.join(here, "..", "build", "index_bg.wasm");
   if (!fs.existsSync(wasm)) {
+    if (process.env.CI) {
+      assert.fail("CI must build index_bg.wasm before the gzip gate");
+    }
     return;
   }
-  const gzip = zlib.gzipSync(fs.readFileSync(wasm));
+  const gzip = zlib.gzipSync(fs.readFileSync(wasm), { level: 9 });
   assert.ok(
     gzip.length < 3 * 1024 * 1024,
     `gzip ${gzip.length} bytes must stay under 3 MiB`,

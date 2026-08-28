@@ -7,6 +7,14 @@ compatibility_flags = [
   "global_fetch_strictly_public",
 ]
 
+# Errors only. Invocation logs include the request URL; /sub query strings
+# commonly contain credentials.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
+
 [build]
 command = "worker-build --release"
 

@@ -4,6 +4,13 @@
 name = "sub-hub-console"
 compatibility_date = "2026-08-13"
 
+# Errors only. Invocation logs include the request URL.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
+
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"
