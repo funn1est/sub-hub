@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   composePersisted,
+  createConsolePersist,
   defaultLocale,
-  loadPersisted,
   PERSIST_KEY,
   serializePersisted,
   workshopFieldsOf,
@@ -19,6 +19,20 @@ const sample: PersistedWorkshop = {
   target: "clash",
   configUrl: "",
   appendInfo: true,
+}
+
+function memoryStorage(initial: Iterable<readonly [string, string]> = []) {
+  const data = new Map<string, string>(initial)
+  return {
+    data,
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      data.set(key, value)
+    },
+    removeItem: (key: string) => {
+      data.delete(key)
+    },
+  }
 }
 
 describe("defaultLocale", () => {
@@ -43,10 +57,8 @@ describe("persist", () => {
     expect(raw).not.toContain("secret.example")
     expect(JSON.parse(raw)).toEqual(sample)
 
-    const storage = new Map<string, string>([[PERSIST_KEY, raw]])
-    const loaded = loadPersisted({
-      getItem: (key) => storage.get(key) ?? null,
-    })
+    const storage = memoryStorage([[PERSIST_KEY, raw]])
+    const loaded = createConsolePersist(storage).getState()
     expect(loaded.accessToken).toBe("deployer-token_1")
     expect(loaded).toEqual(sample)
     expect(loaded).not.toHaveProperty("previewBody")
@@ -64,17 +76,17 @@ describe("persist", () => {
         "vless://u@h:443#F",
       ],
     }
-    const loaded = loadPersisted({
-      getItem: () => serializePersisted(six),
-    })
+    const loaded = createConsolePersist(
+      memoryStorage([[PERSIST_KEY, serializePersisted(six)]])
+    ).getState()
     expect(loaded.sources).toEqual(six.sources)
   })
 
   it("falls back to defaults when the stored blob is missing or invalid", () => {
-    const empty = loadPersisted(
-      { getItem: () => null },
-      { locale: "en", serviceOrigin: "http://127.0.0.1:25500" },
-    )
+    const empty = createConsolePersist(memoryStorage(), {
+      locale: "en",
+      serviceOrigin: "http://127.0.0.1:25500",
+    }).getState()
     expect(empty).toEqual({
       locale: "en",
       theme: "system",
@@ -86,10 +98,38 @@ describe("persist", () => {
       appendInfo: true,
     })
 
-    const junk = loadPersisted({ getItem: () => "not-json" })
+    const junk = createConsolePersist(
+      memoryStorage([[PERSIST_KEY, "not-json"]])
+    ).getState()
     expect(junk.target).toBe("clash")
     expect(junk.sources).toEqual([""])
     expect(junk.accessToken).toBe("")
+  })
+
+  it("writes a flat PersistedWorkshop blob, not Zustand's {state, version} wrapper", () => {
+    const storage = memoryStorage()
+    const store = createConsolePersist(storage)
+    store.setState(sample)
+    const raw = storage.data.get(PERSIST_KEY)
+    expect(raw).toBeDefined()
+    const parsed = JSON.parse(raw ?? "null") as unknown
+    expect(parsed).toEqual(sample)
+    expect(parsed).not.toHaveProperty("state")
+    expect(parsed).not.toHaveProperty("version")
+  })
+
+  it("strips a preview body when setState includes one", () => {
+    const storage = memoryStorage()
+    const store = createConsolePersist(storage)
+    store.setState({
+      ...sample,
+      previewBody: "vless://uuid:password@secret.example:443",
+    } as PersistedWorkshop & { previewBody: string })
+    const raw = storage.data.get(PERSIST_KEY) ?? ""
+    expect(raw).not.toContain("previewBody")
+    expect(raw).not.toContain("uuid:password")
+    expect(raw).not.toContain("secret.example")
+    expect(JSON.parse(raw)).toEqual(sample)
   })
 
   it("splits conversion fields from Console chrome and composes them back", () => {

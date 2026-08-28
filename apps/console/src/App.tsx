@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useRegisterSW } from "virtual:pwa-register/react"
+import { useStore } from "zustand/react"
 
 import { ConsoleChromeBar } from "@/components/console-chrome.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
@@ -9,12 +10,9 @@ import { Button } from "@/components/ui/button.tsx"
 import { toast } from "@/components/ui/toast.tsx"
 import { t } from "@/lib/i18n.ts"
 import {
-  composePersisted,
+  createConsolePersist,
   defaultLocale,
-  loadPersisted,
-  savePersisted,
   workshopFieldsOf,
-  type ConsoleChrome,
   type Locale,
 } from "@/lib/persist.ts"
 import {
@@ -23,11 +21,11 @@ import {
 } from "@/lib/workshop-session.ts"
 import { parseServiceOrigin } from "@/lib/workshop.ts"
 
-function loadInitial() {
+function createPersist() {
   const envOrigin = parseServiceOrigin(
     import.meta.env.VITE_DEFAULT_SERVICE_ORIGIN ?? ""
   )
-  return loadPersisted(window.localStorage, {
+  return createConsolePersist(window.localStorage, {
     locale: defaultLocale(navigator.language),
     serviceOrigin: envOrigin ?? "",
   })
@@ -55,11 +53,15 @@ function createNotifyPort(initial: Locale) {
 }
 
 export function App() {
-  const [boot] = React.useState(loadInitial)
-  const [notifyPort] = React.useState(() => createNotifyPort(boot.locale))
+  const [workshopPersist] = React.useState(() => createPersist())
+  const locale = useStore(workshopPersist, (state) => state.locale)
+  const theme = useStore(workshopPersist, (state) => state.theme)
+  const [notifyPort] = React.useState(() =>
+    createNotifyPort(workshopPersist.getState().locale)
+  )
   const [session] = React.useState(() =>
     createWorkshopSession({
-      initialFields: workshopFieldsOf(boot),
+      initialFields: workshopFieldsOf(workshopPersist.getState()),
       env: {
         pageHttps: window.location.protocol === "https:",
         consoleOrigin: import.meta.env.DEV
@@ -71,47 +73,39 @@ export function App() {
       },
     })
   )
-  const [chrome, setChrome] = React.useState<ConsoleChrome>({
-    locale: boot.locale,
-    theme: boot.theme,
-  })
   const view = React.useSyncExternalStore(
     session.subscribe,
     session.getView,
     session.getView
   )
-  const copy = t(chrome.locale)
+  const copy = t(locale)
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({ immediate: true })
 
   React.useEffect(() => {
-    notifyPort.setLocale(chrome.locale)
-  }, [chrome.locale, notifyPort])
+    notifyPort.setLocale(locale)
+  }, [locale, notifyPort])
 
   React.useEffect(() => {
-    savePersisted(window.localStorage, composePersisted(view.fields, chrome))
-  }, [chrome, view.fields])
+    workshopPersist.setState(view.fields)
+  }, [view.fields, workshopPersist])
 
   React.useEffect(() => {
-    document.documentElement.lang = chrome.locale === "zh" ? "zh-CN" : "en"
+    document.documentElement.lang = locale === "zh" ? "zh-CN" : "en"
     document.title = copy.title
-  }, [chrome.locale, copy.title])
+  }, [locale, copy.title])
 
   return (
-    <ThemeProvider theme={chrome.theme}>
+    <ThemeProvider theme={theme}>
       <div className="console-shell relative isolate">
         <div className="console-shell-bg" aria-hidden />
         <ConsoleChromeBar
-          locale={chrome.locale}
-          theme={chrome.theme}
-          onLocaleChange={(locale) =>
-            setChrome((current) => ({ ...current, locale }))
-          }
-          onThemeChange={(theme) =>
-            setChrome((current) => ({ ...current, theme }))
-          }
+          locale={locale}
+          theme={theme}
+          onLocaleChange={(next) => workshopPersist.setState({ locale: next })}
+          onThemeChange={(next) => workshopPersist.setState({ theme: next })}
         />
         {needRefresh ? (
           <div className="mx-auto w-full max-w-3xl px-4 pt-6 sm:px-6">
@@ -131,11 +125,7 @@ export function App() {
             </Alert>
           </div>
         ) : null}
-        <Workshop
-          view={view}
-          actions={session.actions}
-          locale={chrome.locale}
-        />
+        <Workshop view={view} actions={session.actions} locale={locale} />
       </div>
     </ThemeProvider>
   )
