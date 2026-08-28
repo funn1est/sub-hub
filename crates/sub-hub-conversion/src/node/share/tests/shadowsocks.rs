@@ -243,6 +243,23 @@ fn shadowsocks_2022_psks_are_plain_and_length_checked() {
 }
 
 #[test]
+fn shadowsocks_empty_query_is_absent_query() {
+    let base = "ss://aes-256-gcm:password@example.com:8388";
+    let absent = parse_share_uri(base).expect("no query");
+    let empty = parse_share_uri(&format!("{base}?")).expect("empty query");
+    let fragment_only = parse_share_uri(&format!("{base}#Alpha")).expect("fragment only");
+    let empty_with_fragment =
+        parse_share_uri(&format!("{base}?#Alpha")).expect("empty query with fragment");
+
+    assert_eq!(empty, absent);
+    assert_eq!(empty_with_fragment, fragment_only);
+    assert_eq!(
+        empty_with_fragment.name_input,
+        NodeNameInput::Decoded("Alpha".into())
+    );
+}
+
+#[test]
 fn shadowsocks_query_capabilities_are_rejected_without_lossy_fallback() {
     let base = "ss://aes-128-gcm:password@example.com:8388";
     let known = [
@@ -272,10 +289,6 @@ fn shadowsocks_query_capabilities_are_rejected_without_lossy_fallback() {
         (
             format!("{base}?plugin=one&mystery=%"),
             NodeRejection::Invalid(InvalidNodeReason::PercentEncoding),
-        ),
-        (
-            format!("{base}?"),
-            NodeRejection::Invalid(InvalidNodeReason::Parameter),
         ),
         (
             format!("{base}?plugin"),

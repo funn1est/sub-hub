@@ -216,6 +216,15 @@ fn trojan_reality_fingerprint_defaults_to_chrome() {
 }
 
 #[test]
+fn trojan_header_type_none_is_omitted_tcp_header() {
+    let omitted = parse_share_uri("trojan://password@example.com:443")
+        .expect("default Trojan without headerType");
+    let none = parse_share_uri("trojan://password@example.com:443?headerType=none")
+        .expect("headerType=none is a no-op");
+    assert_eq!(none, omitted);
+}
+
+#[test]
 fn trojan_refuses_known_unsupported_options() {
     let rejected = [
         (
@@ -236,6 +245,10 @@ fn trojan_refuses_known_unsupported_options() {
         ),
         (
             "trojan://password@example.com:443?mux=1",
+            NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption),
+        ),
+        (
+            "trojan://password@example.com:443?headerType=http",
             NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption),
         ),
         (

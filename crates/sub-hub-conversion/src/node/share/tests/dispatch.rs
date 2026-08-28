@@ -20,11 +20,14 @@ fn query_and_fragment_use_strict_uri_decoding() {
     assert_eq!(missing.name_input, NodeNameInput::Missing);
     assert_eq!(empty.name_input, NodeNameInput::Decoded(String::new()));
 
+    let empty_query = parse_share_uri(&format!("{base}?")).expect("empty query is absent query");
+    assert_eq!(empty_query, missing);
+    let empty_query_fragment = parse_share_uri(&format!("{base}?#香港+A"))
+        .expect("empty query before fragment is absent query");
+    assert_eq!(empty_query_fragment.name_input, literal.name_input);
+    assert_eq!(empty_query_fragment.protocol, missing.protocol);
+
     let rejected = [
-        (
-            format!("{base}?"),
-            NodeRejection::Invalid(InvalidNodeReason::Parameter),
-        ),
         (
             format!("{base}?type"),
             NodeRejection::Invalid(InvalidNodeReason::Parameter),

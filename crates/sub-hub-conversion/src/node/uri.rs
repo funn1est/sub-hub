@@ -89,7 +89,7 @@ pub(crate) fn parse_authority_uri_optional(
     let (userinfo_authority_path, query) = before_fragment
         .split_once('?')
         .map_or((before_fragment, None), |(value, query)| {
-            (value, Some(query))
+            (value, (!query.is_empty()).then_some(query))
         });
 
     let (userinfo, remainder) =

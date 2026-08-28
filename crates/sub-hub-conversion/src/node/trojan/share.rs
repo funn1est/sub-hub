@@ -90,9 +90,7 @@ fn parse_security_kind(value: &str) -> Result<VlessSecurityKind, NodeRejection> 
 
 fn unsupported_parameter(key: &str) -> NodeRejection {
     let capability = match key {
-        "authority" | "service-name" | "headerType" | "seed" => {
-            UnsupportedCapability::TransportOption
-        }
+        "authority" | "service-name" | "seed" => UnsupportedCapability::TransportOption,
         "flow" | "encryption" | "mux" | "ss" | "plugin" | "udp" | "packetEncoding"
         | "packet-encoding" | "ech" | "spx" | "pqv" | "request" | "response" | "ed" | "eh"
         | "echConfig" | "echForceQuery" => UnsupportedCapability::ProtocolOption,

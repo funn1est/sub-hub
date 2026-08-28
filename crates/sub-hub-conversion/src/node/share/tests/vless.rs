@@ -694,10 +694,41 @@ fn vless_vision_and_deferred_capabilities_are_closed() {
             format!("{base}?encryption="),
             NodeRejection::Invalid(InvalidNodeReason::ParameterValue),
         ),
+        (
+            format!("{base}?headerType="),
+            NodeRejection::Invalid(InvalidNodeReason::ParameterValue),
+        ),
     ];
     for (uri, expected) in rejected {
         assert_eq!(rejection(&uri), expected, "fixture: {uri}");
     }
+}
+
+#[test]
+fn vless_header_type_none_is_omitted_tcp_header() {
+    let uuid = "01234567-89ab-cdef-0123-456789abcdef";
+    let pbk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let base = format!("vless://{uuid}@example.com:443");
+    let query = format!(
+        "encryption=none&flow=xtls-rprx-vision&security=reality&sni=cdn.example&fp=chrome&pbk={pbk}&sid=0a1b&type=tcp"
+    );
+    let omitted =
+        parse_share_uri(&format!("{base}?{query}")).expect("Reality Vision without headerType");
+    let none = parse_share_uri(&format!("{base}?{query}&headerType=none"))
+        .expect("headerType=none is a no-op");
+    let decoded_none = parse_share_uri(&format!("{base}?{query}&headerType=%6eone"))
+        .expect("percent-decoded headerType=none");
+
+    assert_eq!(none, omitted);
+    assert_eq!(decoded_none, omitted);
+
+    let websocket_omitted = parse_share_uri(&format!("{base}?type=ws&security=tls&path=%2Fchat"))
+        .expect("WebSocket without headerType");
+    let websocket_none = parse_share_uri(&format!(
+        "{base}?type=ws&security=tls&path=%2Fchat&headerType=none"
+    ))
+    .expect("WebSocket headerType=none is a no-op");
+    assert_eq!(websocket_none, websocket_omitted);
 }
 
 #[test]

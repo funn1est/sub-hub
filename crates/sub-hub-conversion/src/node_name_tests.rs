@@ -54,6 +54,25 @@ fn node_name_v1_golden_vectors_are_byte_stable() {
 }
 
 #[test]
+fn empty_query_fragment_is_the_node_name() {
+    let with_empty_query = format!("{SHADOWSOCKS_PREFIX}?#Alpha");
+    let fragment_only = format!("{SHADOWSOCKS_PREFIX}#Alpha");
+    let named_empty = resolve_node_names(
+        parse_subscription_sources(&[with_empty_query.as_bytes()]).expect("empty query source"),
+        &[],
+    )
+    .expect("empty query names");
+    let named_fragment = resolve_node_names(
+        parse_subscription_sources(&[fragment_only.as_bytes()]).expect("fragment source"),
+        &[],
+    )
+    .expect("fragment names");
+
+    assert_eq!(accepted_names(&named_empty), ["Alpha"]);
+    assert_eq!(accepted_names(&named_fragment), ["Alpha"]);
+}
+
+#[test]
 fn canonicalizes_unicode_whitespace_at_the_resolver_seam() {
     let source = format!("{VLESS_PREFIX}#%20%20Alpha%C2%A0Beta%20%20");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");

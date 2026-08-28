@@ -67,6 +67,14 @@ grpc-opts:
 }
 
 #[test]
+fn shadowsocks_empty_query_fragment_is_the_proxy_name() {
+    let actual = rendered_yaml(b"ss://aes-256-gcm:password@example.com:8388?#Alpha");
+
+    assert_eq!(actual["proxies"][0]["name"], "Alpha");
+    assert_eq!(actual["proxy-groups"][0]["proxies"][1], "Alpha");
+}
+
+#[test]
 fn shadowsocks_projects_password_and_canonical_2022_psks() {
     let actual = rendered_yaml(
         concat!(

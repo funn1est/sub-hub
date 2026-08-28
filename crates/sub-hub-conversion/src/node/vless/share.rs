@@ -135,6 +135,14 @@ pub(crate) fn apply_shared_stream_query_pair(
     match key {
         "type" => parameters.transport = context.transport.clone()?,
         "security" => parameters.security = context.security.clone()?,
+        "headerType" => {
+            require_nonempty(&value)?;
+            if value.as_ref() != "none" {
+                return Err(NodeRejection::Unsupported(
+                    UnsupportedCapability::ProtocolOption,
+                ));
+            }
+        }
         "path" => {
             let value = nonempty_owned(value)?;
             require_compatible(context.transport_is(VlessTransportKind::WebSocket))?;
@@ -239,9 +247,10 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
 fn unsupported_parameter(key: &str) -> NodeRejection {
     let capability = match key {
         "authority" | "service-name" => UnsupportedCapability::TransportOption,
-        "allowInsecure" | "udp" | "packetEncoding" | "packet-encoding" | "headerType" | "seed"
-        | "request" | "response" | "ed" | "eh" | "spx" | "pqv" | "ech" | "echConfig"
-        | "echForceQuery" => UnsupportedCapability::ProtocolOption,
+        "allowInsecure" | "udp" | "packetEncoding" | "packet-encoding" | "seed" | "request"
+        | "response" | "ed" | "eh" | "spx" | "pqv" | "ech" | "echConfig" | "echForceQuery" => {
+            UnsupportedCapability::ProtocolOption
+        }
         _ => UnsupportedCapability::UnknownParameter,
     };
     NodeRejection::Unsupported(capability)
