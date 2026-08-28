@@ -21,7 +21,7 @@ use sub_hub_http::{
 mod console;
 mod public_destination;
 
-use public_destination::is_globally_reachable;
+use public_destination::is_allowed_destination;
 
 const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:25500";
 
@@ -313,12 +313,12 @@ async fn fetch_under_deadline(
             addresses.push(address);
         }
     }
-    // Native adapter step: IANA globally-reachable check after DNS.
+    // Native adapter step: refuse operator-local / CGNAT / non-unicast answers after DNS.
     // Lexical outbound accept already ran; Worker does not resolve addresses here.
     if addresses.is_empty()
         || addresses
             .iter()
-            .any(|address| !is_globally_reachable(address.ip()))
+            .any(|address| !is_allowed_destination(address.ip()))
     {
         return Err(RemoteFetchError::Failure);
     }

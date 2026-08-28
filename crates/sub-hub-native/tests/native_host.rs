@@ -708,7 +708,7 @@ impl DestinationResolver for MixedPublicAndPrivateResolver {
 }
 
 #[tokio::test]
-async fn remote_fetch_rejects_the_entire_dns_answer_when_any_address_is_not_global() {
+async fn remote_fetch_rejects_the_entire_dns_answer_when_any_address_is_operator_local() {
     assert_dns_policy_bad_gateway(
         "target=clash&url=https%3A%2F%2Fupstream.example%2Fsubscription",
         "mixed public and private DNS answer",

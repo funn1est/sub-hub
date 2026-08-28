@@ -22,9 +22,11 @@ subscription URLs or tokens, and how to reproduce.
 - When `SUB_HUB_ACCESS_TOKEN` is set, conversion is only on
   `GET`/`HEAD /sub/<token>`. `GET /version` stays public. Keep the token list
   in a password manager; Cloudflare cannot show a secret after save.
-- Remote fetches go through a bounded SSRF broker (HTTPS only, public addresses,
-  self-host deny, size and time limits). The Worker additionally restricts
-  outbound destinations to port 443.
+- Remote fetches go through a bounded SSRF broker (HTTPS only, DNS hostnames,
+  self-host deny, size and time limits). Native additionally refuses loopback,
+  RFC1918, link-local, ULA, and CGNAT answers after DNS; Fake-IP `198.18.0.0/15`
+  is not in that set. The Worker additionally restricts outbound destinations
+  to port 443.
 - Individual unsupported nodes are skipped. The config body stays a valid
   client document. Counts are advertised on `x-subconverter-skipped`; that
   header never contains URIs, credentials, or node names.

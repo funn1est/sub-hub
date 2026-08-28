@@ -1,5 +1,6 @@
 //! Outbound accept: lexical HTTPS destination policy for occurrence URLs and
-//! every followed redirect. Native DNS + IANA reachability stays a host adapter.
+//! every followed redirect. Native DNS + operator-local destination refusal
+//! stays a host adapter.
 
 use url::{Host, Url};
 
