@@ -204,7 +204,6 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
         <SourceFields
           fields={fields}
           sourceInvalid={view.sourceInvalid}
-          pasteWarnings={view.pasteWarnings}
           copy={copy}
           actions={actions}
         />

@@ -11,12 +11,10 @@ import {
   configSelectionId,
 } from "./acl4ssr-catalog.ts"
 import {
-  applyPaste,
   clashInstallUrl,
   evaluateWorkshop,
   parseServiceOrigin,
   parseSubscriptionUrl,
-  subscriptionPasteFrom,
   type PasteSet,
   type WorkshopFields,
 } from "./workshop.ts"
@@ -374,60 +372,7 @@ describe("clashInstallUrl", () => {
   })
 })
 
-describe("subscriptionPasteFrom", () => {
-  it("imports a Conversion Service Subscription URL and ignores provider /sub sources", () => {
-    const assembled = subscriptionPasteFrom(
-      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}`
-    )
-    expect(assembled).not.toBeNull()
-    expect(assembled?.workshop.sources).toEqual([VLESS])
-    expect(assembled?.workshop.target).toBe("clash")
-
-    const tokenized = subscriptionPasteFrom(
-      `https://sub-hub.example/sub/deployer-token_1?target=loon&url=${VLESS_ENCODED}`
-    )
-    expect(tokenized?.workshop.accessToken).toBe("deployer-token_1")
-    expect(
-      subscriptionPasteFrom("https://sub-hub.example/sub/deployer-token_1")
-        ?.workshop.accessToken
-    ).toBe("deployer-token_1")
-
-    expect(subscriptionPasteFrom(VLESS)).toBeNull()
-    expect(
-      subscriptionPasteFrom("https://provider.example/sub?token=abc")
-    ).toBeNull()
-    expect(subscriptionPasteFrom("http://127.0.0.1:25500/sub")).toBeNull()
-    expect(subscriptionPasteFrom("https://example.com/subscribe")).toBeNull()
-  })
-})
-
-describe("applyPaste and evaluateWorkshop", () => {
-  it("merges a successful paste onto the Workshop conversion fields", () => {
-    const next = applyPaste(input(), {
-      ok: true,
-      workshop: {
-        serviceOrigin: "http://127.0.0.1:25500",
-        accessToken: "deployer-token_1",
-        sources: [VLESS],
-        target: "loon",
-        configUrl: ACL4SSR_ONLINE_URL,
-        appendInfo: false,
-      },
-      warnings: [],
-    })
-    expect(next.accessToken).toBe("deployer-token_1")
-    expect(next.target).toBe("loon")
-    expect(next.appendInfo).toBe(false)
-    expect(Object.keys(next).sort()).toEqual([
-      "accessToken",
-      "appendInfo",
-      "configUrl",
-      "serviceOrigin",
-      "sources",
-      "target",
-    ])
-  })
-
+describe("evaluateWorkshop", () => {
   it("diagnoses fields with the same rules assemble uses", () => {
     const ready = evaluateWorkshop(input())
     expect(ready.assembled.previewable).toBe(true)

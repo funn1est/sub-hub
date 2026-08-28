@@ -35,10 +35,6 @@ function loadInitial() {
 
 function toastNotice(locale: Locale, notice: WorkshopNotice) {
   const copy = t(locale)
-  if (notice === "imported") {
-    toast.add({ type: "success", title: copy.imported })
-    return
-  }
   if (notice === "copied") {
     toast.add({ type: "success", title: copy.copied })
     return

@@ -1,5 +1,4 @@
 import type { KnownServiceError, SkipCounts } from "./service-contract.ts"
-import type { PasteWarning } from "./workshop.ts"
 import type { Locale } from "./persist.ts"
 
 const ERROR_TITLES: Record<Locale, Record<KnownServiceError, string>> = {
@@ -60,11 +59,10 @@ export const messages = {
       "This origin did not allow the Console to read /version. Set SUB_HUB_CORS_ORIGINS on the Conversion Service to this Console origin.",
     sources: "Sources",
     sourcesDescription:
-      "Ordered rows. Each row is one share URI or one https:// subscription URL. Duplicates are kept. Paste a Subscription URL to fill the form.",
+      "Ordered rows. Each row is one share URI or one https:// subscription URL. Duplicates are kept.",
     sourceN: "Source",
     addSource: "Add source",
     removeSource: "Remove",
-    imported: "Imported Subscription URL",
     edit: "Edit",
     done: "Done",
     tokenSet: "Token set",
@@ -114,22 +112,6 @@ export const messages = {
     pwaUpdate: "A new Console version is ready.",
     pwaReload: "Reload",
     agpl: "Licensed under AGPL-3.0-or-later. This repository does not operate a public instance.",
-    pasteWarnings: {
-      "unknown-keys":
-        "Unknown query keys were ignored and will not be copied onto a new URL.",
-      "duplicate-keys":
-        "Duplicate query keys were ignored after the first value.",
-      "invalid-target": "The pasted target is not a released token.",
-      "invalid-token":
-        "The pasted path token is not valid AccessToken grammar.",
-      "invalid-append-info": "The pasted append_info value was ignored.",
-      "invalid-insert":
-        "The pasted insert value was ignored; insert is never reassembled.",
-      "empty-sources":
-        "Empty url slots were ignored and will not be copied onto a new URL.",
-      "http-sources":
-        "http:// subscription sources are rejected by the Conversion Service and will not emit a Subscription URL.",
-    } satisfies Record<PasteWarning, string>,
   },
   zh: {
     title: "Sub Hub Console",
@@ -157,11 +139,10 @@ export const messages = {
       "这个 origin 未允许 Console 读取 /version。请在 Conversion Service 上把本 Console origin 写入 SUB_HUB_CORS_ORIGINS。",
     sources: "源",
     sourcesDescription:
-      "按顺序，每行一条 share URI 或一个 https:// 订阅 URL。重复会保留。粘贴 Subscription URL 可回填表单。",
+      "按顺序，每行一条 share URI 或一个 https:// 订阅 URL。重复会保留。",
     sourceN: "源",
     addSource: "添加源",
     removeSource: "删除",
-    imported: "已导入 Subscription URL",
     edit: "编辑",
     done: "完成",
     tokenSet: "已设置 token",
@@ -210,17 +191,6 @@ export const messages = {
     pwaUpdate: "有新的 Console 版本可用。",
     pwaReload: "重新加载",
     agpl: "以 AGPL-3.0-or-later 许可。本仓库不运营公共实例。",
-    pasteWarnings: {
-      "unknown-keys": "未知 query 键已被忽略，不会复制到新 URL。",
-      "duplicate-keys": "重复的 query 键只保留第一次出现的值。",
-      "invalid-target": "粘贴的 target 不是已释放的 token。",
-      "invalid-token": "粘贴的 path token 不符合 AccessToken 语法。",
-      "invalid-append-info": "粘贴的 append_info 值已被忽略。",
-      "invalid-insert": "粘贴的 insert 值已被忽略；assemble 从不写出 insert。",
-      "empty-sources": "空的 url 槽已被忽略，不会复制到新 URL。",
-      "http-sources":
-        "Conversion Service 拒绝 http:// 订阅源，不会发出 Subscription URL。",
-    } satisfies Record<PasteWarning, string>,
   },
 } as const
 

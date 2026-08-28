@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest"
 import { acl4ssrConfigUrl } from "./acl4ssr-catalog.ts"
 import {
   createWorkshopSession,
-  pasteReplacesValue,
   type SavedPreviewFile,
   type WorkshopNotice,
   type WorkshopSessionPorts,
@@ -88,73 +87,7 @@ function makeSession(input: {
   return { session, notices, calls, view: () => session.getView() }
 }
 
-describe("pasteReplacesValue", () => {
-  it("replaces only an empty or fully selected field", () => {
-    expect(
-      pasteReplacesValue({
-        value: "",
-        selectionStart: null,
-        selectionEnd: null,
-      })
-    ).toBe(true)
-    expect(
-      pasteReplacesValue({ value: "  ", selectionStart: 1, selectionEnd: 1 })
-    ).toBe(true)
-    expect(
-      pasteReplacesValue({ value: "keep", selectionStart: 0, selectionEnd: 4 })
-    ).toBe(true)
-    expect(
-      pasteReplacesValue({ value: "keep", selectionStart: 0, selectionEnd: 2 })
-    ).toBe(false)
-    expect(
-      pasteReplacesValue({
-        value: "keep",
-        selectionStart: null,
-        selectionEnd: null,
-      })
-    ).toBe(false)
-  })
-})
-
 describe("createWorkshopSession", () => {
-  it("imports a pasted Subscription URL, keeps warning codes, and notifies", () => {
-    const { session, notices, view } = makeSession({
-      fields: { sources: [""] },
-    })
-    const outcome = session.actions.pasteIntoSource(
-      `${ORIGIN}/sub?target=loon&url=${VLESS_ENCODED}&filename=x`,
-      { value: "", selectionStart: null, selectionEnd: null }
-    )
-    expect(outcome).toBe("imported")
-    expect(view().fields.serviceOrigin).toBe(ORIGIN)
-    expect(view().fields.target).toBe("loon")
-    expect(view().fields.sources).toEqual([VLESS])
-    expect(view().pasteWarnings).toEqual(["unknown-keys"])
-    expect(notices).toEqual(["imported"])
-    expect(view().preview.status).toBe("idle")
-
-    session.actions.patch({ target: "clash" })
-    expect(view().pasteWarnings).toEqual([])
-  })
-
-  it("ignores provider sources and unselected filled fields", () => {
-    const { session, notices, view } = makeSession({})
-    expect(
-      session.actions.pasteIntoSource(
-        "https://provider.example/sub?token=abc",
-        { value: "", selectionStart: null, selectionEnd: null }
-      )
-    ).toBe("ignored")
-    expect(
-      session.actions.pasteIntoSource(
-        `${ORIGIN}/sub?target=clash&url=${VLESS_ENCODED}`,
-        { value: "existing", selectionStart: 2, selectionEnd: 4 }
-      )
-    ).toBe("ignored")
-    expect(view().fields.sources).toEqual([VLESS])
-    expect(notices).toEqual([])
-  })
-
   it("previews the Subscription URL and consumes skip headers", async () => {
     const { session, view } = makeSession({
       fields: { serviceOrigin: ORIGIN },
@@ -277,7 +210,6 @@ describe("createWorkshopSession", () => {
     await flush()
     expect(view().fields.serviceOrigin).toBe(ORIGIN)
     expect(view().version).toEqual({ status: "ok", body: VERSION_OK })
-    expect(view().pasteWarnings).toEqual([])
     expect(view().preview.status).toBe("idle")
     expect(calls).toEqual([`${ORIGIN}/version`])
   })

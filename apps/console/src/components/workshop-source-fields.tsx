@@ -1,6 +1,5 @@
-import { CircleAlertIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import { PlusIcon, Trash2Icon } from "lucide-react"
 
-import { Alert, AlertDescription } from "@/components/ui/alert.tsx"
 import { Button } from "@/components/ui/button.tsx"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field.tsx"
 import {
@@ -10,23 +9,17 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group.tsx"
 import { t } from "@/lib/i18n.ts"
-import {
-  urlField,
-  type PasteWarning,
-  type WorkshopFields,
-} from "@/lib/workshop.ts"
+import { urlField, type WorkshopFields } from "@/lib/workshop.ts"
 import type { WorkshopSessionActions } from "@/lib/workshop-session.ts"
 
 export function SourceFields({
   fields,
   sourceInvalid,
-  pasteWarnings,
   copy,
   actions,
 }: {
   fields: WorkshopFields
   sourceInvalid: boolean[]
-  pasteWarnings: readonly PasteWarning[]
   copy: ReturnType<typeof t>
   actions: WorkshopSessionActions
 }) {
@@ -54,20 +47,6 @@ export function SourceFields({
                 onChange={(event) =>
                   actions.setSource(index, event.target.value)
                 }
-                onPaste={(event) => {
-                  const field = event.currentTarget
-                  const outcome = actions.pasteIntoSource(
-                    event.clipboardData.getData("text"),
-                    {
-                      value: field.value,
-                      selectionStart: field.selectionStart,
-                      selectionEnd: field.selectionEnd,
-                    }
-                  )
-                  if (outcome === "imported") {
-                    event.preventDefault()
-                  }
-                }}
               />
               {fields.sources.length > 1 ? (
                 <InputGroupAddon align="inline-end">
@@ -93,12 +72,6 @@ export function SourceFields({
         <PlusIcon data-icon="inline-start" />
         {copy.addSource}
       </Button>
-      {pasteWarnings.map((warning) => (
-        <Alert key={warning}>
-          <CircleAlertIcon />
-          <AlertDescription>{copy.pasteWarnings[warning]}</AlertDescription>
-        </Alert>
-      ))}
     </FieldGroup>
   )
 }

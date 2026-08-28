@@ -9,7 +9,7 @@ import {
   type Target,
 } from "./service-contract.ts"
 
-/** Conversion fields the Workshop job assembles, pastes, and previews. */
+/** Conversion fields the Workshop job assembles and previews. */
 export type WorkshopFields = {
   serviceOrigin: string
   accessToken: string
@@ -378,43 +378,4 @@ export function parseSubscriptionUrl(raw: string): PasteResult {
     },
     warnings: decoded.warnings,
   }
-}
-
-export function applyPaste(
-  fields: WorkshopFields,
-  parsed: Extract<PasteResult, { ok: true }>
-): WorkshopFields {
-  const set = parsed.workshop
-  return {
-    serviceOrigin: set.serviceOrigin,
-    accessToken: set.accessToken,
-    sources: set.sources ?? fields.sources,
-    target: set.target ?? fields.target,
-    configUrl: set.configUrl,
-    appendInfo: set.appendInfo,
-  }
-}
-
-function looksLikeAssembledSubscription(workshop: PasteSet): boolean {
-  return (
-    workshop.accessToken.length > 0 ||
-    workshop.target !== undefined ||
-    (workshop.sources !== undefined && workshop.sources.length > 0) ||
-    workshop.configUrl.length > 0 ||
-    workshop.appendInfo === false
-  )
-}
-
-/**
- * True when pasted text is a Conversion Service Subscription URL, not a
- * provider `https://…/sub?token=` source.
- */
-export function subscriptionPasteFrom(
-  raw: string
-): Extract<PasteResult, { ok: true }> | null {
-  const parsed = parseSubscriptionUrl(raw)
-  if (!parsed.ok || !looksLikeAssembledSubscription(parsed.workshop)) {
-    return null
-  }
-  return parsed
 }

@@ -2,11 +2,10 @@
  * Workshop session: one deployer's live sitting at the Workshop.
  *
  * Owns `WorkshopFields` plus the in-progress job state — assembled diagnosis,
- * config selection, paste warnings as codes, Preview and version-probe
- * lifecycles with stale results dropped — behind one view + actions
- * interface. fetch, clipboard write, file save, and notify are injected
- * ports; Console chrome (locale, theme) — state and chrome bar — stays
- * outside with App. Empty
+ * config selection, Preview and version-probe lifecycles with stale
+ * results dropped — behind one view + actions interface. fetch, clipboard
+ * write, file save, and notify are injected ports; Console chrome (locale,
+ * theme) — state and chrome bar — stays outside with App. Empty
  * Conversion Service origin may adopt a Console origin through the
  * version-probe lifecycle.
  */
@@ -31,24 +30,14 @@ import {
   type VersionState,
 } from "./preview.ts"
 import {
-  applyPaste,
   evaluateWorkshop,
   parseServiceOrigin,
-  subscriptionPasteFrom,
-  type PasteWarning,
   type WorkshopFetch,
   type WorkshopFields,
   type WorkshopView,
 } from "./workshop.ts"
 
-export type WorkshopNotice = "imported" | "copied" | "copy-failed"
-
-/** Input snapshot of the source field a paste landed on. */
-export type SourceSelection = {
-  value: string
-  selectionStart: number | null
-  selectionEnd: number | null
-}
+export type WorkshopNotice = "copied" | "copy-failed"
 
 export type SavedPreviewFile = {
   body: string
@@ -72,7 +61,6 @@ export type WorkshopSessionPorts = {
 export type WorkshopSessionView = WorkshopView & {
   fields: WorkshopFields
   configSelection: ConfigSelectionId
-  pasteWarnings: readonly PasteWarning[]
   version: VersionState
   preview: PreviewState
   previewReady: boolean
@@ -84,10 +72,6 @@ export type WorkshopSessionActions = {
   setSource: (index: number, value: string) => void
   addSource: () => void
   removeSource: (index: number) => void
-  pasteIntoSource: (
-    text: string,
-    selection: SourceSelection
-  ) => "imported" | "ignored"
   selectConfig: (id: ConfigSelectionId) => void
   editCustomConfigUrl: (value: string) => void
   blurOrigin: () => void
@@ -100,15 +84,6 @@ export type WorkshopSession = {
   getView: () => WorkshopSessionView
   subscribe: (listener: () => void) => () => void
   actions: WorkshopSessionActions
-}
-
-/** Paste replaces a source field only when it is empty or fully selected. */
-export function pasteReplacesValue(selection: SourceSelection): boolean {
-  return (
-    selection.value.trim().length === 0 ||
-    (selection.selectionStart === 0 &&
-      selection.selectionEnd === selection.value.length)
-  )
 }
 
 export function createWorkshopSession(options: {
@@ -125,7 +100,6 @@ export function createWorkshopSession(options: {
   const listeners = new Set<() => void>()
   let fields = withSourceFloor(options.initialFields)
   let pickingCustom = false
-  let pasteWarnings: readonly PasteWarning[] = []
   let preview: PreviewState = { status: "idle" }
   let previewSeq = 0
   let view: WorkshopSessionView | null = null
@@ -148,12 +122,8 @@ export function createWorkshopSession(options: {
   })
 
   /** Every conversion-field change invalidates Preview and re-aims the probe. */
-  function setFields(
-    next: WorkshopFields,
-    nextPasteWarnings: readonly PasteWarning[] = []
-  ) {
+  function setFields(next: WorkshopFields) {
     fields = withSourceFloor(next)
-    pasteWarnings = nextPasteWarnings
     previewSeq += 1
     preview = { status: "idle" }
     probe.ensure(fields.serviceOrigin)
@@ -173,7 +143,6 @@ export function createWorkshopSession(options: {
       ...jobView,
       fields,
       configSelection,
-      pasteWarnings,
       version: probe.versionFor(jobView.canonicalOrigin),
       preview,
       previewReady:
@@ -207,16 +176,6 @@ export function createWorkshopSession(options: {
         ...fields,
         sources: fields.sources.filter((_, item) => item !== index),
       })
-    },
-    pasteIntoSource: (text, selection) => {
-      const parsed = subscriptionPasteFrom(text)
-      if (parsed === null || !pasteReplacesValue(selection)) {
-        return "ignored"
-      }
-      pickingCustom = false
-      setFields(applyPaste(fields, parsed), parsed.warnings)
-      ports.notify?.("imported")
-      return "imported"
     },
     selectConfig: (id) => {
       if (id === "custom") {
