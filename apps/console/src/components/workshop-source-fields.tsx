@@ -47,6 +47,14 @@ export function SourceFields({
                 onChange={(event) =>
                   actions.setSource(index, event.target.value)
                 }
+                onPaste={(event) => {
+                  const text = event.clipboardData.getData("text")
+                  if (!text.includes("\n") && !text.includes("|")) {
+                    return
+                  }
+                  event.preventDefault()
+                  actions.setSourceFromPaste(index, text)
+                }}
               />
               {fields.sources.length > 1 ? (
                 <InputGroupAddon align="inline-end">

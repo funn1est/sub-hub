@@ -16,19 +16,10 @@ import {
   configSelectionId,
   type ConfigSelectionId,
 } from "./acl4ssr-catalog.ts"
-import {
-  saveFileInBrowser,
-  writeClipboardInBrowser,
-} from "./browser-ports.ts"
-import {
-  createWorkshopProbe,
-} from "./workshop-probe.ts"
+import { saveFileInBrowser, writeClipboardInBrowser } from "./browser-ports.ts"
+import { createWorkshopProbe } from "./workshop-probe.ts"
 import { subscriptionMediaType } from "./service-contract.ts"
-import {
-  runPreview,
-  type PreviewState,
-  type VersionState,
-} from "./preview.ts"
+import { runPreview, type PreviewState, type VersionState } from "./preview.ts"
 import {
   evaluateWorkshop,
   parseServiceOrigin,
@@ -70,6 +61,7 @@ export type WorkshopSessionView = WorkshopView & {
 export type WorkshopSessionActions = {
   patch: (partial: Partial<WorkshopFields>) => void
   setSource: (index: number, value: string) => void
+  setSourceFromPaste: (index: number, raw: string) => void
   addSource: () => void
   removeSource: (index: number) => void
   selectConfig: (id: ConfigSelectionId) => void
@@ -165,11 +157,33 @@ export function createWorkshopSession(options: {
       sources[index] = value
       setFields({ ...fields, sources })
     },
+    setSourceFromPaste: (index, raw) => {
+      if (index < 0 || index >= fields.sources.length) {
+        return
+      }
+      const pieces = raw
+        .split(/\r\n|\n|\|/)
+        .map((piece) => piece.trim())
+        .filter((piece) => piece.length > 0)
+      if (pieces.length <= 1) {
+        const sources = fields.sources.slice()
+        sources[index] = pieces[0] ?? ""
+        setFields({ ...fields, sources })
+        return
+      }
+      const sources = fields.sources.slice()
+      sources.splice(index, 1, ...pieces)
+      setFields({ ...fields, sources })
+    },
     addSource: () => {
       setFields({ ...fields, sources: [...fields.sources, ""] })
     },
     removeSource: (index) => {
-      if (fields.sources.length <= 1 || index < 0 || index >= fields.sources.length) {
+      if (
+        fields.sources.length <= 1 ||
+        index < 0 ||
+        index >= fields.sources.length
+      ) {
         return
       }
       setFields({

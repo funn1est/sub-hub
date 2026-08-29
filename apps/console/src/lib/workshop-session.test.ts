@@ -352,4 +352,32 @@ describe("createWorkshopSession", () => {
     session.actions.patch({ sources: [] })
     expect(view().fields.sources).toEqual([""])
   })
+
+  it("splits a source-row paste on newlines and pipes without filling the form", () => {
+    const { session, view } = makeSession({ fields: { sources: [""] } })
+
+    session.actions.setSourceFromPaste(0, "vless://a\nvless://b")
+    expect(view().fields.sources).toEqual(["vless://a", "vless://b"])
+
+    session.actions.patch({ sources: [""] })
+    session.actions.setSourceFromPaste(0, "vless://a|ss://b")
+    expect(view().fields.sources).toEqual(["vless://a", "ss://b"])
+
+    session.actions.patch({ sources: [""] })
+    session.actions.setSourceFromPaste(0, "vless://a\n\n")
+    expect(view().fields.sources).toEqual(["vless://a"])
+
+    const conversion =
+      "http://127.0.0.1:25500/sub?target=clash&url=vless%3A%2F%2Fa"
+    session.actions.patch({
+      sources: [""],
+      target: "loon",
+      configUrl: "https://config.example/acl.ini",
+    })
+    session.actions.setSourceFromPaste(0, conversion)
+    expect(view().fields.sources).toEqual([conversion])
+    expect(view().fields.target).toBe("loon")
+    expect(view().fields.configUrl).toBe("https://config.example/acl.ini")
+    expect(view().sourceInvalid).toEqual([true])
+  })
 })
