@@ -39,16 +39,23 @@ pub(crate) fn render_egern_from_policy_v1(
     let policy_groups = render_groups(policy, &valid)?;
     let mut rules = Vec::new();
     for rule_set in policy.remote_rule_sets() {
-        let policy_name = egern_policy_name(rule_set.target(), &valid);
-        if let Some(policy_name) = policy_name {
-            rules.push(RuleEntry::RuleSet {
-                rule_set: RuleSetRef {
-                    match_value: rule_set.url().to_owned(),
-                    policy: policy_name,
-                    update_interval: 86400,
-                },
-            });
-        }
+        let Some(policy_name) = policy_member_token(
+            rule_set.target(),
+            "DIRECT",
+            "REJECT",
+            |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+            &valid,
+        )?
+        else {
+            continue;
+        };
+        rules.push(RuleEntry::RuleSet {
+            rule_set: RuleSetRef {
+                match_value: rule_set.url().to_owned(),
+                policy: policy_name,
+                update_interval: 86400,
+            },
+        });
     }
     let (inline_rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
     rules.extend(inline_rules);
@@ -348,19 +355,6 @@ fn tls_block(security: &VlessSecurity) -> Option<TlsTransport> {
             skip_tls_verify: None,
             reality: Some(Reality::from_options(options)),
         }),
-    }
-}
-
-fn egern_policy_name(member: &PolicyMemberV1, valid_nodes: &[&str]) -> Option<String> {
-    match member {
-        PolicyMemberV1::Direct => Some("DIRECT".to_owned()),
-        PolicyMemberV1::Reject => Some("REJECT".to_owned()),
-        PolicyMemberV1::Group(name) => plain_group_tag(name).ok().map(str::to_owned),
-        PolicyMemberV1::Node(name) => valid_nodes
-            .iter()
-            .any(|candidate| *candidate == name)
-            .then(|| name.clone()),
-        PolicyMemberV1::UnexpandedAll => None,
     }
 }
 
