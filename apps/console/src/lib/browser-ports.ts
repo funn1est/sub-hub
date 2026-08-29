@@ -9,6 +9,14 @@ export function writeClipboardInBrowser(text: string): Promise<void> {
   })
 }
 
+export function readClipboardInBrowser(): Promise<string> {
+  const clipboard = navigator.clipboard
+  if (clipboard === undefined || clipboard.readText === undefined) {
+    return Promise.reject(new Error("paste-failed"))
+  }
+  return clipboard.readText()
+}
+
 function execCommandCopy(text: string): boolean {
   const textarea = document.createElement("textarea")
   textarea.value = text

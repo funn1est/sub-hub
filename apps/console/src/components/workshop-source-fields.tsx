@@ -1,4 +1,9 @@
-import { PlusIcon, Trash2Icon } from "lucide-react"
+import {
+  ClipboardPasteIcon,
+  EraserIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button.tsx"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field.tsx"
@@ -71,6 +76,28 @@ export function SourceFields({
           </Field>
         )
       })}
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={() => actions.clearSources()}
+        >
+          <EraserIcon data-icon="inline-start" />
+          {copy.clearSources}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="flex-1"
+          onClick={() => {
+            void actions.pasteSourcesFromClipboard()
+          }}
+        >
+          <ClipboardPasteIcon data-icon="inline-start" />
+          {copy.pasteSources}
+        </Button>
+      </div>
       <Button
         type="button"
         variant="outline"

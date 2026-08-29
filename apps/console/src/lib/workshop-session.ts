@@ -16,7 +16,11 @@ import {
   configSelectionId,
   type ConfigSelectionId,
 } from "./acl4ssr-catalog.ts"
-import { saveFileInBrowser, writeClipboardInBrowser } from "./browser-ports.ts"
+import {
+  readClipboardInBrowser,
+  saveFileInBrowser,
+  writeClipboardInBrowser,
+} from "./browser-ports.ts"
 import { createWorkshopProbe } from "./workshop-probe.ts"
 import { subscriptionMediaType } from "./service-contract.ts"
 import { runPreview, type PreviewState, type VersionState } from "./preview.ts"
@@ -28,7 +32,7 @@ import {
   type WorkshopView,
 } from "./workshop.ts"
 
-export type WorkshopNotice = "copied" | "copy-failed"
+export type WorkshopNotice = "copied" | "copy-failed" | "paste-failed"
 
 export type SavedPreviewFile = {
   body: string
@@ -45,6 +49,7 @@ export type WorkshopSessionEnv = {
 export type WorkshopSessionPorts = {
   fetchImpl?: WorkshopFetch
   writeClipboard?: (text: string) => Promise<void>
+  readClipboard?: () => Promise<string>
   saveFile?: (file: SavedPreviewFile) => void
   notify?: (notice: WorkshopNotice) => void
 }
@@ -62,6 +67,8 @@ export type WorkshopSessionActions = {
   patch: (partial: Partial<WorkshopFields>) => void
   setSource: (index: number, value: string) => void
   setSourceFromPaste: (index: number, raw: string) => void
+  clearSources: () => void
+  pasteSourcesFromClipboard: () => Promise<void>
   addSource: () => void
   removeSource: (index: number) => void
   selectConfig: (id: ConfigSelectionId) => void
@@ -161,10 +168,7 @@ export function createWorkshopSession(options: {
       if (index < 0 || index >= fields.sources.length) {
         return
       }
-      const pieces = raw
-        .split(/\r\n|\n|\|/)
-        .map((piece) => piece.trim())
-        .filter((piece) => piece.length > 0)
+      const pieces = sourcePiecesFromPaste(raw)
       if (pieces.length <= 1) {
         const sources = fields.sources.slice()
         sources[index] = pieces[0] ?? ""
@@ -174,6 +178,24 @@ export function createWorkshopSession(options: {
       const sources = fields.sources.slice()
       sources.splice(index, 1, ...pieces)
       setFields({ ...fields, sources })
+    },
+    clearSources: () => {
+      setFields({ ...fields, sources: [""] })
+    },
+    pasteSourcesFromClipboard: async () => {
+      const read = ports.readClipboard ?? readClipboardInBrowser
+      let text: string
+      try {
+        text = await read()
+      } catch {
+        ports.notify?.("paste-failed")
+        return
+      }
+      const pieces = sourcePiecesFromPaste(text)
+      setFields({
+        ...fields,
+        sources: pieces.length > 0 ? pieces : [""],
+      })
     },
     addSource: () => {
       setFields({ ...fields, sources: [...fields.sources, ""] })
@@ -276,6 +298,13 @@ export function createWorkshopSession(options: {
     },
     actions,
   }
+}
+
+function sourcePiecesFromPaste(raw: string): string[] {
+  return raw
+    .split(/\r\n|\n|\|/)
+    .map((piece) => piece.trim())
+    .filter((piece) => piece.length > 0)
 }
 
 function withSourceFloor(fields: WorkshopFields): WorkshopFields {

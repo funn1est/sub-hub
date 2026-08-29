@@ -353,6 +353,63 @@ describe("createWorkshopSession", () => {
     expect(view().fields.sources).toEqual([""])
   })
 
+  it("clears sources to one empty row", () => {
+    const { session, view } = makeSession({
+      fields: { sources: ["vless://a", "ss://b"] },
+    })
+    session.actions.clearSources()
+    expect(view().fields.sources).toEqual([""])
+  })
+
+  it("pastes clipboard text into the source list using the row-split rules", async () => {
+    const { session, view, notices } = makeSession({
+      fields: {
+        sources: ["old", "keep"],
+        target: "loon",
+        configUrl: "https://config.example/acl.ini",
+      },
+      ports: {
+        readClipboard: () => Promise.resolve("vless://a\nvless://b"),
+      },
+    })
+    await session.actions.pasteSourcesFromClipboard()
+    expect(view().fields.sources).toEqual(["vless://a", "vless://b"])
+    expect(view().fields.target).toBe("loon")
+    expect(view().fields.configUrl).toBe("https://config.example/acl.ini")
+
+    const pipes = makeSession({
+      fields: { sources: ["old"] },
+      ports: { readClipboard: () => Promise.resolve("vless://a|ss://b") },
+    })
+    await pipes.session.actions.pasteSourcesFromClipboard()
+    expect(pipes.view().fields.sources).toEqual(["vless://a", "ss://b"])
+
+    const conversion =
+      "http://127.0.0.1:25500/sub?target=clash&url=vless%3A%2F%2Fa"
+    const form = makeSession({
+      fields: {
+        sources: ["old"],
+        target: "loon",
+        configUrl: "https://config.example/acl.ini",
+      },
+      ports: { readClipboard: () => Promise.resolve(conversion) },
+    })
+    await form.session.actions.pasteSourcesFromClipboard()
+    expect(form.view().fields.sources).toEqual([conversion])
+    expect(form.view().fields.target).toBe("loon")
+    expect(form.view().fields.configUrl).toBe("https://config.example/acl.ini")
+    expect(form.view().sourceInvalid).toEqual([true])
+
+    const denied = makeSession({
+      fields: { sources: ["keep"] },
+      ports: { readClipboard: () => Promise.reject(new Error("denied")) },
+    })
+    await denied.session.actions.pasteSourcesFromClipboard()
+    expect(denied.view().fields.sources).toEqual(["keep"])
+    expect(denied.notices).toEqual(["paste-failed"])
+    expect(notices).toEqual([])
+  })
+
   it("splits a source-row paste on newlines and pipes without filling the form", () => {
     const { session, view } = makeSession({ fields: { sources: [""] } })
 

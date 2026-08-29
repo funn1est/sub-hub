@@ -37,6 +37,10 @@ function toastNotice(locale: Locale, notice: WorkshopNotice) {
     toast.add({ type: "success", title: copy.copied })
     return
   }
+  if (notice === "paste-failed") {
+    toast.add({ type: "error", title: copy.pasteFailed })
+    return
+  }
   toast.add({ type: "error", title: copy.copyFailed })
 }
 
