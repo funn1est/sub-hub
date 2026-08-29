@@ -118,6 +118,77 @@ fn omitted_expand_emits_a_proxy_provider_without_fetching_the_subscription() {
 }
 
 #[test]
+fn omitted_expand_emits_a_quanx_server_remote_without_fetching_the_subscription() {
+    let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
+    let application = Application::new(UnreachableRemote, self_hosts);
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some("target=quanx&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let text = std::str::from_utf8(response.body()).expect("UTF-8 Quantumult X output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text.contains("[server_remote]"));
+    assert!(text.contains(
+        "https://upstream.example/subscription, tag=sub-hub-1, update-interval=86400, as-policy=static"
+    ));
+    assert!(text.contains("static = PROXY, AUTO, sub-hub-1, direct"));
+    assert!(!text.contains("enabled="));
+    assert!(!text.contains("uuid"));
+}
+
+#[test]
+fn omitted_expand_keeps_quanx_direct_nodes_next_to_server_remote() {
+    let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
+    let application = Application::new(UnreachableRemote, self_hosts);
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some(concat!(
+            "target=quanx&url=",
+            "vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef",
+            "%40example.com%3A443%23Alpha",
+            "%7Chttps%3A%2F%2Fupstream.example%2Fsubscription",
+        )),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let text = std::str::from_utf8(response.body()).expect("UTF-8 Quantumult X output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text.contains("[server_local]"));
+    assert!(text.contains("tag=Alpha"));
+    assert!(text.contains("[server_remote]"));
+    assert!(text.contains("https://upstream.example/subscription"));
+    assert!(text.contains("static = PROXY, AUTO, Alpha, sub-hub-1, direct"));
+}
+
+#[test]
+fn expand_true_still_fetches_a_quanx_subscription() {
+    let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
+    let application = Application::new(SuccessfulRemote, self_hosts);
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some("target=quanx&expand=true&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let text = std::str::from_utf8(response.body()).expect("UTF-8 Quantumult X output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text.contains("[server_local]"));
+    assert!(text.contains("tag=Alpha"));
+    assert!(!text.contains("[server_remote]"));
+}
+
+#[test]
 fn remote_subscription_container_may_be_whole_source_base64() {
     let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
     let application = Application::new(SuccessfulBase64Remote, self_hosts);

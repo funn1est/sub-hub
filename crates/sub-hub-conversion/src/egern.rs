@@ -22,20 +22,19 @@ pub(crate) fn render_egern_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, valid_tags, proxies) = if named_nodes.is_empty()
-        && !policy.unexpanded_subscriptions().is_empty()
-    {
-        (
-            crate::render::KeptNodes {
-                capability_skips: 0,
-                name_skips: 0,
-            },
-            Vec::new(),
-            Vec::new(),
-        )
-    } else {
-        keep_tagged(named_nodes, encode_node)?
-    };
+    let (kept, valid_tags, proxies) =
+        if named_nodes.is_empty() && !policy.unexpanded_subscriptions().is_empty() {
+            (
+                crate::render::KeptNodes {
+                    capability_skips: 0,
+                    name_skips: 0,
+                },
+                Vec::new(),
+                Vec::new(),
+            )
+        } else {
+            keep_tagged(named_nodes, encode_node)?
+        };
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let policy_groups = render_groups(policy, &valid)?;
     let mut rules = Vec::new();

@@ -17,7 +17,7 @@ impl OutputTarget {
     /// Whether this client can name a remote subscription URL instead of inlined nodes.
     #[must_use]
     pub const fn unexpands_subscriptions(self) -> bool {
-        matches!(self, Self::Mihomo | Self::Egern)
+        matches!(self, Self::Mihomo | Self::Quanx | Self::Egern)
     }
 
     /// Whether this client can name an ACL4SSR Clash `.list` as a remote Rule Set.

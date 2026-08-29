@@ -196,6 +196,43 @@ fn omitted_expand_still_inlines_loon_rule_sets() {
 }
 
 #[test]
+fn omitted_expand_still_inlines_quanx_rule_sets() {
+    let requested_urls = Arc::new(Mutex::new(Vec::new()));
+    let application = Application::new(
+        AclResources {
+            requested_urls: Arc::clone(&requested_urls),
+        },
+        SelfHosts::new(["service.example"]).expect("valid aliases"),
+    );
+    let source = concat!(
+        "vless://01234567-89ab-cdef-0123-456789abcdef",
+        "@example.com:443#Alpha",
+    );
+    let query = format!(
+        "target=quanx&url={}&config={}",
+        percent_encode(source),
+        percent_encode("https://config.example/acl.ini"),
+    );
+
+    let response = futures::executor::block_on(application.handle(
+        HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
+    ));
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = std::str::from_utf8(response.body()).expect("Quantumult X output is UTF-8");
+    assert!(body.contains("host, example.org, PROXY"));
+    assert!(body.contains("geoip, cn, direct"));
+    assert!(!body.contains("[filter_remote]"));
+    assert_eq!(
+        *requested_urls.lock().expect("test recorder lock"),
+        [
+            "https://config.example/acl.ini".to_owned(),
+            "https://rules.example/list".to_owned()
+        ]
+    );
+}
+
+#[test]
 fn omitted_expand_emits_egern_rule_set_refs_without_fetching_lists() {
     let requested_urls = Arc::new(Mutex::new(Vec::new()));
     let application = Application::new(

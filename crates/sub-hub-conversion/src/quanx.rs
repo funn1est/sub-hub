@@ -18,7 +18,18 @@ pub(crate) fn render_quanx_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, servers) = KeptNodes::encode(named_nodes, encode_node)?;
+    let (kept, servers) = if named_nodes.is_empty() && !policy.unexpanded_subscriptions().is_empty()
+    {
+        (
+            KeptNodes {
+                capability_skips: 0,
+                name_skips: 0,
+            },
+            Vec::new(),
+        )
+    } else {
+        KeptNodes::encode(named_nodes, encode_node)?
+    };
     let valid_tags = servers
         .iter()
         .map(|server| server.original_tag.clone())
@@ -26,6 +37,7 @@ pub(crate) fn render_quanx_from_policy_v1(
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let unique_urls = unique_health_urls(policy);
+    let remotes = render_server_remote(policy)?;
     let groups = render_groups(policy, &valid, &unique_urls)?;
     let servers = expand_servers(servers, policy, &valid, &unique_urls)?;
     let (rules, omitted_url_regex) = render_rules(policy.rules())?;
@@ -41,17 +53,16 @@ pub(crate) fn render_quanx_from_policy_v1(
         leading.push('\n');
         leading.push('\n');
     }
-    bounded_text_sections(
-        &leading,
-        &[
-            ("[server_local]", servers.as_slice()),
-            ("[policy]", groups.as_slice()),
-            ("[filter_local]", rules.as_slice()),
-        ],
-        limit_bytes,
-        &kept,
-        omitted_url_regex,
-    )
+    let mut sections: Vec<(&str, &[String])> = Vec::new();
+    if !remotes.is_empty() {
+        sections.push(("[server_remote]", remotes.as_slice()));
+    }
+    if !servers.is_empty() {
+        sections.push(("[server_local]", servers.as_slice()));
+    }
+    sections.push(("[policy]", groups.as_slice()));
+    sections.push(("[filter_local]", rules.as_slice()));
+    bounded_text_sections(&leading, &sections, limit_bytes, &kept, omitted_url_regex)
 }
 
 fn encode_node(node: &ProxyNode) -> Result<ServerRecord, NodeKeep> {
@@ -401,17 +412,41 @@ fn encode_alpn_hex(protocols: &[String]) -> Option<String> {
     Some(encode_hex(&bytes))
 }
 
+fn render_server_remote(policy: &CompiledPolicyV1) -> Result<Vec<String>, AdapterRenderError> {
+    let mut lines = Vec::new();
+    for sub in policy.unexpanded_subscriptions() {
+        if !is_safe_field(sub.url()) || quanx_group_tag(sub.name()).is_none() {
+            return Err(AdapterRenderError::Internal);
+        }
+        lines.push(format!(
+            "{}, tag={}, update-interval=86400, as-policy=static",
+            sub.url(),
+            sub.name()
+        ));
+    }
+    Ok(lines)
+}
+
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
     unique_urls: &[&str],
 ) -> Result<Vec<String>, AdapterRenderError> {
+    let unexpanded_names = policy
+        .unexpanded_subscriptions()
+        .iter()
+        .map(crate::policy::UnexpandedSubscriptionV1::name)
+        .collect::<Vec<_>>();
     let mut lines = Vec::new();
     for group in policy.groups() {
         let name = quanx_group_tag(group.name()).ok_or(AdapterRenderError::Internal)?;
         let group_url = automatic_url(group.strategy());
         let mut members = Vec::new();
         for member in group.members() {
+            if matches!(member, PolicyMemberV1::UnexpandedAll) {
+                members.extend(unexpanded_names.iter().map(|name| (*name).to_owned()));
+                continue;
+            }
             let Some(token) = policy_member_token(
                 member,
                 "direct",

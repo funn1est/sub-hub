@@ -40,8 +40,7 @@ pub(crate) fn render_mihomo_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, proxies) = if named_nodes.is_empty()
-        && !policy.unexpanded_subscriptions().is_empty()
+    let (kept, proxies) = if named_nodes.is_empty() && !policy.unexpanded_subscriptions().is_empty()
     {
         (
             KeptNodes {
@@ -255,7 +254,12 @@ fn mihomo_group(
     Ok(MihomoRenderedGroup {
         name: group.name().to_owned(),
         kind,
-        use_providers: uses_providers.then(|| provider_names.iter().map(|name| (*name).to_owned()).collect()),
+        use_providers: uses_providers.then(|| {
+            provider_names
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect()
+        }),
         proxies,
         url,
         interval,

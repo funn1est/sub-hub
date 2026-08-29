@@ -77,8 +77,7 @@ impl PreparedAcl4SsrV1 {
             .iter()
             .map(|node| node.name().as_str())
             .collect::<Vec<_>>();
-        let unexpanded =
-            crate::policy::unexpanded_from_urls(named.unexpanded_https());
+        let unexpanded = crate::policy::unexpanded_from_urls(named.unexpanded_https());
         let mut remote_rule_sets = Vec::new();
         let mut rules = Vec::new();
         let mut rs_index = 0_usize;
@@ -92,7 +91,9 @@ impl PreparedAcl4SsrV1 {
                     let policy_target = match target {
                         TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
                         TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => crate::policy::PolicyMemberV1::Group(name.clone()),
+                        TargetRef::Group(name) => {
+                            crate::policy::PolicyMemberV1::Group(name.clone())
+                        }
                     };
                     remote_rule_sets.push(crate::policy::RemoteRuleSetRefV1::new(
                         format!("rs-{rs_index}"),
@@ -108,7 +109,9 @@ impl PreparedAcl4SsrV1 {
                     match target {
                         TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
                         TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => crate::policy::PolicyMemberV1::Group(name.clone()),
+                        TargetRef::Group(name) => {
+                            crate::policy::PolicyMemberV1::Group(name.clone())
+                        }
                     },
                 )),
                 Directive::Ruleset {
@@ -119,7 +122,9 @@ impl PreparedAcl4SsrV1 {
                     match target {
                         TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
                         TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => crate::policy::PolicyMemberV1::Group(name.clone()),
+                        TargetRef::Group(name) => {
+                            crate::policy::PolicyMemberV1::Group(name.clone())
+                        }
                     },
                 )),
                 _ => {}
@@ -446,8 +451,7 @@ fn render(
         .map(|node| node.name().as_str())
         .collect::<Vec<_>>();
 
-    let unexpanded =
-        crate::policy::unexpanded_from_urls(named.unexpanded_https());
+    let unexpanded = crate::policy::unexpanded_from_urls(named.unexpanded_https());
     let policy = compile_acl4ssr_policy(
         &prepared.config.groups,
         &node_names,
