@@ -9,3 +9,7 @@ tools/
 testdata/
 CONTEXT.md
 .env
+
+# Local agent notes. docs/ and CONTEXT.md are maintainer working memory.
+# Do not `git add -f` AGENTS.md, docs/, or CONTEXT.md unless a maintainer asks.
+/AGENTS.md
