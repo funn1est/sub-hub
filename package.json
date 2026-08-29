@@ -1,0 +1,20 @@
+{
+  "name": "sub-hub",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=24.19.0"
+  },
+  "scripts": {
+    "build": "sh crates/sub-hub-worker/scripts/install-workers-toolchain.sh",
+    "deploy": "sh crates/sub-hub-worker/scripts/workers-builds-deploy.sh"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SUB_HUB_ACCESS_TOKEN": {
+        "description": "Path token for `GET /sub/<token>`. Set it as a Cloudflare **secret** (Dashboard or the Deploy-to-Cloudflare prompt). Do not copy `.dev.vars.example` to `.dev.vars`, and do not commit the value. Cloudflare cannot show a secret after save."
+      }
+    }
+  }
+}

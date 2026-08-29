@@ -181,9 +181,20 @@ sending a real subscription URL to a non-loopback listener.
 ## Cloudflare Worker
 
 The Worker lives in [`crates/sub-hub-worker`](crates/sub-hub-worker). Deploy
-your own copy; this repository does not operate a public instance. A Cloudflare
-account, Rust 1.97.1 with the `wasm32-unknown-unknown` target, Node.js 24.19.0 or
-newer, and the pinned `worker-build` 0.8.5 are required.
+your own copy; this repository does not operate a public instance.
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/funn1est/sub-hub)
+
+The button clones this repository into your GitHub or GitLab account and
+runs Workers Builds from the **repository root** (layout `all`: Conversion
+plus Console on one origin). Cloudflare requires that Git URL to be
+**public**. Set `SUB_HUB_ACCESS_TOKEN` as a Cloudflare **secret** when
+prompted; do not copy `.dev.vars.example` to `.dev.vars`. The button is not
+a project-hosted instance.
+
+To publish from a machine you already have, a Cloudflare account, Rust
+1.97.1 with the `wasm32-unknown-unknown` target, Node.js 24.19.0 or newer,
+and the pinned `worker-build` 0.8.5 are required.
 
 ```sh
 cargo install worker-build --version 0.8.5 --locked
@@ -203,7 +214,9 @@ printed `*.workers.dev` URL; paste the access token into the page.
 Conversion only: `pnpm run deploy:worker`. Console only:
 `pnpm run deploy:console` (then set `SUB_HUB_CORS_ORIGINS` on Conversion
 with `--cors-origin`). Do not commit an `account_id`, API tokens, a local
-`name` rename, or a `.dev.vars` file with real values. Override the Worker
+`name` rename, or a `.dev.vars` file with real values.
+`.dev.vars.example` in `crates/sub-hub-worker` is button schema only; do not
+copy it. Override the Worker
 name with `CLOUDFLARE_WORKER_NAME` or `--worker-name`; do not edit the
 committed name unless you intend that default for every clone.
 
@@ -243,7 +256,10 @@ boundary, variable setup, and what not to commit.
 ### Cloudflare Git
 
 Connect the repo as one Worker (Workers Builds, root
-`crates/sub-hub-worker`). That publish includes the Web Console. The build
+`crates/sub-hub-worker`). That publish includes the Web Console. The
+repository-root `package.json` `build` / `deploy` scripts call the same
+helpers when the clone root is the whole repository (the Deploy-to-Cloudflare
+button at the start of this section). The build
 image has Node but not Rust; use `sh scripts/install-workers-toolchain.sh`
 as the Build command and `sh scripts/workers-builds-deploy.sh` as the
 Deploy command. Those scripts install Rust 1.97.1,

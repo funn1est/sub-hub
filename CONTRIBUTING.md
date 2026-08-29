@@ -7,6 +7,8 @@ same license.
 This repository does not operate a public instance. Do not send a real
 subscription URL to a shared converter, and do not commit `account_id`, API
 tokens, `.dev.vars` values, or an access-token list.
+`crates/sub-hub-worker/.dev.vars.example` is button schema only; do not copy
+it to `.dev.vars`.
 
 ## Development gates
 
@@ -56,6 +58,9 @@ not add POST conversion, `GET /capabilities`, extra subconverter switches
 second rule-file dialect, or AnyTLS / WireGuard / SSR in a drive-by PR.
 `expand` is an accepted query key: omitted or `false` leaves client remote
 refs when the target can name them; `expand=true` inlines remotes.
+Do not add a Dockerfile, `docker-compose.yml`, or GHCR publish job. Native
+without a Rust toolchain is the GitHub Release binaries; Cloudflare is the
+Worker in `crates/sub-hub-worker`.
 
 Bug fixes and tests for the current surface are welcome. Match the surrounding
 style: secret-safe `Debug`, closed error text, and byte-stable conversion
