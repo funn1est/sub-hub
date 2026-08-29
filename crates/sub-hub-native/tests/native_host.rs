@@ -14,7 +14,7 @@ use http_body_util::BodyExt;
 use sub_hub_http::{AccessTokens, Application, CorsOrigins, SelfHosts};
 use sub_hub_native::{
     DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router,
-    build_router_with_console, serve,
+    build_router_with_console,
 };
 use tower::ServiceExt;
 
@@ -175,11 +175,13 @@ fn service_defaults_to_the_safe_loopback_address() {
 #[test]
 fn non_loopback_bind_requires_an_explicit_self_hostname() {
     assert!(NativeConfig::from_values(Some("0.0.0.0:25500"), None).is_err());
+}
 
-    let config = NativeConfig::from_values(Some("0.0.0.0:25500"), Some("subscriptions.example"))
-        .expect("a public bind with an explicit self hostname is valid");
-
-    assert_eq!(config.self_hosts(), ["subscriptions.example"]);
+#[test]
+fn from_values_rejects_non_loopback_because_tokens_are_empty() {
+    assert!(
+        NativeConfig::from_values(Some("0.0.0.0:25500"), Some("subscriptions.example")).is_err()
+    );
 }
 
 #[test]
@@ -396,15 +398,12 @@ async fn configured_access_token_protects_sub_and_leaves_version_public() {
     assert_eq!(ok.status(), StatusCode::OK);
 }
 
-#[tokio::test]
-async fn serve_refuses_an_anonymous_non_loopback_bind() {
-    let config = NativeConfig::from_values(Some("0.0.0.0:25500"), Some("host.example"))
-        .expect("self-hosts gate still allows constructing the config");
-    assert!(config.access_tokens().is_empty());
-    let error = serve(config)
-        .await
-        .expect_err("anonymous public bind must not start");
-    assert_eq!(error.to_string(), "invalid native host configuration");
+#[test]
+fn serve_cannot_be_given_an_anonymous_non_loopback_config() {
+    assert!(
+        NativeConfig::from_values(Some("0.0.0.0:25500"), Some("host.example")).is_err(),
+        "from_values has empty tokens, so a public bind is invalid before serve"
+    );
 }
 
 fn test_router() -> axum::Router {

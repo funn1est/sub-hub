@@ -37,30 +37,26 @@ pub struct NativeConfig {
 impl NativeConfig {
     /// Parses the bind address and self-host aliases used by the native host.
     ///
+    /// Tokens are always empty here, so a non-loopback bind is rejected.
+    ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] when the bind address or self-host aliases are invalid, or when a
-    /// non-loopback bind has no self-host alias.
+    /// Returns [`ConfigError`] when the bind address or self-host aliases are invalid, when a
+    /// non-loopback bind has no self-host alias, or when the bind is not loopback.
     pub fn from_values(
         bind_address: Option<&str>,
         self_hosts: Option<&str>,
     ) -> Result<Self, ConfigError> {
-        let bind_address: SocketAddr = bind_address
-            .unwrap_or(DEFAULT_BIND_ADDRESS)
-            .parse()
-            .map_err(|_| ConfigError)?;
-        let self_hosts = SelfHosts::parse_optional(self_hosts).map_err(|_| ConfigError)?;
-        if !bind_address.ip().is_loopback() && self_hosts.is_empty() {
-            return Err(ConfigError);
-        }
-
-        Ok(Self {
+        let (bind_address, self_hosts) = parse_bind_and_hosts(bind_address, self_hosts)?;
+        let config = Self {
             bind_address,
             self_hosts,
             access_tokens: AccessTokens::empty(),
             cors_origins: CorsOrigins::empty(),
             console_root: None,
-        })
+        };
+        config.validate()?;
+        Ok(config)
     }
 
     /// Reads `SUB_HUB_BIND`, `SUB_HUB_SELF_HOSTS`, optional `SUB_HUB_ACCESS_TOKEN`,
@@ -104,14 +100,25 @@ impl NativeConfig {
         access_token: Option<&str>,
         cors_origins: Option<&str>,
     ) -> Result<Self, ConfigError> {
-        let mut config = Self::from_values(bind_address, self_hosts)?;
-        config.access_tokens =
-            AccessTokens::parse_optional(access_token).map_err(|_| ConfigError)?;
-        config.cors_origins = CorsOrigins::parse_optional(cors_origins).map_err(|_| ConfigError)?;
-        if !config.bind_address.ip().is_loopback() && config.access_tokens.is_empty() {
+        let (bind_address, self_hosts) = parse_bind_and_hosts(bind_address, self_hosts)?;
+        let config = Self {
+            bind_address,
+            self_hosts,
+            access_tokens: AccessTokens::parse_optional(access_token).map_err(|_| ConfigError)?,
+            cors_origins: CorsOrigins::parse_optional(cors_origins).map_err(|_| ConfigError)?,
+            console_root: None,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn validate(&self) -> Result<(), ConfigError> {
+        if !self.bind_address.ip().is_loopback()
+            && (self.self_hosts.is_empty() || self.access_tokens.is_empty())
+        {
             return Err(ConfigError);
         }
-        Ok(config)
+        Ok(())
     }
 
     #[must_use]
@@ -405,9 +412,7 @@ pub fn build_router_with_console(
 ///
 /// Returns [`RunError`] if configuration validation, binding, or serving fails.
 pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
-    if !config.bind_address.ip().is_loopback() && config.access_tokens.is_empty() {
-        return Err(RunError::from(ConfigError));
-    }
+    config.validate().map_err(RunError::from)?;
     if config.access_tokens.is_empty() {
         eprintln!("sub-hub-native: SUB_HUB_ACCESS_TOKEN is unset; GET /sub is anonymous");
     }
@@ -494,6 +499,21 @@ fn into_axum_response(response: HttpResponse) -> Response<Body> {
     mapped
 }
 
+fn parse_bind_and_hosts(
+    bind_address: Option<&str>,
+    self_hosts: Option<&str>,
+) -> Result<(SocketAddr, SelfHosts), ConfigError> {
+    let bind_address: SocketAddr = bind_address
+        .unwrap_or(DEFAULT_BIND_ADDRESS)
+        .parse()
+        .map_err(|_| ConfigError)?;
+    let self_hosts = SelfHosts::parse_optional(self_hosts).map_err(|_| ConfigError)?;
+    if !bind_address.ip().is_loopback() && self_hosts.is_empty() {
+        return Err(ConfigError);
+    }
+    Ok((bind_address, self_hosts))
+}
+
 fn unicode_environment_value(name: &str) -> Result<Option<String>, ConfigError> {
     std::env::var_os(name)
         .map(|value| value.into_string().map_err(|_| ConfigError))
@@ -515,6 +535,24 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn from_environment_non_loopback_with_tokens_and_self_hosts_is_ok() {
+        let config = NativeConfig::from_environment_parts_with_cors(
+            Some("0.0.0.0:25500"),
+            Some("host.example"),
+            Some("deployer-token"),
+            None,
+        )
+        .expect("public bind with tokens");
+        assert!(!config.access_tokens().is_empty());
+        assert_eq!(config.self_hosts(), ["host.example"]);
+    }
+
+    #[test]
+    fn from_values_rejects_non_loopback() {
+        assert!(NativeConfig::from_values(Some("0.0.0.0:25500"), Some("host.example")).is_err());
     }
 
     #[test]
