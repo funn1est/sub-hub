@@ -2,12 +2,13 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { KNOWN_SERVICE_ERRORS } from "./service-contract.ts"
+import { KNOWN_SERVICE_ERRORS, TARGETS } from "./service-contract.ts"
 import {
   knownErrorTitle,
   messages,
   omittedSummary,
   skippedSummary,
+  targetHint,
 } from "./i18n.ts"
 
 describe("known Conversion Service errors", () => {
@@ -75,5 +76,37 @@ describe("omittedSummary", () => {
     expect(omittedSummary("zh", 3)).toBe(
       "省略 3 条 URL-REGEX 规则（此 target 不支持）。"
     )
+  })
+})
+
+describe("targetHint", () => {
+  it("names Stash on clash in en and zh, never Shadowrocket", () => {
+    const en = targetHint("en", "clash")
+    const zh = targetHint("zh", "clash")
+    expect(en).toBe(
+      "Imported by: Clash Verge Rev, FlClash, Clash Meta for Android, Stash, OpenClash, Karing, Hiddify. Mihomo YAML (clash is the compatibility name)."
+    )
+    expect(zh).toBe(
+      "以下客户端导入此文档：Clash Verge Rev, FlClash, Clash Meta for Android, Stash, OpenClash, Karing, Hiddify。Mihomo YAML（clash 是兼容名）。"
+    )
+    expect(en).not.toMatch(/Shadowrocket/i)
+    expect(zh).not.toMatch(/Shadowrocket/i)
+    expect(targetHint("en", "mihomo")).toBe(en)
+  })
+
+  it("names Surfboard on surge in en and zh", () => {
+    expect(targetHint("en", "surge")).toBe(
+      "Imported by: Surge, Surfboard. Surfboard follows Surge and does not support VLESS."
+    )
+    expect(targetHint("zh", "surge")).toBe(
+      "以下客户端导入此文档：Surge, Surfboard。Surfboard 跟随 Surge 语法，不支持 VLESS。"
+    )
+  })
+
+  it("never names Shadowrocket on any released target", () => {
+    for (const target of TARGETS) {
+      expect(targetHint("en", target)).not.toMatch(/Shadowrocket/i)
+      expect(targetHint("zh", target)).not.toMatch(/Shadowrocket/i)
+    }
   })
 })

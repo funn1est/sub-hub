@@ -24,7 +24,8 @@ import {
 import { InputGroup, InputGroupInput } from "@/components/ui/input-group.tsx"
 import { Switch } from "@/components/ui/switch.tsx"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx"
-import { t } from "@/lib/i18n.ts"
+import { t, targetHint } from "@/lib/i18n.ts"
+import type { Locale } from "@/lib/persist.ts"
 import { TARGETS, isTarget } from "@/lib/service-contract.ts"
 import {
   type ConfigChoice,
@@ -41,6 +42,7 @@ export function WorkshopOptions({
   configGroups,
   selectedConfig,
   copy,
+  locale,
   actions,
 }: {
   fields: WorkshopFields
@@ -49,6 +51,7 @@ export function WorkshopOptions({
   configGroups: ConfigChoiceGroup[]
   selectedConfig: ConfigChoice
   copy: ReturnType<typeof t>
+  locale: Locale
   actions: WorkshopSessionActions
 }) {
   return (
@@ -75,6 +78,9 @@ export function WorkshopOptions({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
+          <FieldDescription>
+            {targetHint(locale, fields.target)}
+          </FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="config-preset">{copy.config}</FieldLabel>

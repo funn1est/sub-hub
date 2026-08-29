@@ -220,6 +220,7 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
         configGroups={configGroups}
         selectedConfig={selectedConfig}
         copy={copy}
+        locale={locale}
         actions={actions}
       />
 

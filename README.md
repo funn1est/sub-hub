@@ -25,7 +25,11 @@ The current compatibility surface contains only:
 
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
 `quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), `egern`
-(Egern YAML), or `surge` (Surge). Its `url` value accepts one or more ordered inputs separated by
+(Egern YAML), or `surge` (Surge). Surfboard imports `surge`. Stash, Clash
+Verge Rev, FlClash, Clash Meta for Android, and OpenClash import `clash`
+(or `mihomo`). Karing and Hiddify import `clash` or `singbox`. Quantumult X,
+Loon, and Egern stay on their own tokens. Do not add `stash`, `surfboard`,
+or `shadowrocket`. The `url` value accepts one or more ordered inputs separated by
 `|`: supported share URIs (VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess,
 Hysteria2 `hysteria2://` / `hy2://`, TUIC v5
 `tuic://uuid:password@host:port`) or HTTPS subscription URLs whose raw/Base64

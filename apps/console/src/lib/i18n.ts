@@ -1,5 +1,10 @@
-import type { KnownServiceError, SkipCounts } from "./service-contract.ts"
+import type {
+  KnownServiceError,
+  SkipCounts,
+  Target,
+} from "./service-contract.ts"
 import type { Locale } from "./persist.ts"
+import { targetConsumers } from "./target-consumers.ts"
 
 const ERROR_TITLES: Record<Locale, Record<KnownServiceError, string>> = {
   en: {
@@ -265,4 +270,27 @@ export function omittedSummary(
     return `省略 ${omittedUrlRegex} 条 URL-REGEX 规则（此 target 不支持）。`
   }
   return `Omitted ${omittedUrlRegex} URL-REGEX rules (unsupported on this target).`
+}
+
+export function targetHint(locale: Locale, target: Target): string {
+  const list = targetConsumers(target).join(", ")
+  const frame =
+    locale === "zh"
+      ? `以下客户端导入此文档：${list}。`
+      : `Imported by: ${list}.`
+  if (target === "clash" || target === "mihomo") {
+    const extra =
+      locale === "zh"
+        ? "Mihomo YAML（clash 是兼容名）。"
+        : "Mihomo YAML (clash is the compatibility name)."
+    return locale === "zh" ? `${frame}${extra}` : `${frame} ${extra}`
+  }
+  if (target === "surge") {
+    const extra =
+      locale === "zh"
+        ? "Surfboard 跟随 Surge 语法，不支持 VLESS。"
+        : "Surfboard follows Surge and does not support VLESS."
+    return locale === "zh" ? `${frame}${extra}` : `${frame} ${extra}`
+  }
+  return frame
 }
