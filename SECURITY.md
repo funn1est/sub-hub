@@ -22,6 +22,9 @@ subscription URLs or tokens, and how to reproduce.
 - When `SUB_HUB_ACCESS_TOKEN` is set, conversion is only on
   `GET`/`HEAD /sub/<token>`. `GET /version` stays public. Keep the token list
   in a password manager; Cloudflare cannot show a secret after save.
+  If the Worker secret is unset, `GET /sub` stays anonymous. Native still
+  refuses to start a non-loopback bind with an empty token list. The Worker
+  does not refuse to boot without a token.
 - Remote fetches go through a bounded SSRF broker (HTTPS only, DNS hostnames,
   self-host deny, size and time limits). Native additionally refuses loopback,
   RFC1918, link-local, ULA, and CGNAT answers after DNS; Fake-IP `198.18.0.0/15`

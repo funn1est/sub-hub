@@ -25,6 +25,12 @@ schema only; do not copy it to `.dev.vars`. The blob is a comma- or
 newline-separated list of at most eight equivalent tokens. Each token is 1–128 bytes from
 `A–Z a–z 0–9 - . _ ~`. Any configured token authorizes `GET`/`HEAD /sub/<token>`.
 `GET /sub` then returns `401 Unauthorized!`. `GET /version` stays public.
+If the secret is **unset**, Worker `GET /sub` stays anonymous. That is
+host behavior, not a packaging leftover. Native still refuses a
+non-loopback bind with an empty token list. `pnpm run deploy` generates a
+token when `wrangler secret list` shows the name absent; Dashboard Git /
+Workers Builds does **not** put the secret — set it after the first
+successful build.
 
 Cloudflare cannot show the value after save. Keep the full list in a password
 manager or an uncommitted file. The Dashboard field can only **replace** that

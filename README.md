@@ -189,8 +189,10 @@ The button clones this repository into your GitHub or GitLab account and
 runs Workers Builds from the **repository root** (layout `all`: Conversion
 plus Console on one origin). Cloudflare requires that Git URL to be
 **public**. Set `SUB_HUB_ACCESS_TOKEN` as a Cloudflare **secret** when
-prompted; do not copy `.dev.vars.example` to `.dev.vars`. The button is not
-a project-hosted instance.
+prompted; do not copy `.dev.vars.example` to `.dev.vars`. If that secret
+is unset, Worker `GET /sub` stays anonymous. Native non-loopback still
+refuses to start without tokens. `GET /version` stays public either way.
+The button is not a project-hosted instance.
 
 To publish from a machine you already have, a Cloudflare account, Rust
 1.97.1 with the `wasm32-unknown-unknown` target, Node.js 24.19.0 or newer,
@@ -271,7 +273,8 @@ Workers Builds does not run `mise`. Set `NODE_VERSION` and `PNPM_VERSION`
 on the project to the pins in the repository-root `mise.toml` if the image
 is older. Do not add `.node-version` or `.nvmrc`. After the first
 successful build, set the `SUB_HUB_ACCESS_TOKEN` **secret** (not a var).
-Do not use `pnpm run deploy` on Workers Builds (`CI=true` makes it
+Workers Builds does not put that secret; an unset secret leaves `GET /sub`
+anonymous. Do not use `pnpm run deploy` on Workers Builds (`CI=true` makes it
 refuse). Conversion-only Git uses `sh scripts/workers-builds-deploy.sh worker`.
 Console-only Git is a second Worker with root `apps/console`. A local
 `pnpm run deploy` remains the simpler publish.
