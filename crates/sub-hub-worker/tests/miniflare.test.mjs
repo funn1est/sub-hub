@@ -97,8 +97,15 @@ function runtime(bindings = {}, fetchMock) {
     bindings,
   };
   if (fetchMock !== undefined) {
+    // Worker fetch uses redirect=manual. Undici's default follow would consume
+    // Location (so Outbound accept never sees :8443) and treat a hung mock as
+    // a failed follow instead of AbortSignal timeout.
     options.outboundService = (request) =>
-      miniflareFetch(request, { dispatcher: fetchMock });
+      miniflareFetch(request, {
+        dispatcher: fetchMock,
+        redirect: "manual",
+        signal: request.signal,
+      });
   }
   return new Miniflare(convertV4MiniflareOptions(options));
 }
@@ -603,7 +610,7 @@ test("combined metadata is ignored instead of forwarded", async (t) => {
   assert.equal(await response.text(), SINGLE_VLESS_YAML);
 });
 
-test("redirect to a non-443 port is a deterministic bad gateway", async (t) => {
+test("redirect to a non-443 port is rejected as an invalid request", async (t) => {
   const fetchMock = mockedRemote("/start", {
     statusCode: 302,
     data: "",
@@ -617,9 +624,9 @@ test("redirect to a non-443 port is a deterministic bad gateway", async (t) => {
     `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
   );
 
-  assert.equal(response.status, 502);
+  assert.equal(response.status, 400);
   assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
-  assert.equal(await response.text(), "Bad Gateway");
+  assert.equal(await response.text(), "Invalid request!");
   fetchMock.assertNoPendingInterceptors();
 });
 
@@ -644,10 +651,14 @@ test("upstream failure maps to bad gateway", async (t) => {
 test("hung remote fetch returns an application error without crashing the isolate", async (t) => {
   const fetchMock = createFetchMock();
   fetchMock.disableNetConnect();
+  // A never-settling MockAgent reply fails immediately as Failure (502) in this
+  // outboundService. `.delay` longer than the hop deadline lets AbortSignal
+  // timeout map to 504 Gateway Timeout.
   fetchMock
     .get("https://example.com")
     .intercept({ path: "/sub", method: "GET" })
-    .reply(() => new Promise(() => {}));
+    .reply(200, VLESS)
+    .delay(20_000);
   const mf = runtime({}, fetchMock);
   t.after(() => mf.dispose());
   const remote = encodeURIComponent("https://example.com/sub");
@@ -657,7 +668,7 @@ test("hung remote fetch returns an application error without crashing the isolat
   );
 
   const body = await response.text();
-  assert.ok([502, 504].includes(response.status), body);
+  assert.equal(response.status, 504, body);
   assert.deepEqual(applicationHeaders(response), BASE_HEADERS);
-  assert.ok(["Bad Gateway", "Gateway Timeout"].includes(body), body);
+  assert.equal(body, "Gateway Timeout");
 });
