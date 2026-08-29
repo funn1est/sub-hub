@@ -39,6 +39,8 @@ pnpm run test:host
 ```
 
 CI does not deploy to Cloudflare and does not hold Cloudflare credentials.
+A `v*` tag that matches the workspace version publishes unsigned Native
+binaries.
 
 Do not modify the existing root `.gitignore` unless a maintainer asks for that
 change in the same review.

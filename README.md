@@ -61,6 +61,13 @@ broker.
 
 ## Run the native backend
 
+GitHub Releases whose tag equals `v` plus the workspace version attach
+unsigned native binaries for linux-amd64, windows-amd64, and macos-arm64.
+Extract the archive and run `sub-hub-native` (or `sub-hub-native.exe` on
+Windows). Those downloads are a convenience for running without a Rust
+toolchain; they are not signed or notarized, do not include the Web
+Console, and may be blocked by SmartScreen or Gatekeeper.
+
 The workspace is pinned to Rust 1.97.1. Start the development build with:
 
 ```sh
@@ -88,7 +95,8 @@ cargo build --locked --release -p sub-hub-native
 CI launches that release binary on a loopback port and checks `/version` plus
 one local VLESS conversion for every released target (`clash`, `mihomo`,
 `quanx`, `singbox`, `loon`, `egern`). The fixture does not fetch an external
-subscription.
+subscription. A tag that matches the workspace version publishes the same
+release executable for linux-amd64, windows-amd64, and macos-arm64.
 
 ## Rust development
 

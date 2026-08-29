@@ -1,0 +1,290 @@
+name: Native release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    name: Version and tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Read the workspace version
+        id: version
+        run: |
+          set -eu
+          version="$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path("Cargo.toml").read_text(encoding="utf-8")
+          section = re.search(
+              r"(?ms)^\[workspace\.package\]\s*(.*?)(?=^\[|\Z)",
+              text,
+          )
+          if section is None:
+              raise SystemExit("missing [workspace.package] in Cargo.toml")
+          match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', section.group(1))
+          if match is None:
+              raise SystemExit("missing workspace.package version in Cargo.toml")
+          print(match.group(1), end="")
+          PY
+          )"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            expected="v${version}"
+            if [ "${{ github.ref_name }}" != "${expected}" ]; then
+              echo "tag ${{ github.ref_name }} does not match workspace version ${expected}" >&2
+              exit 1
+            fi
+          fi
+
+  build:
+    name: ${{ matrix.asset_os }}-${{ matrix.asset_arch }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            asset_os: linux
+            asset_arch: amd64
+            archive: tar.gz
+            binary: sub-hub-native
+            machine: x86_64
+          - runner: windows-latest
+            asset_os: windows
+            asset_arch: amd64
+            archive: zip
+            binary: sub-hub-native.exe
+            machine: x86_64
+          - runner: macos-latest
+            asset_os: macos
+            asset_arch: arm64
+            archive: tar.gz
+            binary: sub-hub-native
+            machine: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Confirm runner architecture
+        run: |
+          set -eu
+          machine="$(uname -m)"
+          if [ "$machine" != "${{ matrix.machine }}" ]; then
+            echo "runner uname -m is ${machine}, expected ${{ matrix.machine }}" >&2
+            exit 1
+          fi
+
+      - name: Install Rust
+        uses: jdx/mise-action@v4
+        with:
+          install_args: rust
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native-release
+
+      - name: Build the native release executable
+        run: cargo build --locked --release -p sub-hub-native
+
+      - name: Strip the Unix executable
+        if: matrix.asset_os != 'windows'
+        run: strip "target/release/${{ matrix.binary }}"
+
+      - name: Smoke GET /version on loopback
+        run: |
+          set -eu
+          if command -v python3 >/dev/null 2>&1; then
+            py=python3
+          else
+            py=python
+          fi
+          port="$("$py" -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+          export SUB_HUB_BIND="127.0.0.1:${port}"
+          unset SUB_HUB_SELF_HOSTS || true
+          unset SUB_HUB_ACCESS_TOKEN || true
+          "./target/release/${{ matrix.binary }}" &
+          pid=$!
+          cleanup() {
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          expected="sub-hub v${VERSION} backend"
+          version=""
+          i=0
+          while [ "$i" -lt 100 ]; do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo 'native backend exited before it became ready' >&2
+              exit 1
+            fi
+            if curl -fsS --max-time 1 "http://127.0.0.1:${port}/version" -o version.txt; then
+              version="$(cat version.txt)"
+              if [ "$version" = "$expected" ]; then
+                break
+              fi
+            fi
+            version=""
+            i=$((i + 1))
+            sleep 0.1
+          done
+          if [ "$version" != "$expected" ]; then
+            echo "native backend did not return the expected version response" >&2
+            exit 1
+          fi
+
+      - name: Pack the archive
+        env:
+          ASSET_OS: ${{ matrix.asset_os }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+          ARCHIVE: ${{ matrix.archive }}
+          BINARY_NAME: ${{ matrix.binary }}
+        run: |
+          set -eu
+          if command -v python3 >/dev/null 2>&1; then
+            py=python3
+          else
+            py=python
+          fi
+          "$py" - <<'PY'
+          import os
+          import shutil
+          import stat
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          asset_os = os.environ["ASSET_OS"]
+          asset_arch = os.environ["ASSET_ARCH"]
+          archive = os.environ["ARCHIVE"]
+          binary_name = os.environ["BINARY_NAME"]
+          stem = f"sub-hub-native-v{version}-{asset_os}-{asset_arch}"
+          src = Path("target/release") / binary_name
+          if not src.is_file():
+              raise SystemExit(f"missing {src}")
+
+          stage = Path("pack-staging") / stem
+          if stage.exists():
+              shutil.rmtree(stage)
+          stage.mkdir(parents=True)
+          dest_bin = stage / binary_name
+          shutil.copy2(src, dest_bin)
+          if asset_os != "windows":
+              dest_bin.chmod(dest_bin.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+          shutil.copy2("LICENSE", stage / "LICENSE")
+          shutil.copy2("THIRD_PARTY_NOTICES.md", stage / "THIRD_PARTY_NOTICES.md")
+          shutil.copy2("crates/sub-hub-native/pack/README.md", stage / "README.md")
+
+          dist = Path("dist")
+          dist.mkdir(exist_ok=True)
+          if archive == "zip":
+              asset = dist / f"{stem}.zip"
+              with zipfile.ZipFile(asset, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+                  for path in sorted(stage.rglob("*")):
+                      if path.is_file():
+                          zipped.write(path, path.relative_to(stage.parent).as_posix())
+          elif archive == "tar.gz":
+              asset = dist / f"{stem}.tar.gz"
+              with tarfile.open(asset, "w:gz") as tar:
+                  tar.add(stage, arcname=stem)
+          else:
+              raise SystemExit(f"unsupported archive {archive}")
+
+          env_path = Path(os.environ["GITHUB_ENV"])
+          with env_path.open("a", encoding="utf-8") as env_file:
+              env_file.write(f"ASSET_PATH={asset.as_posix()}\n")
+          print(asset.as_posix())
+          PY
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.asset_os }}-${{ matrix.asset_arch }}
+          path: ${{ env.ASSET_PATH }}
+          if-no-files-found: error
+
+  publish:
+    name: GitHub Release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs:
+      - version
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Download packed archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          linux="dist/sub-hub-native-v${VERSION}-linux-amd64.tar.gz"
+          windows="dist/sub-hub-native-v${VERSION}-windows-amd64.zip"
+          macos="dist/sub-hub-native-v${VERSION}-macos-arm64.tar.gz"
+          test -f "$linux"
+          test -f "$windows"
+          test -f "$macos"
+          (
+            cd dist
+            sha256sum -- \
+              "sub-hub-native-v${VERSION}-linux-amd64.tar.gz" \
+              "sub-hub-native-v${VERSION}-windows-amd64.zip" \
+              "sub-hub-native-v${VERSION}-macos-arm64.tar.gz" \
+              > SHA256SUMS
+          )
+          notes="$(cat <<EOF
+          Unsigned Native Conversion Service binaries for linux-amd64, windows-amd64, and macos-arm64.
+
+          These archives do not include the Web Console and are not signed or notarized. The default listener is 127.0.0.1:25500. Source and the native deployment boundary are in the repository README at this tag.
+          EOF
+          )"
+          gh release create "v${VERSION}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "v${VERSION}" \
+            --notes "$notes" \
+            "$linux" \
+            "$windows" \
+            "$macos" \
+            dist/SHA256SUMS
