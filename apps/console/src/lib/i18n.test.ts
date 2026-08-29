@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { KNOWN_SERVICE_ERRORS, TARGETS } from "./service-contract.ts"
 import {
+  SOURCE_REPO,
   knownErrorTitle,
   messages,
   omittedSummary,
@@ -108,5 +109,20 @@ describe("targetHint", () => {
       expect(targetHint("en", target)).not.toMatch(/Shadowrocket/i)
       expect(targetHint("zh", target)).not.toMatch(/Shadowrocket/i)
     }
+  })
+})
+
+describe("AGPL source offer", () => {
+  it("names AGPL and the GitHub source URL in both locales", async () => {
+    expect(SOURCE_REPO).toBe("https://github.com/funn1est/sub-hub")
+    expect(messages.en.agpl).toMatch(/AGPL/)
+    expect(messages.zh.agpl).toMatch(/AGPL/)
+    expect(messages.en.agpl).toContain("github.com/funn1est/sub-hub")
+    expect(messages.zh.agpl).toContain("github.com/funn1est/sub-hub")
+    const workshop = await readFile(
+      resolve(import.meta.dirname, "../components/workshop.tsx"),
+      "utf8"
+    )
+    expect(workshop).toMatch(/href=\{SOURCE_REPO\}/)
   })
 })

@@ -35,6 +35,9 @@ const ERROR_TITLES: Record<Locale, Record<KnownServiceError, string>> = {
   },
 }
 
+/** Corresponding source for the AGPL network Console. */
+export const SOURCE_REPO = "https://github.com/funn1est/sub-hub"
+
 export const messages = {
   en: {
     title: "Sub Hub Console",
@@ -126,7 +129,7 @@ export const messages = {
       "The browser did not allow this page to reach a loopback Conversion Service. Grant local network access if prompted, and set SUB_HUB_CORS_ORIGINS.",
     pwaUpdate: "A new Console version is ready.",
     pwaReload: "Reload",
-    agpl: "Licensed under AGPL-3.0-or-later. This repository does not operate a public instance.",
+    agpl: "Licensed under AGPL-3.0-or-later. Source: https://github.com/funn1est/sub-hub. This repository does not operate a public instance.",
   },
   zh: {
     title: "Sub Hub Console",
@@ -215,7 +218,7 @@ export const messages = {
       "浏览器不允许此页面访问 loopback Conversion Service。如有本地网络访问提示请允许，并设置 SUB_HUB_CORS_ORIGINS。",
     pwaUpdate: "有新的 Console 版本可用。",
     pwaReload: "重新加载",
-    agpl: "以 AGPL-3.0-or-later 许可。本仓库不运营公共实例。",
+    agpl: "以 AGPL-3.0-or-later 许可。源码：https://github.com/funn1est/sub-hub。本仓库不运营公共实例。",
   },
 } as const
 

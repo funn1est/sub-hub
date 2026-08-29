@@ -32,7 +32,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group.tsx"
 import { Textarea } from "@/components/ui/textarea.tsx"
-import { t } from "@/lib/i18n.ts"
+import { SOURCE_REPO, t } from "@/lib/i18n.ts"
 import type { Locale } from "@/lib/persist.ts"
 import {
   configChoiceGroups,
@@ -334,7 +334,9 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
       />
 
       <p className="pb-4 text-center text-xs text-muted-foreground">
-        {copy.agpl}
+        <a href={SOURCE_REPO} className="underline underline-offset-2">
+          {copy.agpl}
+        </a>
       </p>
     </main>
   )
