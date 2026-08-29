@@ -253,6 +253,25 @@ impl KeptNodes {
     ) -> Result<(Self, Vec<T>), AdapterRenderError> {
         Self::from_encoded(named_nodes.iter().copied().map(&mut encode))
     }
+
+    /// Empty encode is allowed when the policy still has unexpanded subscriptions.
+    pub(crate) fn encode_or_unexpanded<'a, T>(
+        named_nodes: &[&'a ProxyNode],
+        policy: &CompiledPolicyV1,
+        encode: impl FnMut(&'a ProxyNode) -> Result<T, NodeKeep>,
+    ) -> Result<(Self, Vec<T>), AdapterRenderError> {
+        if named_nodes.is_empty() && !policy.unexpanded_subscriptions().is_empty() {
+            Ok((
+                Self {
+                    capability_skips: 0,
+                    name_skips: 0,
+                },
+                Vec::new(),
+            ))
+        } else {
+            Self::encode(named_nodes, encode)
+        }
+    }
 }
 
 /// Keep-pass plus tag unzip shared by text/JSON adapters that encode `(tag, item)`.
@@ -260,14 +279,31 @@ pub(crate) fn keep_tagged<'a, T>(
     named_nodes: &[&'a ProxyNode],
     encode: impl FnMut(&'a ProxyNode) -> Result<(String, T), NodeKeep>,
 ) -> Result<(KeptNodes, Vec<String>, Vec<T>), AdapterRenderError> {
-    let (kept, encoded) = KeptNodes::encode(named_nodes, encode)?;
+    Ok(unzip_tagged(KeptNodes::encode(named_nodes, encode)?))
+}
+
+/// [`keep_tagged`] that allows zero encoded nodes when unexpanded remotes exist.
+pub(crate) fn keep_tagged_or_unexpanded<'a, T>(
+    named_nodes: &[&'a ProxyNode],
+    policy: &CompiledPolicyV1,
+    encode: impl FnMut(&'a ProxyNode) -> Result<(String, T), NodeKeep>,
+) -> Result<(KeptNodes, Vec<String>, Vec<T>), AdapterRenderError> {
+    Ok(unzip_tagged(KeptNodes::encode_or_unexpanded(
+        named_nodes,
+        policy,
+        encode,
+    )?))
+}
+
+fn unzip_tagged<T>(encoded: (KeptNodes, Vec<(String, T)>)) -> (KeptNodes, Vec<String>, Vec<T>) {
+    let (kept, encoded) = encoded;
     let mut tags = Vec::with_capacity(encoded.len());
     let mut items = Vec::with_capacity(encoded.len());
     for (tag, item) in encoded {
         tags.push(tag);
         items.push(item);
     }
-    Ok((kept, tags, items))
+    (kept, tags, items)
 }
 
 /// Tag then capability: the `encode_node` shape shared by text/JSON adapters.
@@ -459,6 +495,52 @@ mod tests {
             keep_named(Some("tag"), |tag| Some(tag.len())),
             Ok(("tag".to_owned(), 3))
         );
+    }
+
+    #[test]
+    fn encode_or_unexpanded_allows_empty_nodes_only_with_remote_refs() {
+        use crate::node::ProxyNode;
+        use crate::policy::{CompiledPolicyV1, PolicyReportV1, unexpanded_from_urls};
+
+        use super::KeptNodes;
+
+        let empty = CompiledPolicyV1::with_remotes(
+            Vec::new(),
+            Vec::new(),
+            PolicyReportV1 {
+                empty_groups: 0,
+                ignored_legacy_probe_hints: 0,
+            },
+            Vec::new(),
+            Vec::new(),
+        );
+        assert_eq!(
+            KeptNodes::encode_or_unexpanded(&[] as &[&ProxyNode], &empty, |_| Ok("x")).unwrap_err(),
+            AdapterRenderError::NoValidNodes {
+                capability_skips: 0,
+                name_skips: 0,
+            }
+        );
+
+        let with_remote = CompiledPolicyV1::with_remotes(
+            Vec::new(),
+            Vec::new(),
+            PolicyReportV1 {
+                empty_groups: 0,
+                ignored_legacy_probe_hints: 0,
+            },
+            unexpanded_from_urls(&["https://sub.example/list".to_owned()]),
+            Vec::new(),
+        );
+        let (kept, items) = KeptNodes::encode_or_unexpanded(
+            &[] as &[&ProxyNode],
+            &with_remote,
+            |_: &ProxyNode| -> Result<&str, super::NodeKeep> { panic!("encode must not run") },
+        )
+        .expect("unexpanded remotes may encode zero nodes");
+        assert!(items.is_empty());
+        assert_eq!(kept.capability_skips, 0);
+        assert_eq!(kept.name_skips, 0);
     }
 
     #[test]

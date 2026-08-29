@@ -18,18 +18,7 @@ pub(crate) fn render_quanx_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, servers) = if named_nodes.is_empty() && !policy.unexpanded_subscriptions().is_empty()
-    {
-        (
-            KeptNodes {
-                capability_skips: 0,
-                name_skips: 0,
-            },
-            Vec::new(),
-        )
-    } else {
-        KeptNodes::encode(named_nodes, encode_node)?
-    };
+    let (kept, servers) = KeptNodes::encode_or_unexpanded(named_nodes, policy, encode_node)?;
     let valid_tags = servers
         .iter()
         .map(|server| server.original_tag.clone())

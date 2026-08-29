@@ -9,9 +9,9 @@ use crate::{
     },
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text_sections, encode_hex,
-        hysteria2_has_pin, keep_named, keep_tagged, map_compiled_rules, policy_member_token,
-        reject_when_empty, render_host_plain, shadowsocks_method, shadowsocks_password,
-        shared_probe_url,
+        hysteria2_has_pin, keep_named, keep_tagged_or_unexpanded, map_compiled_rules,
+        policy_member_token, reject_when_empty, render_host_plain, shadowsocks_method,
+        shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -22,19 +22,7 @@ pub(crate) fn render_surge_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, valid_tags, proxies) =
-        if named_nodes.is_empty() && !policy.unexpanded_subscriptions().is_empty() {
-            (
-                crate::render::KeptNodes {
-                    capability_skips: 0,
-                    name_skips: 0,
-                },
-                Vec::new(),
-                Vec::new(),
-            )
-        } else {
-            keep_tagged(named_nodes, encode_node)?
-        };
+    let (kept, valid_tags, proxies) = keep_tagged_or_unexpanded(named_nodes, policy, encode_node)?;
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let groups = render_groups(policy, &valid)?;
     let (rules, omitted_url_regex) = render_rules(policy, &valid)?;
