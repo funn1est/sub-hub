@@ -19,6 +19,7 @@ const sample: PersistedWorkshop = {
   target: "clash",
   configUrl: "",
   appendInfo: true,
+  expand: false,
 }
 
 function memoryStorage(initial: Iterable<readonly [string, string]> = []) {
@@ -96,6 +97,7 @@ describe("persist", () => {
       target: "clash",
       configUrl: "",
       appendInfo: true,
+      expand: true,
     })
 
     const junk = createConsolePersist(
@@ -104,6 +106,16 @@ describe("persist", () => {
     expect(junk.target).toBe("clash")
     expect(junk.sources).toEqual([""])
     expect(junk.accessToken).toBe("")
+    expect(junk.expand).toBe(true)
+  })
+
+  it("treats a missing expand field as the default on", () => {
+    const { expand, ...withoutExpand } = sample
+    expect(expand).toBe(false)
+    const loaded = createConsolePersist(
+      memoryStorage([[PERSIST_KEY, JSON.stringify(withoutExpand)]])
+    ).getState()
+    expect(loaded.expand).toBe(true)
   })
 
   it("writes a flat PersistedWorkshop blob, not Zustand's {state, version} wrapper", () => {
@@ -140,6 +152,7 @@ describe("persist", () => {
       target: sample.target,
       configUrl: sample.configUrl,
       appendInfo: sample.appendInfo,
+      expand: sample.expand,
     })
     expect(
       composePersisted(workshopFieldsOf(sample), {

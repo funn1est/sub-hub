@@ -382,7 +382,7 @@ fn render_named_policy_with(
 ) -> Result<RenderedConfig, ConversionRenderError> {
     let parse = named.parse_skip_count();
     let nodes = accepted_nodes(named);
-    if nodes.is_empty() {
+    if nodes.is_empty() && policy.unexpanded_subscriptions().is_empty() {
         return Err(ConversionRenderError::NoValidNodes {
             skips: SkipCountsV1::parse_only(parse),
         });
@@ -416,7 +416,8 @@ pub(crate) fn render_builtin_with_limit(
 ) -> Result<RenderedConfig, ConversionRenderError> {
     let named = resolve_node_names(parsed, &["PROXY", "AUTO"])
         .map_err(|_| ConversionRenderError::Internal)?;
-    let policy = compile_builtin_policy_v1(&accepted_nodes(&named));
+    let unexpanded = crate::policy::unexpanded_from_urls(named.unexpanded_https());
+    let policy = compile_builtin_policy_v1(&accepted_nodes(&named), &unexpanded);
     render_named_policy_with(&named, &policy, render, limit_bytes)
 }
 

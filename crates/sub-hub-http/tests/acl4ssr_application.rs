@@ -94,7 +94,7 @@ fn get_applies_remote_acl4ssr_config_and_rule_sets() {
         "@example.com:443#Alpha",
     );
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode("https://config.example/acl.ini"),
     );
@@ -120,6 +120,116 @@ fn get_applies_remote_acl4ssr_config_and_rule_sets() {
 }
 
 #[test]
+fn omitted_expand_emits_rule_providers_without_fetching_rule_sets() {
+    let requested_urls = Arc::new(Mutex::new(Vec::new()));
+    let application = Application::new(
+        AclResources {
+            requested_urls: Arc::clone(&requested_urls),
+        },
+        SelfHosts::new(["service.example"]).expect("valid aliases"),
+    );
+    let source = concat!(
+        "vless://01234567-89ab-cdef-0123-456789abcdef",
+        "@example.com:443#Alpha",
+    );
+    let query = format!(
+        "target=clash&url={}&config={}",
+        percent_encode(source),
+        percent_encode("https://config.example/acl.ini"),
+    );
+
+    let response = futures::executor::block_on(application.handle(
+        HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
+    ));
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = std::str::from_utf8(response.body()).expect("Mihomo output is UTF-8");
+    assert!(body.contains("rule-providers:"));
+    assert!(body.contains("url: https://rules.example/list"));
+    assert!(body.contains("behavior: classical"));
+    assert!(body.contains("format: text"));
+    assert!(body.contains("- RULE-SET,rs-1,PROXY"));
+    assert!(body.contains("- GEOIP,CN,DIRECT"));
+    assert!(body.contains("- MATCH,PROXY"));
+    assert!(!body.contains("DOMAIN,example.org"));
+    assert_eq!(
+        *requested_urls.lock().expect("test recorder lock"),
+        ["https://config.example/acl.ini".to_owned()]
+    );
+}
+
+#[test]
+fn omitted_expand_still_inlines_loon_rule_sets() {
+    let requested_urls = Arc::new(Mutex::new(Vec::new()));
+    let application = Application::new(
+        AclResources {
+            requested_urls: Arc::clone(&requested_urls),
+        },
+        SelfHosts::new(["service.example"]).expect("valid aliases"),
+    );
+    let source = concat!(
+        "vless://01234567-89ab-cdef-0123-456789abcdef",
+        "@example.com:443#Alpha",
+    );
+    let query = format!(
+        "target=loon&url={}&config={}",
+        percent_encode(source),
+        percent_encode("https://config.example/acl.ini"),
+    );
+
+    let response = futures::executor::block_on(application.handle(
+        HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
+    ));
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = std::str::from_utf8(response.body()).expect("Loon output is UTF-8");
+    assert!(body.contains("DOMAIN,example.org,PROXY"));
+    assert!(body.contains("GEOIP,CN,DIRECT"));
+    assert!(!body.contains("rule-providers:"));
+    assert_eq!(
+        *requested_urls.lock().expect("test recorder lock"),
+        [
+            "https://config.example/acl.ini".to_owned(),
+            "https://rules.example/list".to_owned()
+        ]
+    );
+}
+
+#[test]
+fn omitted_expand_emits_egern_rule_set_refs_without_fetching_lists() {
+    let requested_urls = Arc::new(Mutex::new(Vec::new()));
+    let application = Application::new(
+        AclResources {
+            requested_urls: Arc::clone(&requested_urls),
+        },
+        SelfHosts::new(["service.example"]).expect("valid aliases"),
+    );
+    let source = concat!(
+        "vless://01234567-89ab-cdef-0123-456789abcdef",
+        "@example.com:443#Alpha",
+    );
+    let query = format!(
+        "target=egern&url={}&config={}",
+        percent_encode(source),
+        percent_encode("https://config.example/acl.ini"),
+    );
+
+    let response = futures::executor::block_on(application.handle(
+        HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
+    ));
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = std::str::from_utf8(response.body()).expect("Egern output is UTF-8");
+    assert!(body.contains("rule_set:"));
+    assert!(body.contains("match: https://rules.example/list"));
+    assert!(!body.contains("example.org"));
+    assert_eq!(
+        *requested_urls.lock().expect("test recorder lock"),
+        ["https://config.example/acl.ini".to_owned()]
+    );
+}
+
+#[test]
 fn head_with_config_uses_the_same_keep_pass_as_get() {
     let requested_urls = Arc::new(Mutex::new(Vec::new()));
     let application = Application::new(
@@ -133,7 +243,7 @@ fn head_with_config_uses_the_same_keep_pass_as_get() {
         "@example.com:443#Alpha",
     );
     let valid_query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode("https://config.example/acl.ini"),
     );
@@ -158,7 +268,7 @@ fn head_with_config_uses_the_same_keep_pass_as_get() {
     requested_urls.lock().expect("test recorder lock").clear();
 
     let forbidden_query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode("https://127.0.0.1/acl.ini"),
     );
@@ -239,7 +349,7 @@ fn broker_keys_unique_flight_by_canonical_url() {
     );
     let shared_url = "https://shared.example/resource";
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode(shared_url),
     );
@@ -343,7 +453,7 @@ fn get_clash_config(config_url: &str, config: Vec<u8>) -> (StatusCode, Vec<Strin
         "@example.com:443#Alpha",
     );
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode(config_url),
     );
@@ -394,7 +504,7 @@ fn rule_set_unique_budget_is_preflighted_before_rule_set_io() {
         "@example.com:443#Alpha",
     );
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode("https://config.example/acl.ini"),
     );
@@ -449,7 +559,7 @@ fn earlier_unique_budget_crossing_precedes_a_later_invalid_rule_set_url() {
         "@example.com:443#Alpha",
     );
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode("https://config.example/acl.ini"),
     );
@@ -508,7 +618,7 @@ fn earlier_invalid_rule_set_precedes_later_rule_set_timeout() {
         "@example.com:443#Alpha",
     );
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode("https://config.example/acl.ini"),
     );
@@ -564,7 +674,7 @@ fn earlier_invalid_rule_set_precedes_later_aggregate_byte_crossing() {
         "@example.com:443#Alpha",
     );
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode("https://config.example/acl.ini"),
     );
@@ -629,7 +739,7 @@ fn aggregate_crossing_stops_later_rule_set_chunks() {
         "@example.com:443#Alpha",
     );
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(source),
         percent_encode("https://config.example/acl.ini"),
     );
@@ -708,7 +818,7 @@ fn known_attempt_exhaustion_is_preflighted_before_rule_set_io() {
         .collect::<Vec<_>>()
         .join("|");
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(&sources),
         percent_encode("https://config.example/start"),
     );
@@ -787,7 +897,7 @@ fn scarce_redirect_attempts_are_granted_in_rule_set_declaration_order() {
         .collect::<Vec<_>>()
         .join("|");
     let query = format!(
-        "target=clash&url={}&config={}",
+        "target=clash&expand=true&url={}&config={}",
         percent_encode(&sources),
         percent_encode("https://config.example/start"),
     );

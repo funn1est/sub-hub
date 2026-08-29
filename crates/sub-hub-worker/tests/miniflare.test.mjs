@@ -386,7 +386,7 @@ test("non-443 remote source is rejected before fetch", async (t) => {
   const remote = encodeURIComponent("https://example.com:8443/sub");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${remote}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
   );
 
   assert.equal(response.status, 400);
@@ -414,7 +414,7 @@ test("remote fetch is constrained and preserves the shared response", async (t) 
   const remote = encodeURIComponent("https://example.com/sub");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${remote}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
     {
       headers: {
         Authorization: "Bearer caller-secret",
@@ -468,7 +468,7 @@ test("remote ACL4SSR config and Rule Set render through the Worker host", async 
   const config = encodeURIComponent("https://config.example/acl.ini");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${encodeURIComponent(VLESS)}&config=${config}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${encodeURIComponent(VLESS)}&config=${config}`,
   );
 
   assert.equal(response.status, 200, await response.clone().text());
@@ -493,7 +493,7 @@ test("oversize remote config is a deterministic bad gateway", async (t) => {
   const config = encodeURIComponent("https://config.example/acl.ini");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${encodeURIComponent(VLESS)}&config=${config}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${encodeURIComponent(VLESS)}&config=${config}`,
   );
 
   assert.equal(response.status, 502);
@@ -515,7 +515,7 @@ test("relative redirects are manual and each hop is constrained", async (t) => {
   const remote = encodeURIComponent("https://example.com/start");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${remote}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
   );
 
   assert.equal(response.status, 200);
@@ -536,7 +536,7 @@ test("redirect Location may contain a legal comma", async (t) => {
   const remote = encodeURIComponent("https://example.com/start");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${remote}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
   );
 
   assert.equal(response.status, 200);
@@ -561,7 +561,7 @@ test("combined metadata is ignored instead of forwarded", async (t) => {
   const remote = encodeURIComponent("https://example.com/sub");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${remote}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
   );
 
   assert.equal(response.status, 200);
@@ -580,7 +580,7 @@ test("redirect to a non-443 port is a deterministic bad gateway", async (t) => {
   const remote = encodeURIComponent("https://example.com/start");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${remote}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
   );
 
   assert.equal(response.status, 502);
@@ -599,7 +599,7 @@ test("upstream failure maps to bad gateway", async (t) => {
   const remote = encodeURIComponent("https://example.com/sub");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${remote}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
   );
 
   assert.equal(response.status, 502);
@@ -619,7 +619,7 @@ test("hung remote fetch returns an application error without crashing the isolat
   const remote = encodeURIComponent("https://example.com/sub");
 
   const response = await mf.dispatchFetch(
-    `https://worker.example/sub?target=clash&url=${remote}`,
+    `https://worker.example/sub?target=clash&expand=true&url=${remote}`,
   );
 
   const body = await response.text();

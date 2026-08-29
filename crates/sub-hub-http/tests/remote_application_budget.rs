@@ -131,7 +131,7 @@ fn at_most_four_remote_resources_are_active_and_a_free_slot_starts_the_next() {
         .map(|query| query.replace("target=clash&url=", ""))
         .collect::<Vec<_>>()
         .join("%7C");
-    let query = format!("target=clash&url={encoded_sources}");
+    let query = format!("target=clash&expand=true&url={encoded_sources}");
     let mut response = Box::pin(application.handle(HttpRequest::new_with_inbound_host(
         Method::GET,
         "/sub",
@@ -205,7 +205,7 @@ fn failure_status_uses_the_earliest_source_and_stops_starting_queued_resources()
         .map(|source| query_for_source(source).replace("target=clash&url=", ""))
         .collect::<Vec<_>>()
         .join("%7C");
-    let query = format!("target=clash&url={encoded_sources}");
+    let query = format!("target=clash&expand=true&url={encoded_sources}");
     let mut response = Box::pin(application.handle(HttpRequest::new_with_inbound_host(
         Method::GET,
         "/sub",
@@ -275,7 +275,7 @@ fn earlier_invalid_remote_container_precedes_a_later_timeout() {
         .map(|source| query_for_source(source).replace("target=clash&url=", ""))
         .collect::<Vec<_>>()
         .join("%7C");
-    let query = format!("target=clash&url={encoded_sources}");
+    let query = format!("target=clash&expand=true&url={encoded_sources}");
     let mut response = Box::pin(application.handle(HttpRequest::new_with_inbound_host(
         Method::GET,
         "/sub",
@@ -362,7 +362,7 @@ fn total_loading_deadline_expires_queued_work_before_remote_io() {
         futures::executor::block_on(application.handle(HttpRequest::new_with_inbound_host(
             Method::GET,
             "/sub",
-            Some("target=clash&url=https%3A%2F%2Fupstream.example%2Fsub"),
+            Some("target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fsub"),
             "service.example",
         )));
 

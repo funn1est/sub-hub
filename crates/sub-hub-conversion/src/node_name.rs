@@ -33,11 +33,16 @@ impl fmt::Debug for NodeNameV1 {
 pub(crate) struct NamedSubscriptionSources {
     occurrences: Vec<NamedNodeOccurrence>,
     diagnostics: NodeNameDiagnostics,
+    unexpanded_https: Vec<String>,
 }
 
 impl NamedSubscriptionSources {
     pub(crate) fn occurrences(&self) -> &[NamedNodeOccurrence] {
         &self.occurrences
+    }
+
+    pub(crate) fn unexpanded_https(&self) -> &[String] {
+        &self.unexpanded_https
     }
 
     #[cfg_attr(
@@ -138,6 +143,7 @@ pub(crate) fn resolve_node_names(
 ) -> Result<NamedSubscriptionSources, NodeNameError> {
     let mut diagnostics = NodeNameDiagnostics::default();
     let mut allocator = NameAllocator::new(final_group_names)?;
+    let unexpanded_https = parsed.unexpanded_https;
     let occurrences = parsed
         .occurrences
         .into_iter()
@@ -215,6 +221,7 @@ pub(crate) fn resolve_node_names(
     Ok(NamedSubscriptionSources {
         occurrences,
         diagnostics,
+        unexpanded_https,
     })
 }
 

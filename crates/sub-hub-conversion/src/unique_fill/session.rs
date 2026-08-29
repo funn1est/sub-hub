@@ -37,6 +37,7 @@ struct SessionState {
     decoded_byte_cap: usize,
     decoded_bytes: usize,
     append_subscription_user_info: bool,
+    expand: bool,
 }
 
 enum Stage {
@@ -187,6 +188,7 @@ impl UniqueFlightSessionV1 {
     /// session owns both running tallies and whether the subscription hop may
     /// capture Subscription user-info; HTTP does not feed counts per step.
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn start<'a, I>(
         sources: &[String],
         occurrence_canonical: I,
@@ -195,6 +197,7 @@ impl UniqueFlightSessionV1 {
         decoded_byte_cap: usize,
         unique_remote_cap: usize,
         append_subscription_user_info: bool,
+        expand: bool,
     ) -> UniqueFlightDrive
     where
         I: IntoIterator<Item = Option<&'a Url>>,
@@ -207,12 +210,14 @@ impl UniqueFlightSessionV1 {
             decoded_byte_cap,
             unique_remote_cap,
             append_subscription_user_info,
+            expand,
         ) {
             Ok(session) => session.into_drive(),
             Err(failure) => UniqueFlightDrive::Ended(Err(failure)),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn bind<'a, I>(
         sources: &[String],
         occurrence_canonical: I,
@@ -221,17 +226,28 @@ impl UniqueFlightSessionV1 {
         decoded_byte_cap: usize,
         unique_remote_cap: usize,
         append_subscription_user_info: bool,
+        expand: bool,
     ) -> Result<Self, UniqueFlightFillFailure>
     where
         I: IntoIterator<Item = Option<&'a Url>>,
     {
         let mut unique_remotes = UniqueUrls::empty();
-        let fill = UniqueFlightFillV1::try_bind_optional(
-            &mut unique_remotes,
-            unique_remote_cap,
-            occurrence_canonical,
-        )
-        .map_err(|()| UniqueFlightFillFailure::ConversionLimit)?;
+        let fetch_subscriptions = expand || !target.unexpands_subscriptions();
+        let fill = if fetch_subscriptions {
+            UniqueFlightFillV1::try_bind_optional(
+                &mut unique_remotes,
+                unique_remote_cap,
+                occurrence_canonical,
+            )
+            .map_err(|()| UniqueFlightFillFailure::ConversionLimit)?
+        } else {
+            UniqueFlightFillV1::try_bind_optional(
+                &mut unique_remotes,
+                unique_remote_cap,
+                occurrence_canonical.into_iter().map(|_| None),
+            )
+            .map_err(|()| UniqueFlightFillFailure::ConversionLimit)?
+        };
         let empty_uniques = unique_remotes.is_empty();
         let state = SessionState {
             sources: sources.to_vec(),
@@ -242,6 +258,7 @@ impl UniqueFlightSessionV1 {
             decoded_byte_cap,
             decoded_bytes: 0,
             append_subscription_user_info,
+            expand,
         };
         if empty_uniques {
             Self::feed_subscription(state, &fill, &[])
@@ -482,6 +499,9 @@ where
             .map_err(UniqueFlightFillFailure::from_rule_set)?;
         return keep_pass_rule_sets(state, bound, &[]);
     }
+    if !state.expand && state.target.unexpands_rule_sets() {
+        return keep_pass_unexpanded_acl4ssr(state, prepared);
+    }
     let mut fill = UniqueFlightFillV1::empty();
     for request in prepared.rule_set_requests() {
         let accepted = accept(request.url()).map_err(UniqueFlightFillFailure::from_host)?;
@@ -502,6 +522,19 @@ where
     } else {
         keep_pass_rule_sets(state, bound, &[])
     }
+}
+
+fn keep_pass_unexpanded_acl4ssr(
+    state: SessionState,
+    prepared: PreparedAcl4SsrV1,
+) -> Result<UniqueFlightSessionV1, UniqueFlightFillFailure> {
+    let document = prepared
+        .render_unexpanded_v1(state.target)
+        .map_err(UniqueFlightFillFailure::from_rule_set)?;
+    Ok(UniqueFlightSessionV1 {
+        state,
+        stage: Stage::Ready(document),
+    })
 }
 
 fn keep_pass_rule_sets(

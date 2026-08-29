@@ -2,10 +2,7 @@ import {
   GET_TARGET_LIMIT_BYTES,
   encodeSubGetTarget,
   isHttpSource,
-  isQueryKey,
-  isTarget,
   parseAccessToken,
-  percentDecodeValue,
   type Target,
 } from "./service-contract.ts"
 
@@ -17,6 +14,8 @@ export type WorkshopFields = {
   target: Target
   configUrl: string
   appendInfo: boolean
+  /** When true, Subscription URL includes expand=true (inline remotes). */
+  expand: boolean
 }
 
 /** Shared input attrs for origin / source / config URL fields. */
@@ -57,29 +56,6 @@ export type WorkshopView = {
   configInvalid: boolean
   sourceInvalid: boolean[]
 }
-
-export type PasteWarning =
-  | "unknown-keys"
-  | "duplicate-keys"
-  | "invalid-target"
-  | "invalid-token"
-  | "invalid-append-info"
-  | "invalid-insert"
-  | "empty-sources"
-  | "http-sources"
-
-export type PasteSet = {
-  serviceOrigin: string
-  accessToken: string
-  sources?: string[]
-  target?: Target
-  configUrl: string
-  appendInfo: boolean
-}
-
-export type PasteResult =
-  | { ok: true; workshop: PasteSet; warnings: PasteWarning[] }
-  | { ok: false; reason: "invalid-url" }
 
 export function parseServiceOrigin(raw: string): string | null {
   const trimmed = raw.trim()
@@ -179,6 +155,7 @@ export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
           target: input.target,
           configUrl: config,
           appendInfo: input.appendInfo,
+          expand: input.expand,
         })
       : emptyAssembled
   return {
@@ -198,6 +175,7 @@ function assembledFrom(input: {
   target: Target
   configUrl: string
   appendInfo: boolean
+  expand: boolean
 }): Assembled {
   const getTarget = encodeSubGetTarget({
     accessToken: input.token,
@@ -205,6 +183,7 @@ function assembledFrom(input: {
     sources: input.sources,
     configUrl: input.configUrl,
     appendInfo: input.appendInfo,
+    expand: input.expand,
   })
   const overLimit =
     new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES
@@ -214,168 +193,5 @@ function assembledFrom(input: {
     overLimit,
     previewable: !overLimit,
     clashInstall: input.target === "clash" || input.target === "mihomo",
-  }
-}
-
-type PasteDecode =
-  | {
-      ok: true
-      origin: string
-      accessToken: string
-      target?: Target
-      sources?: string[]
-      configUrl: string
-      appendInfo: boolean
-      warnings: PasteWarning[]
-    }
-  | { ok: false; reason: "invalid-url" }
-
-/** Lenient Subscription URL salvage for Workshop paste. Unknown keys warn. */
-function decodeSubscriptionUrl(raw: string): PasteDecode {
-  const trimmed = raw.trim()
-  let url: URL
-  try {
-    url = new URL(trimmed)
-  } catch {
-    return { ok: false, reason: "invalid-url" }
-  }
-  if (url.username !== "" || url.password !== "") {
-    return { ok: false, reason: "invalid-url" }
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return { ok: false, reason: "invalid-url" }
-  }
-
-  const pathname = url.pathname
-  const warnings: PasteWarning[] = []
-  let accessToken = ""
-  if (pathname === "/sub") {
-    accessToken = ""
-  } else if (pathname.startsWith("/sub/")) {
-    const rest = pathname.slice("/sub/".length)
-    if (rest.includes("/") || rest.length === 0) {
-      return { ok: false, reason: "invalid-url" }
-    }
-    const parsed = parseAccessToken(rest)
-    if (!parsed.ok) {
-      warnings.push("invalid-token")
-    } else {
-      accessToken = parsed.token
-    }
-  } else {
-    return { ok: false, reason: "invalid-url" }
-  }
-
-  const origin = `${url.protocol}//${url.host}`
-  const decoded: Extract<PasteDecode, { ok: true }> = {
-    ok: true,
-    origin,
-    accessToken,
-    configUrl: "",
-    appendInfo: true,
-    warnings,
-  }
-
-  const rawQuery = url.search.startsWith("?") ? url.search.slice(1) : ""
-  if (rawQuery.length === 0) {
-    return decoded
-  }
-
-  const seen = new Set<string>()
-  let unknown = false
-  let duplicate = false
-  const values = new Map<string, string>()
-  for (const pair of rawQuery.split("&")) {
-    const eq = pair.indexOf("=")
-    if (eq <= 0) {
-      return { ok: false, reason: "invalid-url" }
-    }
-    const key = pair.slice(0, eq)
-    const value = percentDecodeValue(pair.slice(eq + 1))
-    if (value === null) {
-      return { ok: false, reason: "invalid-url" }
-    }
-    if (!isQueryKey(key)) {
-      unknown = true
-    }
-    if (seen.has(key)) {
-      duplicate = true
-    }
-    seen.add(key)
-    if (!values.has(key)) {
-      values.set(key, value)
-    }
-  }
-  if (unknown) {
-    decoded.warnings.push("unknown-keys")
-  }
-  if (duplicate) {
-    decoded.warnings.push("duplicate-keys")
-  }
-
-  const target = values.get("target")
-  if (target !== undefined) {
-    if (isTarget(target)) {
-      decoded.target = target
-    } else {
-      decoded.warnings.push("invalid-target")
-    }
-  }
-
-  const urlParam = values.get("url")
-  if (urlParam !== undefined && urlParam.length > 0) {
-    const sources = urlParam.split("|")
-    if (sources.some((source) => source.length === 0)) {
-      decoded.warnings.push("empty-sources")
-    }
-    if (sources.some((source) => isHttpSource(source))) {
-      decoded.warnings.push("http-sources")
-    }
-    decoded.sources = sources.filter((source) => source.length > 0)
-  }
-
-  const insert = values.get("insert")
-  if (insert !== undefined && insert !== "false") {
-    decoded.warnings.push("invalid-insert")
-  }
-
-  const config = values.get("config")
-  if (config !== undefined) {
-    decoded.configUrl = config
-  }
-
-  const append = values.get("append_info")
-  if (append === "false") {
-    decoded.appendInfo = false
-  } else if (append === "true" || append === undefined) {
-    decoded.appendInfo = true
-  } else {
-    decoded.warnings.push("invalid-append-info")
-    decoded.appendInfo = true
-  }
-
-  return decoded
-}
-
-export function parseSubscriptionUrl(raw: string): PasteResult {
-  const decoded = decodeSubscriptionUrl(raw)
-  if (!decoded.ok) {
-    return decoded
-  }
-  const origin = parseServiceOrigin(decoded.origin)
-  if (origin === null) {
-    return { ok: false, reason: "invalid-url" }
-  }
-  return {
-    ok: true,
-    workshop: {
-      serviceOrigin: origin,
-      accessToken: decoded.accessToken,
-      sources: decoded.sources,
-      target: decoded.target,
-      configUrl: decoded.configUrl,
-      appendInfo: decoded.appendInfo,
-    },
-    warnings: decoded.warnings,
   }
 }

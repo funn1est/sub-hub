@@ -14,8 +14,6 @@ import {
   clashInstallUrl,
   evaluateWorkshop,
   parseServiceOrigin,
-  parseSubscriptionUrl,
-  type PasteSet,
   type WorkshopFields,
 } from "./workshop.ts"
 
@@ -31,17 +29,6 @@ const TWO_SOURCES_ENCODED =
   "vless%3A%2F%2Fu%40h%3A443%23A%7Css%3A%2F%2Fp%40h%3A8388%23B"
 const ONLINE_ENCODED = encodeURIComponent(ACL4SSR_ONLINE_URL)
 
-function fieldsFromPaste(workshop: PasteSet): WorkshopFields {
-  return {
-    serviceOrigin: workshop.serviceOrigin,
-    accessToken: workshop.accessToken,
-    sources: workshop.sources ?? [""],
-    target: workshop.target ?? "clash",
-    configUrl: workshop.configUrl,
-    appendInfo: workshop.appendInfo,
-  }
-}
-
 function input(overrides: Partial<WorkshopFields> = {}): WorkshopFields {
   return {
     serviceOrigin: "http://127.0.0.1:25500",
@@ -50,6 +37,7 @@ function input(overrides: Partial<WorkshopFields> = {}): WorkshopFields {
     target: "clash",
     configUrl: "",
     appendInfo: true,
+    expand: true,
     ...overrides,
   }
 }
@@ -98,9 +86,11 @@ describe("assembleSubscription", () => {
   it("emits anonymous /sub with target then url, and omits append_info when on", () => {
     const assembled = assembleSubscription(input())
     expect(assembled.url).toBe(
-      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}`
+      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&expand=true`
     )
-    expect(assembled.getTarget).toBe(`/sub?target=clash&url=${VLESS_ENCODED}`)
+    expect(assembled.getTarget).toBe(
+      `/sub?target=clash&url=${VLESS_ENCODED}&expand=true`
+    )
     expect(assembled.overLimit).toBe(false)
     expect(assembled.url).not.toContain("append_info")
   })
@@ -110,10 +100,10 @@ describe("assembleSubscription", () => {
       input({ accessToken: "deployer-token_1" })
     )
     expect(assembled.url).toBe(
-      `http://127.0.0.1:25500/sub/deployer-token_1?target=clash&url=${VLESS_ENCODED}`
+      `http://127.0.0.1:25500/sub/deployer-token_1?target=clash&url=${VLESS_ENCODED}&expand=true`
     )
     expect(assembled.getTarget).toBe(
-      `/sub/deployer-token_1?target=clash&url=${VLESS_ENCODED}`
+      `/sub/deployer-token_1?target=clash&url=${VLESS_ENCODED}&expand=true`
     )
   })
 
@@ -122,7 +112,7 @@ describe("assembleSubscription", () => {
       input({ sources: ["vless://u@h:443#A", "ss://p@h:8388#B"] })
     )
     expect(assembled.getTarget).toBe(
-      `/sub?target=clash&url=${TWO_SOURCES_ENCODED}`
+      `/sub?target=clash&url=${TWO_SOURCES_ENCODED}&expand=true`
     )
   })
 
@@ -137,7 +127,7 @@ describe("assembleSubscription", () => {
     ]
     const assembled = assembleSubscription(input({ sources }))
     expect(assembled.getTarget).toBe(
-      `/sub?target=clash&url=${encodeURIComponent(sources.join("|"))}`
+      `/sub?target=clash&url=${encodeURIComponent(sources.join("|"))}&expand=true`
     )
     expect(assembled.overLimit).toBe(false)
     expect(assembled.previewable).toBe(true)
@@ -152,26 +142,39 @@ describe("assembleSubscription", () => {
       })
     )
     expect(assembled.getTarget).toBe(
-      `/sub?target=singbox&url=${VLESS_ENCODED}&config=${ONLINE_ENCODED}&append_info=false`
+      `/sub?target=singbox&url=${VLESS_ENCODED}&config=${ONLINE_ENCODED}&append_info=false&expand=true`
     )
+  })
+
+  it("writes expand=true by default and omits the key when the switch is off", () => {
+    expect(assembleSubscription(input()).getTarget).toBe(
+      `/sub?target=clash&url=${VLESS_ENCODED}&expand=true`
+    )
+    expect(
+      assembleSubscription(input({ expand: false })).getTarget
+    ).toBe(`/sub?target=clash&url=${VLESS_ENCODED}`)
   })
 
   it("emits mihomo as the exact selected token", () => {
     const assembled = assembleSubscription(input({ target: "mihomo" }))
-    expect(assembled.getTarget).toBe(`/sub?target=mihomo&url=${VLESS_ENCODED}`)
+    expect(assembled.getTarget).toBe(
+      `/sub?target=mihomo&url=${VLESS_ENCODED}&expand=true`
+    )
   })
 
   it("flags GET targets longer than 8192 bytes and still returns the URL", () => {
-    const atLimit = assembleSubscription(input({ sources: ["a".repeat(8170)] }))
-    expect(atLimit.getTarget).toBe(`/sub?target=clash&url=${"a".repeat(8170)}`)
+    const atLimit = assembleSubscription(input({ sources: ["a".repeat(8158)] }))
+    expect(atLimit.getTarget).toBe(
+      `/sub?target=clash&url=${"a".repeat(8158)}&expand=true`
+    )
     expect(new TextEncoder().encode(atLimit.getTarget ?? "").length).toBe(8192)
     expect(atLimit.overLimit).toBe(false)
 
-    const over = assembleSubscription(input({ sources: ["a".repeat(8171)] }))
+    const over = assembleSubscription(input({ sources: ["a".repeat(8159)] }))
     expect(new TextEncoder().encode(over.getTarget ?? "").length).toBe(8193)
     expect(over.overLimit).toBe(true)
     expect(over.url).toBe(
-      `http://127.0.0.1:25500/sub?target=clash&url=${"a".repeat(8171)}`
+      `http://127.0.0.1:25500/sub?target=clash&url=${"a".repeat(8159)}&expand=true`
     )
   })
 
@@ -200,125 +203,6 @@ describe("assembleSubscription", () => {
       assembleSubscription(input({ configUrl: "https://127.0.0.1/acl.ini" }))
         .url
     ).not.toBeNull()
-  })
-})
-
-describe("parseSubscriptionUrl", () => {
-  it("round-trips /sub and /sub/:token plus the known query keys", () => {
-    const anonymous = parseSubscriptionUrl(
-      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}`
-    )
-    expect(anonymous.ok).toBe(true)
-    if (!anonymous.ok) {
-      return
-    }
-    expect(anonymous.workshop).toEqual({
-      serviceOrigin: "http://127.0.0.1:25500",
-      accessToken: "",
-      sources: [VLESS],
-      target: "clash",
-      configUrl: "",
-      appendInfo: true,
-    })
-    expect(anonymous.warnings).toEqual([])
-
-    const tokenized = parseSubscriptionUrl(
-      `https://sub-hub.example/sub/deployer-token_1?target=loon&url=${TWO_SOURCES_ENCODED}&config=${ONLINE_ENCODED}&append_info=false`
-    )
-    expect(tokenized.ok).toBe(true)
-    if (!tokenized.ok) {
-      return
-    }
-    expect(tokenized.workshop.serviceOrigin).toBe("https://sub-hub.example")
-    expect(tokenized.workshop.accessToken).toBe("deployer-token_1")
-    expect(tokenized.workshop.sources).toEqual([
-      "vless://u@h:443#A",
-      "ss://p@h:8388#B",
-    ])
-    expect(tokenized.workshop.target).toBe("loon")
-    expect(tokenized.workshop.configUrl).toBe(ACL4SSR_ONLINE_URL)
-    expect(tokenized.workshop.appendInfo).toBe(false)
-  })
-
-  it("fills known keys, warns on unknown keys, and does not copy them onto a new URL", () => {
-    const parsed = parseSubscriptionUrl(
-      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&filename=x&insert=false`
-    )
-    expect(parsed.ok).toBe(true)
-    if (!parsed.ok) {
-      return
-    }
-    expect(parsed.warnings).toContain("unknown-keys")
-    expect(parsed.warnings).not.toContain("duplicate-keys")
-    const again = assembleSubscription(fieldsFromPaste(parsed.workshop))
-    expect(again.url).toBe(
-      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}`
-    )
-    expect(again.url).not.toContain("filename")
-    expect(again.url).not.toContain("insert")
-  })
-
-  it("keeps a literal plus in query values instead of treating it as space", () => {
-    const parsed = parseSubscriptionUrl(
-      "http://127.0.0.1:25500/sub?target=clash&url=ss%3A%2F%2Faes-128-gcm%3Ap%2Bss%40example.com%3A8388%23Plus"
-    )
-    expect(parsed.ok).toBe(true)
-    if (!parsed.ok) {
-      return
-    }
-    expect(parsed.workshop.sources).toEqual([
-      "ss://aes-128-gcm:p+ss@example.com:8388#Plus",
-    ])
-  })
-
-  it("rejects a trailing slash on /sub/", () => {
-    expect(
-      parseSubscriptionUrl(
-        `http://127.0.0.1:25500/sub/?target=clash&url=${VLESS_ENCODED}`
-      ).ok
-    ).toBe(false)
-  })
-
-  it("warns on insert, empty url slots, and http sources without copying them", () => {
-    const insert = parseSubscriptionUrl(
-      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&insert=true`
-    )
-    expect(insert.ok).toBe(true)
-    if (insert.ok) {
-      expect(insert.warnings).toContain("invalid-insert")
-    }
-
-    const emptySlots = parseSubscriptionUrl(
-      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}%7C%7C${VLESS_ENCODED}`
-    )
-    expect(emptySlots.ok).toBe(true)
-    if (emptySlots.ok) {
-      expect(emptySlots.warnings).toContain("empty-sources")
-      expect(emptySlots.workshop.sources).toEqual([VLESS, VLESS])
-    }
-
-    const httpSource = parseSubscriptionUrl(
-      "http://127.0.0.1:25500/sub?target=clash&url=http%3A%2F%2Finsecure.example%2Fsub"
-    )
-    expect(httpSource.ok).toBe(true)
-    if (httpSource.ok) {
-      expect(httpSource.warnings).toContain("http-sources")
-      expect(httpSource.workshop.sources).toEqual([
-        "http://insecure.example/sub",
-      ])
-    }
-  })
-
-  it("warns on an unknown target and does not write window.location", () => {
-    const parsed = parseSubscriptionUrl(
-      `http://127.0.0.1:25500/sub?target=surge&url=${VLESS_ENCODED}`
-    )
-    expect(parsed.ok).toBe(true)
-    if (!parsed.ok) {
-      return
-    }
-    expect(parsed.warnings).toContain("invalid-target")
-    expect(parsed.workshop.target).toBeUndefined()
   })
 })
 
@@ -421,8 +305,6 @@ describe("subscription URL golden", () => {
         query: string
         path?: string
         workshop?: WorkshopFields
-        workshopParse?: { ok: true; warnings: string[] }
-        assembleOmits?: string[]
       }>
     }
 
@@ -436,44 +318,6 @@ describe("subscription URL golden", () => {
         expect(assembled.url, testCase.id).toBe(
           `${testCase.workshop.serviceOrigin}${path}?${testCase.query}`
         )
-        const parsed = parseSubscriptionUrl(assembled.url ?? "")
-        expect(parsed.ok, testCase.id).toBe(true)
-        if (parsed.ok) {
-          expect(parsed.workshop, testCase.id).toEqual({
-            serviceOrigin: testCase.workshop.serviceOrigin,
-            accessToken: testCase.workshop.accessToken,
-            sources: testCase.workshop.sources,
-            target: testCase.workshop.target,
-            configUrl: testCase.workshop.configUrl,
-            appendInfo: testCase.workshop.appendInfo,
-          })
-        }
-      }
-
-      if (testCase.workshopParse !== undefined) {
-        const parsed = parseSubscriptionUrl(
-          `http://127.0.0.1:25500/sub?${testCase.query}`
-        )
-        expect(parsed.ok, testCase.id).toBe(testCase.workshopParse.ok)
-        if (parsed.ok) {
-          expect(parsed.warnings, testCase.id).toEqual(
-            testCase.workshopParse.warnings
-          )
-        }
-      }
-
-      if (testCase.assembleOmits !== undefined) {
-        const parsed = parseSubscriptionUrl(
-          `http://127.0.0.1:25500/sub?${testCase.query}`
-        )
-        expect(parsed.ok, testCase.id).toBe(true)
-        if (!parsed.ok) {
-          continue
-        }
-        const again = assembleSubscription(fieldsFromPaste(parsed.workshop))
-        for (const omitted of testCase.assembleOmits) {
-          expect(again.url, testCase.id).not.toContain(omitted)
-        }
       }
     }
   })

@@ -34,6 +34,12 @@ Remote, decode, and node budgets still fail closed as
 `Resource limit exceeded!`. An optional HTTPS `config` value selects a strict
 ACL4SSR INI configuration and its remote Rule Sets. Absent or empty `config=`
 uses the default PROXY/AUTO policy; that is not a remote Rule frontend.
+Omit `expand` or set `expand=false` to leave HTTPS subscriptions and Online
+Rule Sets as client remote refs on `clash`/`mihomo`/`egern` (Mihomo
+`proxy-providers` / `rule-providers`, Egern `external` / `rule_set`). Explicit
+`expand=true` inlines them through Unique-flight as before. The Web Console
+switch defaults on and writes `expand=true`. `singbox`,
+`quanx`, and `loon` still inline when `expand` is omitted.
 `URL-REGEX` is emitted for Loon and omitted on the other targets. Quantumult X
 skips gRPC, VLESS Vision without Reality, `auto`/`zero` VMess, and every
 Hysteria2 and TUIC node, and omits process-name rules. sing-box omits GeoIP CN,

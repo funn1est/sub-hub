@@ -165,6 +165,7 @@ impl<A: RemoteAdapter> Application<A> {
             &parsed.sources,
             &occurrence_urls,
             parsed.append_info,
+            parsed.expand,
             config_url,
             parsed.target,
         )

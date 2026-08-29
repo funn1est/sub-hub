@@ -24,8 +24,6 @@ import {
   filenameFromDisposition,
   parseSkippedFromHeaders,
 } from "./preview.ts"
-import { parseSubscriptionUrl } from "./workshop.ts"
-
 type GoldenContract = {
   targets: string[]
   queryKeys: string[]
@@ -97,21 +95,10 @@ describe("Conversion Service GET contract", () => {
     }
     for (const sample of contract.percentDecode) {
       expect(percentDecodeValue(sample.encoded)).toBe(sample.decoded)
-      const decoded = parseSubscriptionUrl(
-        `http://127.0.0.1:25500/sub?target=clash&url=${sample.encoded}`
-      )
-      if (sample.decoded === null) {
-        expect(decoded.ok).toBe(false)
-      } else {
-        expect(decoded.ok).toBe(true)
-        if (decoded.ok) {
-          expect(decoded.workshop.sources).toEqual([sample.decoded])
-        }
-      }
     }
   })
 
-  it("encodes request-target without insert and decodes plus as literal", () => {
+  it("encodes request-target without insert and keeps a literal plus", () => {
     const getTarget = encodeSubGetTarget({
       accessToken: "",
       target: "clash",
@@ -123,17 +110,5 @@ describe("Conversion Service GET contract", () => {
       "/sub?target=clash&url=ss%3A%2F%2Faes-128-gcm%3Ap%2Bss%40example.com%3A8388%23Plus"
     )
     expect(getTarget).not.toContain("insert")
-    const decoded = parseSubscriptionUrl(`http://127.0.0.1:25500${getTarget}`)
-    expect(decoded.ok).toBe(true)
-    if (decoded.ok) {
-      expect(decoded.workshop.sources).toEqual([
-        "ss://aes-128-gcm:p+ss@example.com:8388#Plus",
-      ])
-    }
-    expect(
-      parseSubscriptionUrl(
-        "http://127.0.0.1:25500/sub/?target=clash&url=vless://x"
-      ).ok
-    ).toBe(false)
   })
 })

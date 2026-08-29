@@ -6,6 +6,10 @@ pub(crate) struct SubQuery {
     pub(crate) config: Option<String>,
     /// Captures `subscription-userinfo` on a single remote source. Not `profile-update-interval`.
     pub(crate) append_info: bool,
+    /// Explicit `expand=true` inlines remote subscriptions and Rule Sets.
+    /// Omitted or `expand=false` leaves them as client remote refs when the
+    /// target can name them.
+    pub(crate) expand: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,6 +32,7 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
     let mut config = None;
     let mut insert = None;
     let mut append_info = None;
+    let mut expand = None;
 
     if !raw_query.is_empty() {
         for pair in raw_query.split('&') {
@@ -44,6 +49,7 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
                 "config" => &mut config,
                 "insert" => &mut insert,
                 "append_info" => &mut append_info,
+                "expand" => &mut expand,
                 _ => return Err(QueryError::InvalidRequest),
             };
             if slot.replace(value).is_some() {
@@ -69,6 +75,11 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
         Some("false") => false,
         Some(_) => return Err(QueryError::InvalidRequest),
     };
+    let expand = match expand.as_deref() {
+        None | Some("false") => false,
+        Some("true") => true,
+        Some(_) => return Err(QueryError::InvalidRequest),
+    };
     let sources = url.split('|').map(str::to_owned).collect::<Vec<_>>();
     if sources.iter().any(|source| is_http_source(source)) {
         return Err(QueryError::InvalidRequest);
@@ -79,6 +90,7 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
         sources,
         config: config.filter(|value| !value.is_empty()),
         append_info,
+        expand,
     })
 }
 

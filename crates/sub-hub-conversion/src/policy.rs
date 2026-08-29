@@ -5,22 +5,73 @@ use crate::node::ProxyNode;
 pub(crate) const BUILTIN_AUTO_PROBE_URL: &str = "https://www.gstatic.com/generate_204";
 pub(crate) const BUILTIN_AUTO_PROBE_INTERVAL: u32 = 300;
 
+#[derive(Clone)]
+pub(crate) struct UnexpandedSubscriptionV1 {
+    name: String,
+    url: String,
+}
+
+impl UnexpandedSubscriptionV1 {
+    pub(crate) fn new(name: String, url: String) -> Self {
+        Self { name, url }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn url(&self) -> &str {
+        &self.url
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct RemoteRuleSetRefV1 {
+    name: String,
+    url: String,
+    target: PolicyMemberV1,
+}
+
+impl RemoteRuleSetRefV1 {
+    pub(crate) fn new(name: String, url: String, target: PolicyMemberV1) -> Self {
+        Self { name, url, target }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub(crate) fn url(&self) -> &str {
+        &self.url
+    }
+
+    pub(crate) fn target(&self) -> &PolicyMemberV1 {
+        &self.target
+    }
+}
+
 pub(crate) struct CompiledPolicyV1 {
     groups: Vec<CompiledGroupV1>,
     rules: Vec<CompiledRuleV1>,
     report: PolicyReportV1,
+    unexpanded_subscriptions: Vec<UnexpandedSubscriptionV1>,
+    remote_rule_sets: Vec<RemoteRuleSetRefV1>,
 }
 
 impl CompiledPolicyV1 {
-    pub(crate) fn new(
+    pub(crate) fn with_remotes(
         groups: Vec<CompiledGroupV1>,
         rules: Vec<CompiledRuleV1>,
         report: PolicyReportV1,
+        unexpanded_subscriptions: Vec<UnexpandedSubscriptionV1>,
+        remote_rule_sets: Vec<RemoteRuleSetRefV1>,
     ) -> Self {
         Self {
             groups,
             rules,
             report,
+            unexpanded_subscriptions,
+            remote_rule_sets,
         }
     }
 
@@ -35,6 +86,14 @@ impl CompiledPolicyV1 {
     pub(crate) const fn report(&self) -> PolicyReportV1 {
         self.report
     }
+
+    pub(crate) fn unexpanded_subscriptions(&self) -> &[UnexpandedSubscriptionV1] {
+        &self.unexpanded_subscriptions
+    }
+
+    pub(crate) fn remote_rule_sets(&self) -> &[RemoteRuleSetRefV1] {
+        &self.remote_rule_sets
+    }
 }
 
 impl fmt::Debug for CompiledPolicyV1 {
@@ -44,6 +103,11 @@ impl fmt::Debug for CompiledPolicyV1 {
             .field("group_count", &self.groups.len())
             .field("rule_count", &self.rules.len())
             .field("report", &self.report)
+            .field(
+                "unexpanded_subscription_count",
+                &self.unexpanded_subscriptions.len(),
+            )
+            .field("remote_rule_set_count", &self.remote_rule_sets.len())
             .finish()
     }
 }
@@ -138,6 +202,8 @@ pub(crate) enum PolicyMemberV1 {
     Reject,
     Group(String),
     Node(String),
+    /// ACL4SSR `.*` when subscriptions stay as client remote refs.
+    UnexpandedAll,
 }
 
 impl PolicyMemberV1 {
@@ -147,7 +213,7 @@ impl PolicyMemberV1 {
     /// `REJECT` / `reject`) without baking one adapter's token into the IR.
     pub(crate) fn budget_bytes(&self) -> usize {
         match self {
-            Self::Direct | Self::Reject => 6,
+            Self::Direct | Self::Reject | Self::UnexpandedAll => 6,
             Self::Group(name) | Self::Node(name) => name.len(),
         }
     }
@@ -160,6 +226,7 @@ impl fmt::Debug for PolicyMemberV1 {
             Self::Reject => "Reject",
             Self::Group(_) => "Group",
             Self::Node(_) => "Node",
+            Self::UnexpandedAll => "UnexpandedAll",
         })
     }
 }
@@ -266,17 +333,34 @@ pub(crate) struct PolicyReportV1 {
     pub(crate) ignored_legacy_probe_hints: u8,
 }
 
-pub(crate) fn compile_builtin_policy_v1(named_nodes: &[&ProxyNode]) -> CompiledPolicyV1 {
+pub(crate) fn unexpanded_from_urls(urls: &[String]) -> Vec<UnexpandedSubscriptionV1> {
+    urls.iter()
+        .enumerate()
+        .map(|(index, url)| {
+            UnexpandedSubscriptionV1::new(format!("sub-hub-{}", index + 1), url.clone())
+        })
+        .collect()
+}
+
+pub(crate) fn compile_builtin_policy_v1(
+    named_nodes: &[&ProxyNode],
+    unexpanded: &[UnexpandedSubscriptionV1],
+) -> CompiledPolicyV1 {
     let node_members = named_nodes
         .iter()
         .map(|node| PolicyMemberV1::Node(node.name().as_str().to_owned()))
         .collect::<Vec<_>>();
-    let mut proxy_members = Vec::with_capacity(node_members.len() + 2);
+    let mut auto_members = node_members.clone();
+    let mut proxy_members = Vec::with_capacity(node_members.len() + 3);
     proxy_members.push(PolicyMemberV1::Group("AUTO".to_owned()));
-    proxy_members.extend(node_members.iter().cloned());
+    proxy_members.extend(node_members);
+    if !unexpanded.is_empty() {
+        proxy_members.push(PolicyMemberV1::UnexpandedAll);
+        auto_members.push(PolicyMemberV1::UnexpandedAll);
+    }
     proxy_members.push(PolicyMemberV1::Direct);
 
-    CompiledPolicyV1::new(
+    CompiledPolicyV1::with_remotes(
         vec![
             CompiledGroupV1::new("PROXY".to_owned(), GroupStrategyV1::Select, proxy_members),
             CompiledGroupV1::new(
@@ -286,7 +370,7 @@ pub(crate) fn compile_builtin_policy_v1(named_nodes: &[&ProxyNode]) -> CompiledP
                     interval: BUILTIN_AUTO_PROBE_INTERVAL,
                     tolerance: None,
                 },
-                node_members,
+                auto_members,
             ),
         ],
         vec![CompiledRuleV1::new(
@@ -294,6 +378,8 @@ pub(crate) fn compile_builtin_policy_v1(named_nodes: &[&ProxyNode]) -> CompiledP
             PolicyMemberV1::Group("PROXY".to_owned()),
         )],
         PolicyReportV1::default(),
+        unexpanded.to_vec(),
+        Vec::new(),
     )
 }
 
@@ -318,7 +404,7 @@ mod tests {
                 NamedNodeOccurrence::Rejected { .. } => None,
             })
             .collect::<Vec<_>>();
-        let policy = compile_builtin_policy_v1(&nodes);
+        let policy = compile_builtin_policy_v1(&nodes, &[]);
         let debug = format!("{policy:?}");
         assert!(
             !debug.contains("SecretName"),

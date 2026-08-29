@@ -163,6 +163,17 @@ export function WorkshopOptions({
             }
           />
         </Field>
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor="expand">{copy.expand}</FieldLabel>
+            <FieldDescription>{copy.expandHint}</FieldDescription>
+          </FieldContent>
+          <Switch
+            id="expand"
+            checked={fields.expand}
+            onCheckedChange={(checked) => actions.patch({ expand: checked })}
+          />
+        </Field>
       </FieldGroup>
     </SectionCard>
   )

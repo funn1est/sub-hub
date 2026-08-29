@@ -57,6 +57,7 @@ pub fn start_occurrences<'a>(
         DECODED_CAP,
         UNIQUE_CAP,
         false,
+        true,
     )
 }
 

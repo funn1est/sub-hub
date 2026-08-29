@@ -54,6 +54,8 @@ targets, query keys, or routes need an explicit design review before code. Do
 not add POST conversion, `GET /capabilities`, extra subconverter switches
 (`include` / `exclude` / `emoji` / `filename` / `udp` / `scv` / `sort`), a
 second rule-file dialect, or AnyTLS / WireGuard / SSR in a drive-by PR.
+`expand` is an accepted query key: omitted or `false` leaves client remote
+refs when the target can name them; `expand=true` inlines remotes.
 
 Bug fixes and tests for the current surface are welcome. Match the surrounding
 style: secret-safe `Debug`, closed error text, and byte-stable conversion

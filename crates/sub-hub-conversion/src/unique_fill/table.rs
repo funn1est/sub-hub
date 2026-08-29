@@ -363,6 +363,12 @@ impl UniqueFlightFillV1 {
         let mut source_plan = Vec::with_capacity(failed_source_index);
         for (occurrence, source) in sources.iter().enumerate().take(failed_source_index) {
             match self.flight_of(occurrence) {
+                None if source
+                    .get(..8)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://")) =>
+                {
+                    source_plan.push(SubscriptionSourceV1::UnexpandedHttps(source.as_str()));
+                }
                 None => {
                     source_plan.push(SubscriptionSourceV1::Direct(source.as_str()));
                 }
@@ -394,6 +400,14 @@ impl UniqueFlightFillV1 {
         }
         (0..sources.len())
             .map(|occurrence| match self.flight_of(occurrence) {
+                None if sources[occurrence]
+                    .get(..8)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://")) =>
+                {
+                    Some(SubscriptionSourceV1::UnexpandedHttps(
+                        sources[occurrence].as_str(),
+                    ))
+                }
                 None => Some(SubscriptionSourceV1::Direct(sources[occurrence].as_str())),
                 Some(index) => unique_bodies
                     .get(index.get())

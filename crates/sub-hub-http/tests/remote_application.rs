@@ -1,6 +1,6 @@
 mod common;
 
-use common::{REMOTE_SUBSCRIPTION, SINGLE_VLESS_YAML, query_for_source};
+use common::{REMOTE_SUBSCRIPTION, SINGLE_VLESS_YAML, UnreachableRemote, query_for_source};
 use std::{
     future::{self, Ready},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -74,7 +74,7 @@ fn application_future_is_send_for_a_send_sync_adapter() {
     assert_send(application.handle(HttpRequest::new_with_inbound_host(
         Method::GET,
         "/sub",
-        Some("target=clash&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        Some("target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
         "service.example",
     )));
 }
@@ -86,7 +86,7 @@ fn remote_subscription_is_loaded_and_rendered_through_the_application_interface(
     let request = HttpRequest::new_with_inbound_host(
         Method::GET,
         "/sub",
-        Some("target=clash&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        Some("target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
         "service.example",
     );
 
@@ -97,13 +97,34 @@ fn remote_subscription_is_loaded_and_rendered_through_the_application_interface(
 }
 
 #[test]
+fn omitted_expand_emits_a_proxy_provider_without_fetching_the_subscription() {
+    let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
+    let application = Application::new(UnreachableRemote, self_hosts);
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some("target=clash&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let yaml = std::str::from_utf8(response.body()).expect("UTF-8 Mihomo output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(yaml.contains("proxy-providers:"));
+    assert!(yaml.contains("url: https://upstream.example/subscription"));
+    assert!(yaml.contains("use:\n  - sub-hub-1") || yaml.contains("use: [sub-hub-1]"));
+    assert!(!yaml.contains("uuid:"));
+}
+
+#[test]
 fn remote_subscription_container_may_be_whole_source_base64() {
     let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
     let application = Application::new(SuccessfulBase64Remote, self_hosts);
     let request = HttpRequest::new_with_inbound_host(
         Method::GET,
         "/sub",
-        Some("target=clash&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        Some("target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
         "service.example",
     );
 
@@ -121,7 +142,7 @@ fn direct_and_remote_sources_preserve_their_declared_order() {
         Method::GET,
         "/sub",
         Some(concat!(
-            "target=clash&url=",
+            "target=clash&expand=true&url=",
             "vless%3A%2F%2F11111111-1111-4111-8111-111111111111",
             "%40beta.example%3A8443%23Beta",
             "%7Chttps%3A%2F%2Fupstream.example%2Fsubscription",
@@ -174,7 +195,7 @@ fn relative_redirect_is_resolved_and_followed_manually() {
     let request = HttpRequest::new_with_inbound_host(
         Method::GET,
         "/sub",
-        Some("target=clash&url=https%3A%2F%2Fupstream.example%2Fa"),
+        Some("target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fa"),
         "service.example",
     );
 
@@ -224,7 +245,7 @@ fn duplicate_remote_occurrences_share_one_fetch_but_remain_two_sources() {
         Method::GET,
         "/sub",
         Some(concat!(
-            "target=clash&url=",
+            "target=clash&expand=true&url=",
             "https%3A%2F%2Fupstream.example%2Fsubscription",
             "%7Chttps%3A%2F%2Fupstream.example%2Fsubscription",
         )),
@@ -264,7 +285,7 @@ impl RemoteAdapter for MetadataRemote {
 fn unique_remote_metadata_is_canonical_and_identical_for_get_and_head() {
     let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
     let application = Application::new(MetadataRemote, self_hosts);
-    let query = "target=clash&url=https%3A%2F%2Fupstream.example%2Fsubscription";
+    let query = "target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fsubscription";
 
     let get = futures::executor::block_on(application.handle(HttpRequest::new_with_inbound_host(
         Method::GET,
@@ -333,7 +354,7 @@ fn host_port_capability_rejects_initial_and_redirect_destinations_differently() 
         futures::executor::block_on(application.handle(HttpRequest::new_with_inbound_host(
             Method::GET,
             "/sub",
-            Some("target=clash&url=https%3A%2F%2Fupstream.example%3A8443%2Fsub"),
+            Some("target=clash&expand=true&url=https%3A%2F%2Fupstream.example%3A8443%2Fsub"),
             "127.0.0.1",
         )));
     assert_eq!(initial.status(), StatusCode::BAD_REQUEST);
@@ -351,7 +372,7 @@ fn host_port_capability_rejects_initial_and_redirect_destinations_differently() 
         futures::executor::block_on(application.handle(HttpRequest::new_with_inbound_host(
             Method::GET,
             "/sub",
-            Some("target=clash&url=https%3A%2F%2Fupstream.example%2Fsub"),
+            Some("target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fsub"),
             "127.0.0.1",
         )));
     assert_eq!(redirect.status(), StatusCode::BAD_REQUEST);
@@ -396,7 +417,7 @@ fn append_info_false_prevents_metadata_capture_and_output() {
             Method::GET,
             "/sub",
             Some(concat!(
-                "target=clash&append_info=false&url=",
+                "target=clash&expand=true&append_info=false&url=",
                 "https%3A%2F%2Fupstream.example%2Fsub",
             )),
             "service.example",
@@ -425,7 +446,7 @@ fn canonical_equivalent_urls_share_one_fetch_but_stay_two_occurrences() {
             Method::GET,
             "/sub",
             Some(concat!(
-                "target=clash&url=",
+                "target=clash&expand=true&url=",
                 "HTTPS%3A%2F%2FUPSTREAM.EXAMPLE.%3A443%2Fsub",
                 "%7Chttps%3A%2F%2Fupstream.example%2Fsub",
             )),
@@ -456,7 +477,7 @@ fn head_remote_errors_have_get_status_and_zero_body() {
         AlwaysFailRemote,
         SelfHosts::new(["service.example"]).expect("valid aliases"),
     );
-    let query = "target=clash&url=https%3A%2F%2Fupstream.example%2Fsub";
+    let query = "target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fsub";
     let get = futures::executor::block_on(application.handle(HttpRequest::new_with_inbound_host(
         Method::GET,
         "/sub",
@@ -487,7 +508,7 @@ fn application_checks_request_target_length_before_remote_parsing_or_io() {
         SelfHosts::new(["service.example"]).expect("valid aliases"),
     );
     let query = format!(
-        "target=clash&url=https%3A%2F%2Fupstream.example%2F{}",
+        "target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2F{}",
         "a".repeat(8_192)
     );
     let response = futures::executor::block_on(application.handle(
@@ -508,7 +529,7 @@ fn direct_application_accepts_append_info_as_a_noop() {
         Method::GET,
         "/sub",
         Some(concat!(
-            "target=clash&append_info=false&url=",
+            "target=clash&expand=true&append_info=false&url=",
             "vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef",
             "%40example.com%3A443%23Alpha",
         )),
@@ -550,7 +571,10 @@ fn url_identity_normalizes_scheme_idna_host_trailing_dot_and_default_port() {
         },
         SelfHosts::new(["service.example"]).expect("valid aliases"),
     );
-    let query = query_for_source("hTtPs://BÜCHER.Example.:443/a?x=1");
+    let query = format!(
+        "{}&expand=true",
+        query_for_source("hTtPs://BÜCHER.Example.:443/a?x=1")
+    );
     let response = futures::executor::block_on(application.handle(
         HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
     ));

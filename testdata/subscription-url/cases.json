@@ -1,7 +1,7 @@
 {
   "contract": {
     "targets": ["clash", "mihomo", "quanx", "singbox", "loon", "egern"],
-    "queryKeys": ["target", "url", "config", "append_info", "insert"],
+    "queryKeys": ["target", "url", "config", "append_info", "insert", "expand"],
     "getTargetLimitBytes": 8192,
     "versionPath": "/version",
     "versionBodyPattern": "^sub-hub v\\d+\\.\\d+\\.\\d+ backend$",
@@ -128,7 +128,8 @@
         ],
         "target": "clash",
         "configUrl": "",
-        "appendInfo": true
+        "appendInfo": true,
+        "expand": false
       }
     },
     {
@@ -143,7 +144,8 @@
         ],
         "target": "mihomo",
         "configUrl": "",
-        "appendInfo": true
+        "appendInfo": true,
+        "expand": false
       }
     },
     {
@@ -158,7 +160,8 @@
         ],
         "target": "clash",
         "configUrl": "",
-        "appendInfo": false
+        "appendInfo": false,
+        "expand": false
       }
     },
     {
@@ -171,7 +174,8 @@
         "sources": ["not-a-share-uri", "also-invalid"],
         "target": "singbox",
         "configUrl": "",
-        "appendInfo": true
+        "appendInfo": true,
+        "expand": false
       }
     },
     {
@@ -199,7 +203,8 @@
         ],
         "target": "loon",
         "configUrl": "",
-        "appendInfo": true
+        "appendInfo": true,
+        "expand": false
       }
     }
   ]

@@ -82,6 +82,9 @@ export const messages = {
     appendInfo: "Append subscription-userinfo",
     appendInfoHint:
       "On by default for a single remote source. Turning this off sends append_info=false. Mihomo still sends profile-update-interval: 24.",
+    expand: "Expand remotes",
+    expandHint:
+      "On by default: writes expand=true and inlines HTTPS subscriptions and Online Rule Sets. Off omits the key so the Conversion Service leaves client remote refs when the target can name them.",
     subscription: "Subscription URL",
     subscriptionDescription:
       "The importable URL a client fetches. Preview uses this exact URL.",
@@ -162,6 +165,9 @@ export const messages = {
     appendInfo: "附加 subscription-userinfo",
     appendInfoHint:
       "单个远端源时默认开启。关闭时发送 append_info=false。Mihomo 仍会发送 profile-update-interval: 24。",
+    expand: "规则展开",
+    expandHint:
+      "默认打开：发送 expand=true，把 HTTPS 订阅和 Online Rule Set 抓下来内联。关闭则不写这个键，能写远端引用的 target 不抓、不内联。",
     subscription: "Subscription URL",
     subscriptionDescription:
       "客户端导入的转换 URL。Preview 会 GET 同一条 URL。",

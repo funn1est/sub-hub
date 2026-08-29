@@ -127,6 +127,7 @@ pub(crate) fn policy_member_token(
             .iter()
             .any(|candidate| *candidate == name)
             .then(|| name.clone())),
+        PolicyMemberV1::UnexpandedAll => Ok(None),
     }
 }
 

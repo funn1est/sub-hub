@@ -56,6 +56,8 @@ pub(super) fn compile_acl4ssr_policy(
     groups: &[Group],
     node_names: &[&str],
     rules: Vec<CompiledRuleV1>,
+    unexpanded: Vec<crate::policy::UnexpandedSubscriptionV1>,
+    remote_rule_sets: Vec<crate::policy::RemoteRuleSetRefV1>,
 ) -> Result<CompiledPolicyV1, Acl4SsrRenderError> {
     let regex_count = groups
         .iter()
@@ -68,7 +70,8 @@ pub(super) fn compile_acl4ssr_policy(
     if evaluation_count > MAX_REGEX_EVALUATIONS {
         return Err(Acl4SsrRenderError::ConversionLimit);
     }
-    let (compiled_groups, empty_group_count) = expand_groups(groups, node_names)?;
+    let (compiled_groups, empty_group_count) =
+        expand_groups(groups, node_names, !unexpanded.is_empty())?;
     let ignored_legacy_probe_hint_count = groups
         .iter()
         .filter(|group| {
@@ -80,7 +83,7 @@ pub(super) fn compile_acl4ssr_policy(
                     .is_some()
         })
         .count();
-    Ok(CompiledPolicyV1::new(
+    Ok(CompiledPolicyV1::with_remotes(
         compiled_groups,
         rules,
         PolicyReportV1 {
@@ -89,6 +92,8 @@ pub(super) fn compile_acl4ssr_policy(
             ignored_legacy_probe_hints: u8::try_from(ignored_legacy_probe_hint_count)
                 .map_err(|_| Acl4SsrRenderError::Internal)?,
         },
+        unexpanded,
+        remote_rule_sets,
     ))
 }
 
@@ -426,6 +431,7 @@ fn policy_member(target: &TargetRef) -> PolicyMemberV1 {
 fn expand_groups(
     groups: &[Group],
     node_names: &[&str],
+    has_unexpanded: bool,
 ) -> Result<(Vec<CompiledGroupV1>, usize), Acl4SsrRenderError> {
     let mut output = Vec::with_capacity(groups.len());
     let mut total_expanded_members = 0_usize;
@@ -448,9 +454,31 @@ fn expand_groups(
                     }
                 }
                 GroupMember::NodeRegex(regex) => {
+                    if has_unexpanded && node_names.is_empty() {
+                        let member = PolicyMemberV1::UnexpandedAll;
+                        if seen.insert(member.clone()) {
+                            push_expanded_member(
+                                &mut members,
+                                member,
+                                &mut total_expanded_members,
+                                &mut total_expanded_member_bytes,
+                            )?;
+                        }
+                    }
                     for node_name in node_names {
                         let member = PolicyMemberV1::Node((*node_name).to_owned());
                         if regex.compiled.is_match(node_name) && seen.insert(member.clone()) {
+                            push_expanded_member(
+                                &mut members,
+                                member,
+                                &mut total_expanded_members,
+                                &mut total_expanded_member_bytes,
+                            )?;
+                        }
+                    }
+                    if has_unexpanded && !node_names.is_empty() {
+                        let member = PolicyMemberV1::UnexpandedAll;
+                        if seen.insert(member.clone()) {
                             push_expanded_member(
                                 &mut members,
                                 member,

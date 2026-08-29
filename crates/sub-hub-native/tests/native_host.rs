@@ -710,7 +710,7 @@ impl DestinationResolver for MixedPublicAndPrivateResolver {
 #[tokio::test]
 async fn remote_fetch_rejects_the_entire_dns_answer_when_any_address_is_operator_local() {
     assert_dns_policy_bad_gateway(
-        "target=clash&url=https%3A%2F%2Fupstream.example%2Fsubscription",
+        "target=clash&expand=true&url=https%3A%2F%2Fupstream.example%2Fsubscription",
         "mixed public and private DNS answer",
     )
     .await;
@@ -719,7 +719,7 @@ async fn remote_fetch_rejects_the_entire_dns_answer_when_any_address_is_operator
 #[tokio::test]
 async fn native_custom_https_port_reaches_dns_policy_instead_of_lexical_rejection() {
     assert_dns_policy_bad_gateway(
-        "target=clash&url=https%3A%2F%2Fupstream.example%3A8443%2Fsubscription",
+        "target=clash&expand=true&url=https%3A%2F%2Fupstream.example%3A8443%2Fsubscription",
         "native custom HTTPS port",
     )
     .await;

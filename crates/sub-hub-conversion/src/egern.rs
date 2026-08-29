@@ -5,7 +5,9 @@ use crate::{
     node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
-    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
+    policy::{
+        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
+    },
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, hysteria2_has_gecko,
         hysteria2_official_ports, keep_named, keep_tagged, map_compiled_rules, plain_group_tag,
@@ -20,10 +22,37 @@ pub(crate) fn render_egern_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, valid_tags, proxies) = keep_tagged(named_nodes, encode_node)?;
+    let (kept, valid_tags, proxies) = if named_nodes.is_empty()
+        && !policy.unexpanded_subscriptions().is_empty()
+    {
+        (
+            crate::render::KeptNodes {
+                capability_skips: 0,
+                name_skips: 0,
+            },
+            Vec::new(),
+            Vec::new(),
+        )
+    } else {
+        keep_tagged(named_nodes, encode_node)?
+    };
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let policy_groups = render_groups(policy, &valid)?;
-    let (rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
+    let mut rules = Vec::new();
+    for rule_set in policy.remote_rule_sets() {
+        let policy_name = egern_policy_name(rule_set.target(), &valid);
+        if let Some(policy_name) = policy_name {
+            rules.push(RuleEntry::RuleSet {
+                rule_set: RuleSetRef {
+                    match_value: rule_set.url().to_owned(),
+                    policy: policy_name,
+                    update_interval: 86400,
+                },
+            });
+        }
+    }
+    let (inline_rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
+    rules.extend(inline_rules);
     let document = Document {
         proxy_latency_test_url: shared_probe_url(policy).map(str::to_owned),
         proxies,
@@ -319,15 +348,48 @@ fn tls_block(security: &VlessSecurity) -> Option<TlsTransport> {
     }
 }
 
+fn egern_policy_name(member: &PolicyMemberV1, valid_nodes: &[&str]) -> Option<String> {
+    match member {
+        PolicyMemberV1::Direct => Some("DIRECT".to_owned()),
+        PolicyMemberV1::Reject => Some("REJECT".to_owned()),
+        PolicyMemberV1::Group(name) => plain_group_tag(name).ok().map(str::to_owned),
+        PolicyMemberV1::Node(name) => valid_nodes
+            .iter()
+            .any(|candidate| *candidate == name)
+            .then(|| name.clone()),
+        PolicyMemberV1::UnexpandedAll => None,
+    }
+}
+
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
 ) -> Result<Vec<GroupEntry>, AdapterRenderError> {
     let mut groups = Vec::new();
+    for sub in policy.unexpanded_subscriptions() {
+        groups.push(GroupEntry::External {
+            external: ExternalGroup {
+                name: sub.name().to_owned(),
+                kind: "select",
+                urls: vec![sub.url().to_owned()],
+                update_interval: 86400,
+            },
+        });
+    }
+    let unexpanded_names = policy
+        .unexpanded_subscriptions()
+        .iter()
+        .map(|sub| sub.name().to_owned())
+        .collect::<Vec<_>>();
     for group in policy.groups() {
         let name = plain_group_tag(group.name())?.to_owned();
         let mut policies = Vec::new();
+        let mut uses_unexpanded = false;
         for member in group.members() {
+            if matches!(member, PolicyMemberV1::UnexpandedAll) {
+                uses_unexpanded = true;
+                continue;
+            }
             if let Some(token) = policy_member_token(
                 member,
                 "DIRECT",
@@ -338,7 +400,12 @@ fn render_groups(
                 policies.push(token);
             }
         }
-        reject_when_empty(&mut policies, "REJECT");
+        if uses_unexpanded {
+            policies.extend(unexpanded_names.iter().cloned());
+        }
+        if !uses_unexpanded || policies.is_empty() {
+            reject_when_empty(&mut policies, "REJECT");
+        }
         groups.push(match group.strategy() {
             GroupStrategyV1::Select => GroupEntry::Select {
                 select: SelectGroup { name, policies },
@@ -450,6 +517,7 @@ fn render_rules(
 struct Document {
     #[serde(skip_serializing_if = "Option::is_none")]
     proxy_latency_test_url: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     proxies: Vec<ProxyEntry>,
     policy_groups: Vec<GroupEntry>,
     rules: Vec<RuleEntry>,
@@ -656,6 +724,16 @@ enum GroupEntry {
     AutoTest { auto_test: AutoTestGroup },
     Fallback { fallback: FallbackGroup },
     LoadBalance { load_balance: LoadBalanceGroup },
+    External { external: ExternalGroup },
+}
+
+#[derive(Serialize)]
+struct ExternalGroup {
+    name: String,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    urls: Vec<String>,
+    update_interval: u32,
 }
 
 #[derive(Serialize)]
@@ -700,7 +778,16 @@ enum RuleEntry {
     IpCidr { ip_cidr: MatchPolicy },
     IpCidr6 { ip_cidr6: MatchPolicy },
     GeoIp { geoip: MatchPolicy },
+    RuleSet { rule_set: RuleSetRef },
     Default { default: DefaultRule },
+}
+
+#[derive(Serialize)]
+struct RuleSetRef {
+    #[serde(rename = "match")]
+    match_value: String,
+    policy: String,
+    update_interval: u32,
 }
 
 #[derive(Serialize)]

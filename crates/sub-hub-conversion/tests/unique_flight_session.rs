@@ -72,6 +72,7 @@ fn start_with<'a>(
         decoded_byte_cap,
         unique_remote_cap,
         append_subscription_user_info,
+        true,
     )
 }
 

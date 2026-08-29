@@ -25,6 +25,7 @@ pub(crate) async fn run<A>(
     sources: &[String],
     occurrence_urls: &[Option<Url>],
     append_info: bool,
+    expand: bool,
     config_url: Option<Url>,
     target: sub_hub_conversion::OutputTarget,
 ) -> Result<(RenderedConfig, Option<SubscriptionUserInfoV1>), UniqueFlightFillFailure>
@@ -40,6 +41,7 @@ where
         budget.total_decoded_bytes,
         budget.unique_remote_resources,
         append_info,
+        expand,
     );
     let mut eligible_metadata = None;
 

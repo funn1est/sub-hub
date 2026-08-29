@@ -28,6 +28,7 @@ export function workshopFieldsOf(state: PersistedWorkshop): WorkshopFields {
     target: state.target,
     configUrl: state.configUrl,
     appendInfo: state.appendInfo,
+    expand: state.expand,
   }
 }
 
@@ -66,6 +67,7 @@ export function defaultPersisted(
     target: "clash",
     configUrl: "",
     appendInfo: true,
+    expand: true,
     ...overrides,
   }
 }
@@ -80,6 +82,7 @@ export function serializePersisted(state: PersistedWorkshop): string {
     target: state.target,
     configUrl: state.configUrl,
     appendInfo: state.appendInfo,
+    expand: state.expand,
   }
   return JSON.stringify(body)
 }
@@ -135,6 +138,8 @@ export function parsePersisted(
       typeof value.appendInfo === "boolean"
         ? value.appendInfo
         : defaults.appendInfo,
+    expand:
+      typeof value.expand === "boolean" ? value.expand : defaults.expand,
   }
 }
 

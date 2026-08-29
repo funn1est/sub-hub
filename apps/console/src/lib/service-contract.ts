@@ -31,6 +31,7 @@ export const QUERY_KEYS = [
   "config",
   "append_info",
   "insert",
+  "expand",
 ] as const
 
 export const KNOWN_SERVICE_ERRORS = [
@@ -206,6 +207,7 @@ export type SubGetEncodeInput = {
   sources: string[]
   configUrl: string
   appendInfo: boolean
+  expand?: boolean
 }
 
 export function encodeSubGetTarget(input: SubGetEncodeInput): string {
@@ -220,6 +222,9 @@ export function encodeSubGetTarget(input: SubGetEncodeInput): string {
   }
   if (!input.appendInfo) {
     queryParts.push("append_info=false")
+  }
+  if (input.expand === true) {
+    queryParts.push("expand=true")
   }
   return `${path}?${queryParts.join("&")}`
 }

@@ -202,6 +202,8 @@ fn malformed_unknown_and_duplicate_query_pairs_are_invalid_requests() {
         format!("target=clash&url={ENCODED_VLESS}&url={ENCODED_VLESS}"),
         format!("target=clash&url={ENCODED_VLESS}&config=&config="),
         format!("target=clash&url={ENCODED_VLESS}&insert=false&insert=false"),
+        format!("target=clash&url={ENCODED_VLESS}&expand=true&expand=true"),
+        format!("target=clash&url={ENCODED_VLESS}&expand=yes"),
         "target=clash&url=%".to_owned(),
         "target=clash&url=%0".to_owned(),
         "target=clash&url=%GG".to_owned(),
@@ -216,6 +218,19 @@ fn malformed_unknown_and_duplicate_query_pairs_are_invalid_requests() {
 
     for query in &cases {
         assert_sub_error(Some(query), b"Invalid request!");
+    }
+}
+
+#[test]
+fn expand_true_false_and_omitted_are_accepted_on_direct_sources() {
+    for query in [
+        format!("target=clash&url={ENCODED_VLESS}"),
+        format!("target=clash&url={ENCODED_VLESS}&expand=false"),
+        format!("target=clash&url={ENCODED_VLESS}&expand=true"),
+    ] {
+        let response = handle(HttpRequest::new(Method::GET, "/sub", Some(&query)));
+        assert_eq!(response.status(), StatusCode::OK, "{query}");
+        assert_eq!(response.body(), SINGLE_VLESS_YAML, "{query}");
     }
 }
 

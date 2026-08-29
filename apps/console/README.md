@@ -3,7 +3,6 @@
 Static Workshop PWA for a self-hosted Conversion Service. It assembles a
 Subscription URL (`/sub` or `/sub/:token`), previews that same URL with `GET`,
 and copies or downloads the result. It is not a second conversion API.
-Pasting a Subscription URL into a source row fills the form.
 
 This package lives at `apps/console`. It is not a Cargo crate. This repository
 does not operate a public instance.
@@ -149,7 +148,8 @@ must list this origin in `SUB_HUB_CORS_ORIGINS`.
 ## Persistence and secrets
 
 One `localStorage` key, `sub-hub.console.v1`: locale, theme, origin, token,
-sources, target, config URL, `append_info`. Preview bodies stay in memory only.
+sources, target, config URL, `append_info`, `expand` (default on, writes
+`expand=true`). Preview bodies stay in memory only.
 
 The token is never a `VITE_*` value and is never written to the Console address
 bar. Generated Subscription URLs contain the path token by design.

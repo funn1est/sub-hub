@@ -21,6 +21,7 @@ pub(crate) use error::SubscriptionParseError;
 pub(crate) struct ParsedSubscriptionSources {
     pub(crate) occurrences: Vec<NodeOccurrence>,
     pub(crate) remote_decoded_bytes: Vec<Option<usize>>,
+    pub(crate) unexpanded_https: Vec<String>,
 }
 
 impl ParsedSubscriptionSources {
@@ -33,6 +34,7 @@ impl ParsedSubscriptionSources {
 pub(crate) enum SubscriptionSourceV1<'a> {
     Direct(&'a str),
     Remote(&'a [u8]),
+    UnexpandedHttps(&'a str),
 }
 
 impl fmt::Debug for SubscriptionSourceV1<'_> {
@@ -40,6 +42,7 @@ impl fmt::Debug for SubscriptionSourceV1<'_> {
         formatter.write_str(match self {
             Self::Direct(_) => "Direct([REDACTED])",
             Self::Remote(_) => "Remote([REDACTED])",
+            Self::UnexpandedHttps(_) => "UnexpandedHttps([REDACTED])",
         })
     }
 }
@@ -92,6 +95,7 @@ pub(crate) fn parse_subscription_source_inputs(
 ) -> Result<ParsedSubscriptionSources, SubscriptionParseError> {
     let mut occurrences = Vec::new();
     let mut remote_decoded_bytes = Vec::with_capacity(sources_in_declaration_order.len());
+    let mut unexpanded_https = Vec::new();
     let mut total_occurrences = 0;
 
     for (source_index, source) in sources_in_declaration_order.iter().enumerate() {
@@ -140,12 +144,17 @@ pub(crate) fn parse_subscription_source_inputs(
                     occurrence_index += 1;
                 }
             }
+            SubscriptionSourceV1::UnexpandedHttps(url) => {
+                remote_decoded_bytes.push(None);
+                unexpanded_https.push((*url).to_owned());
+            }
         }
     }
 
     Ok(ParsedSubscriptionSources {
         occurrences,
         remote_decoded_bytes,
+        unexpanded_https,
     })
 }
 

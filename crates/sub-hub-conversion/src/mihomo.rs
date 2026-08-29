@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 
@@ -39,23 +40,81 @@ pub(crate) fn render_mihomo_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, proxies) = KeptNodes::encode(named_nodes, encode_node)?;
+    let (kept, proxies) = if named_nodes.is_empty()
+        && !policy.unexpanded_subscriptions().is_empty()
+    {
+        (
+            KeptNodes {
+                capability_skips: 0,
+                name_skips: 0,
+            },
+            Vec::new(),
+        )
+    } else {
+        KeptNodes::encode(named_nodes, encode_node)?
+    };
     let valid = proxies.iter().map(MihomoProxy::name).collect::<Vec<_>>();
-    let (rules, omitted_url_regex) = map_compiled_rules(policy.rules(), |rule| {
+    let provider_names = policy
+        .unexpanded_subscriptions()
+        .iter()
+        .map(crate::policy::UnexpandedSubscriptionV1::name)
+        .collect::<Vec<_>>();
+    let mut rules = Vec::new();
+    for rule_set in policy.remote_rule_sets() {
+        let target = mihomo_symbol(rule_set.target());
+        rules.push(format!("RULE-SET,{},{target}", rule_set.name()));
+    }
+    let (inline_rules, omitted_url_regex) = map_compiled_rules(policy.rules(), |rule| {
         if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
             Ok(None)
         } else {
             Ok(Some(render_clash_rule(rule)))
         }
     })?;
+    rules.extend(inline_rules);
     let proxy_groups = policy
         .groups()
         .iter()
-        .map(|group| mihomo_group(group, &valid))
+        .map(|group| mihomo_group(group, &valid, &provider_names))
         .collect::<Result<Vec<_>, _>>()?;
     let document = MihomoRenderedDocument {
         mode: "rule",
         proxies,
+        proxy_providers: policy
+            .unexpanded_subscriptions()
+            .iter()
+            .map(|sub| {
+                (
+                    sub.name().to_owned(),
+                    MihomoProxyProvider {
+                        kind: "http",
+                        url: sub.url(),
+                        interval: 86400,
+                        health_check: MihomoHealthCheck {
+                            enable: true,
+                            url: crate::policy::BUILTIN_AUTO_PROBE_URL,
+                            interval: 300,
+                        },
+                    },
+                )
+            })
+            .collect(),
+        rule_providers: policy
+            .remote_rule_sets()
+            .iter()
+            .map(|rule_set| {
+                (
+                    rule_set.name().to_owned(),
+                    MihomoRuleProvider {
+                        kind: "http",
+                        behavior: "classical",
+                        format: "text",
+                        url: rule_set.url(),
+                        interval: 86400,
+                    },
+                )
+            })
+            .collect(),
         proxy_groups,
         rules,
     };
@@ -100,6 +159,7 @@ fn mihomo_symbol(member: &PolicyMemberV1) -> &str {
         PolicyMemberV1::Direct => "DIRECT",
         PolicyMemberV1::Reject => "REJECT",
         PolicyMemberV1::Group(name) | PolicyMemberV1::Node(name) => name,
+        PolicyMemberV1::UnexpandedAll => "",
     }
 }
 
@@ -146,9 +206,15 @@ fn comment_prefix(omitted_url_regex: u8, empty_groups: u8) -> String {
 fn mihomo_group(
     group: &crate::policy::CompiledGroupV1,
     valid_nodes: &[&str],
+    provider_names: &[&str],
 ) -> Result<MihomoRenderedGroup, AdapterRenderError> {
     let mut proxies = Vec::new();
+    let mut uses_providers = false;
     for member in group.members() {
+        if matches!(member, PolicyMemberV1::UnexpandedAll) {
+            uses_providers = true;
+            continue;
+        }
         if let Some(token) = policy_member_token(
             member,
             "DIRECT",
@@ -159,7 +225,9 @@ fn mihomo_group(
             proxies.push(token);
         }
     }
-    reject_when_empty(&mut proxies, "REJECT");
+    if !uses_providers || (proxies.is_empty() && provider_names.is_empty()) {
+        reject_when_empty(&mut proxies, "REJECT");
+    }
     let (kind, url, interval, tolerance, strategy) = match group.strategy() {
         GroupStrategyV1::Select => ("select", None, None, None, None),
         GroupStrategyV1::UrlTest {
@@ -187,6 +255,7 @@ fn mihomo_group(
     Ok(MihomoRenderedGroup {
         name: group.name().to_owned(),
         kind,
+        use_providers: uses_providers.then(|| provider_names.iter().map(|name| (*name).to_owned()).collect()),
         proxies,
         url,
         interval,
@@ -198,10 +267,42 @@ fn mihomo_group(
 #[derive(Serialize)]
 struct MihomoRenderedDocument<'a> {
     mode: &'static str,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     proxies: Vec<MihomoProxy<'a>>,
+    #[serde(rename = "proxy-providers", skip_serializing_if = "BTreeMap::is_empty")]
+    proxy_providers: BTreeMap<String, MihomoProxyProvider<'a>>,
+    #[serde(rename = "rule-providers", skip_serializing_if = "BTreeMap::is_empty")]
+    rule_providers: BTreeMap<String, MihomoRuleProvider<'a>>,
     #[serde(rename = "proxy-groups")]
     proxy_groups: Vec<MihomoRenderedGroup>,
     rules: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct MihomoProxyProvider<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    url: &'a str,
+    interval: u32,
+    #[serde(rename = "health-check")]
+    health_check: MihomoHealthCheck,
+}
+
+#[derive(Serialize)]
+struct MihomoHealthCheck {
+    enable: bool,
+    url: &'static str,
+    interval: u32,
+}
+
+#[derive(Serialize)]
+struct MihomoRuleProvider<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    behavior: &'static str,
+    format: &'static str,
+    url: &'a str,
+    interval: u32,
 }
 
 #[derive(Serialize)]
@@ -209,6 +310,9 @@ struct MihomoRenderedGroup {
     name: String,
     #[serde(rename = "type")]
     kind: &'static str,
+    #[serde(rename = "use", skip_serializing_if = "Option::is_none")]
+    use_providers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     proxies: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,

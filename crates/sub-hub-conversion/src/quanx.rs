@@ -545,7 +545,7 @@ fn render_rules(rules: &[CompiledRuleV1]) -> Result<(Vec<String>, u8), AdapterRe
             PolicyMemberV1::Direct => Some("direct"),
             PolicyMemberV1::Reject => Some("reject"),
             PolicyMemberV1::Group(name) => quanx_group_tag(name),
-            PolicyMemberV1::Node(_) => None,
+            PolicyMemberV1::Node(_) | PolicyMemberV1::UnexpandedAll => None,
         }) else {
             return Ok(None);
         };

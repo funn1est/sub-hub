@@ -179,6 +179,7 @@ pub(crate) fn prepare_subscription_v1(
         .occurrences
         .iter()
         .any(|occurrence| matches!(occurrence, NodeOccurrence::Accepted { .. }))
+        && parsed.unexpanded_https.is_empty()
     {
         return Err(SubscriptionPreparationError::NoValidNodes {
             skips: SkipCountsV1::parse_only(parsed.parse_skip_count()),

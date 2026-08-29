@@ -11,7 +11,7 @@ mod policy_compile;
 
 use std::fmt;
 
-use ini::{Config, Directive, RuleSource};
+use ini::{Config, Directive, RuleSource, TargetRef};
 use policy_compile::{RuleEntry, compile_acl4ssr_policy};
 
 use crate::{
@@ -57,6 +57,85 @@ impl PreparedAcl4SsrV1 {
         let fill =
             UniqueFlightFillV1::bind_remote(&mut unique_remotes, canonical_urls.iter().copied());
         self.finish_rule_sets(fill)
+    }
+
+    /// Keep-pass without fetching Rule Set bodies: emit remote refs for HTTPS lists.
+    pub fn render_unexpanded_v1(
+        self,
+        target: OutputTarget,
+    ) -> Result<crate::RenderedConfig, Acl4SsrRenderError> {
+        let group_names = self
+            .config
+            .groups
+            .iter()
+            .map(|group| group.name.as_str())
+            .collect::<Vec<_>>();
+        let named = resolve_node_names(self.parsed_subscription, &group_names)
+            .map_err(|_| Acl4SsrRenderError::Internal)?;
+        let nodes = crate::render::accepted_nodes(&named);
+        let node_names = nodes
+            .iter()
+            .map(|node| node.name().as_str())
+            .collect::<Vec<_>>();
+        let unexpanded =
+            crate::policy::unexpanded_from_urls(named.unexpanded_https());
+        let mut remote_rule_sets = Vec::new();
+        let mut rules = Vec::new();
+        let mut rs_index = 0_usize;
+        for directive in &self.config.directives {
+            match directive {
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::Remote(url),
+                } => {
+                    rs_index += 1;
+                    let policy_target = match target {
+                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
+                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
+                        TargetRef::Group(name) => crate::policy::PolicyMemberV1::Group(name.clone()),
+                    };
+                    remote_rule_sets.push(crate::policy::RemoteRuleSetRefV1::new(
+                        format!("rs-{rs_index}"),
+                        url.declared.clone(),
+                        policy_target,
+                    ));
+                }
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::GeoIpCn,
+                } => rules.push(crate::policy::CompiledRuleV1::new(
+                    crate::policy::RuleMatcherV1::GeoIpCn,
+                    match target {
+                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
+                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
+                        TargetRef::Group(name) => crate::policy::PolicyMemberV1::Group(name.clone()),
+                    },
+                )),
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::Final,
+                } => rules.push(crate::policy::CompiledRuleV1::new(
+                    crate::policy::RuleMatcherV1::Match,
+                    match target {
+                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
+                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
+                        TargetRef::Group(name) => crate::policy::PolicyMemberV1::Group(name.clone()),
+                    },
+                )),
+                _ => {}
+            }
+        }
+        let policy = compile_acl4ssr_policy(
+            &self.config.groups,
+            &node_names,
+            rules,
+            unexpanded,
+            remote_rule_sets,
+        )?;
+        match render_named_policy(&named, &policy, target, MAX_OUTPUT_BYTES) {
+            Ok(document) => Ok(document),
+            Err(error) => Err(Acl4SsrRenderError::from(error)),
+        }
     }
 
     /// Completes Rule Set bind once `fill` is declaration-aligned.
@@ -367,7 +446,15 @@ fn render(
         .map(|node| node.name().as_str())
         .collect::<Vec<_>>();
 
-    let policy = compile_acl4ssr_policy(&prepared.config.groups, &node_names, rules)?;
+    let unexpanded =
+        crate::policy::unexpanded_from_urls(named.unexpanded_https());
+    let policy = compile_acl4ssr_policy(
+        &prepared.config.groups,
+        &node_names,
+        rules,
+        unexpanded,
+        Vec::new(),
+    )?;
     match render_named_policy(&named, &policy, target, MAX_OUTPUT_BYTES) {
         Ok(document) => Ok(document),
         Err(error) => Err(Acl4SsrRenderError::from(error)),

@@ -24,6 +24,7 @@ function fields(overrides: Partial<WorkshopFields> = {}): WorkshopFields {
     target: "clash",
     configUrl: "",
     appendInfo: true,
+    expand: true,
     ...overrides,
   }
 }
@@ -291,7 +292,9 @@ describe("createWorkshopSession", () => {
       },
     })
     await ok.session.actions.copy()
-    expect(wrote).toEqual([`${ORIGIN}/sub?target=clash&url=${VLESS_ENCODED}`])
+    expect(wrote).toEqual([
+      `${ORIGIN}/sub?target=clash&url=${VLESS_ENCODED}&expand=true`,
+    ])
     expect(ok.notices).toEqual(["copied"])
 
     const failing = makeSession({
