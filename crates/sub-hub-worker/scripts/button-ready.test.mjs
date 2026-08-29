@@ -41,6 +41,12 @@ test("Worker package.json keeps the local CI-refusing deploy helper", () => {
   assert.equal(pkg.scripts.build, "worker-build --release");
 });
 
+test("crate gitignore keeps .dev.vars and worker-build output off origin", () => {
+  const ignore = readUtf8(path.join(workerRoot, ".gitignore"));
+  assert.match(ignore, /^\.dev\.vars$/m);
+  assert.match(ignore, /^build\/$/m);
+});
+
 test("access-token example is button schema, not a secret put", () => {
   const example = readUtf8(path.join(workerRoot, ".dev.vars.example"));
   assert.match(example, /^SUB_HUB_ACCESS_TOKEN=$/m);
