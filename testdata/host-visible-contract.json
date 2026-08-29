@@ -1,0 +1,57 @@
+{
+  "vectors": [
+    {
+      "id": "version",
+      "method": "GET",
+      "path": "/version",
+      "status": 200,
+      "body": "sub-hub v0.1.0 backend"
+    },
+    {
+      "id": "invalid-version-query",
+      "method": "GET",
+      "path": "/version",
+      "query": "x=1",
+      "status": 400,
+      "body": "Invalid request!"
+    },
+    {
+      "id": "unknown-path",
+      "method": "GET",
+      "path": "/sub/",
+      "status": 404,
+      "body": "Not Found"
+    },
+    {
+      "id": "sub-method",
+      "method": "POST",
+      "path": "/sub",
+      "status": 405,
+      "body": "Method Not Allowed",
+      "allow": "GET, HEAD"
+    },
+    {
+      "id": "version-method",
+      "method": "HEAD",
+      "path": "/version",
+      "status": 405,
+      "body": "",
+      "allow": "GET"
+    },
+    {
+      "id": "uri-too-long",
+      "method": "GET",
+      "path": "/",
+      "pathRepeat": { "char": "x", "count": 8192 },
+      "status": 414,
+      "body": "URI Too Long"
+    },
+    {
+      "id": "head-invalid-request-suppresses-body",
+      "method": "HEAD",
+      "path": "/sub",
+      "status": 400,
+      "body": ""
+    }
+  ]
+}

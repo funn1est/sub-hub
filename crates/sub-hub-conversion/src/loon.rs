@@ -3,9 +3,7 @@ use crate::{
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::{VmessCipher, VmessSecurity},
     node::{NodeProtocol, ProxyNode},
-    policy::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1,
-    },
+    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text_sections, hysteria2_has_gecko,
         hysteria2_has_pin, keep_named, keep_tagged, map_compiled_rules, policy_member_token,

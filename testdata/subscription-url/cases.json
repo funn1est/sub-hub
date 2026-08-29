@@ -1,0 +1,206 @@
+{
+  "contract": {
+    "targets": ["clash", "mihomo", "quanx", "singbox", "loon", "egern"],
+    "queryKeys": ["target", "url", "config", "append_info", "insert"],
+    "getTargetLimitBytes": 8192,
+    "versionPath": "/version",
+    "versionBodyPattern": "^sub-hub v\\d+\\.\\d+\\.\\d+ backend$",
+    "skippedHeader": "x-subconverter-skipped",
+    "exposedHeaders": [
+      "content-disposition",
+      "profile-update-interval",
+      "subscription-userinfo",
+      "x-subconverter-result",
+      "x-subconverter-omitted-rules",
+      "x-subconverter-skipped"
+    ],
+    "errors": [
+      "Invalid target!",
+      "Invalid request!",
+      "No nodes were found!",
+      "Resource limit exceeded!",
+      "Unauthorized!",
+      "Not Found",
+      "Method Not Allowed",
+      "URI Too Long",
+      "Bad Gateway",
+      "Gateway Timeout",
+      "Internal Server Error"
+    ],
+    "filenames": {
+      "clash": "sub-hub-mihomo.yaml",
+      "mihomo": "sub-hub-mihomo.yaml",
+      "quanx": "sub-hub-quanx.conf",
+      "singbox": "sub-hub-singbox.json",
+      "loon": "sub-hub-loon.conf",
+      "egern": "sub-hub-egern.yaml"
+    },
+    "mediaTypes": {
+      "clash": "text/plain;charset=utf-8",
+      "mihomo": "text/plain;charset=utf-8",
+      "quanx": "text/plain;charset=utf-8",
+      "singbox": "application/json;charset=utf-8",
+      "loon": "text/plain;charset=utf-8",
+      "egern": "text/plain;charset=utf-8"
+    },
+    "dispositions": {
+      "clash": "attachment; filename=\"sub-hub-mihomo.yaml\"",
+      "mihomo": "attachment; filename=\"sub-hub-mihomo.yaml\"",
+      "quanx": "attachment; filename=\"sub-hub-quanx.conf\"",
+      "singbox": "attachment; filename=\"sub-hub-singbox.json\"",
+      "loon": "attachment; filename=\"sub-hub-loon.conf\"",
+      "egern": "attachment; filename=\"sub-hub-egern.yaml\""
+    },
+    "percentDecode": [
+      { "id": "literal-plus", "encoded": "a+b", "decoded": "a+b" },
+      { "id": "percent-plus", "encoded": "a%2Bb", "decoded": "a+b" },
+      { "id": "uppercase-hex", "encoded": "a%2bB", "decoded": "a+B" },
+      { "id": "nul", "encoded": "%00", "decoded": null },
+      { "id": "cr", "encoded": "%0D", "decoded": null },
+      { "id": "lf", "encoded": "%0A", "decoded": null },
+      { "id": "incomplete", "encoded": "%2", "decoded": null },
+      { "id": "bad-hex", "encoded": "%GG", "decoded": null }
+    ],
+    "skipSamples": [
+      {
+        "query": "target=clash&url=anytls%3A%2F%2Fexample.com%3A443%7Cvless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
+        "skipped": "parse=1;capability=0;name=0",
+        "counts": { "parse": 1, "capability": 0, "name": 0 }
+      },
+      {
+        "query": "target=quanx&url=hysteria2%3A%2F%2Fpassword%40example.com%3A443%23Plain",
+        "status": 400,
+        "skipped": "parse=0;capability=1;name=0",
+        "counts": { "parse": 0, "capability": 1, "name": 0 }
+      },
+      {
+        "query": "target=quanx&url=hysteria2%3A%2F%2Fpassword%40example.com%3A443%23Plain%7Cvless%3A%2F%2Ffedcba98-7654-3210-fedc-ba9876543210%40example.net%3A8443%23direct%7Cvless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
+        "skipped": "parse=0;capability=1;name=1",
+        "counts": { "parse": 0, "capability": 1, "name": 1 }
+      },
+      {
+        "skipped": "parse=1;capability=4;name=0",
+        "counts": { "parse": 1, "capability": 4, "name": 0 }
+      },
+      {
+        "skipped": "parse=01;capability=0;name=0",
+        "counts": { "parse": 1, "capability": 0, "name": 0 }
+      }
+    ],
+    "skipRejects": ["", "parse=1"],
+    "errorSamples": [
+      {
+        "id": "invalid-target",
+        "path": "/sub",
+        "query": "target=surge&url=vless%3A%2F%2Fx",
+        "body": "Invalid target!"
+      },
+      {
+        "id": "invalid-request",
+        "path": "/sub",
+        "query": "target=clash",
+        "body": "Invalid request!"
+      },
+      {
+        "id": "no-nodes",
+        "path": "/sub",
+        "query": "target=clash&url=not-a-share-uri",
+        "body": "No nodes were found!"
+      },
+      {
+        "id": "not-found",
+        "path": "/nope",
+        "query": "",
+        "body": "Not Found"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "anonymous-clash",
+      "query": "target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
+      "http": { "status": 200 },
+      "workshop": {
+        "serviceOrigin": "http://127.0.0.1:25500",
+        "accessToken": "",
+        "sources": [
+          "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
+        ],
+        "target": "clash",
+        "configUrl": "",
+        "appendInfo": true
+      }
+    },
+    {
+      "id": "mihomo-token",
+      "query": "target=mihomo&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
+      "http": { "status": 200 },
+      "workshop": {
+        "serviceOrigin": "http://127.0.0.1:25500",
+        "accessToken": "",
+        "sources": [
+          "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
+        ],
+        "target": "mihomo",
+        "configUrl": "",
+        "appendInfo": true
+      }
+    },
+    {
+      "id": "append-info-false",
+      "query": "target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha&append_info=false",
+      "http": { "status": 200 },
+      "workshop": {
+        "serviceOrigin": "http://127.0.0.1:25500",
+        "accessToken": "",
+        "sources": [
+          "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
+        ],
+        "target": "clash",
+        "configUrl": "",
+        "appendInfo": false
+      }
+    },
+    {
+      "id": "two-sources",
+      "query": "target=singbox&url=not-a-share-uri%7Calso-invalid",
+      "http": { "status": 400, "body": "No nodes were found!" },
+      "workshop": {
+        "serviceOrigin": "http://127.0.0.1:25500",
+        "accessToken": "",
+        "sources": ["not-a-share-uri", "also-invalid"],
+        "target": "singbox",
+        "configUrl": "",
+        "appendInfo": true
+      }
+    },
+    {
+      "id": "insert-false",
+      "query": "target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha&insert=false",
+      "http": { "status": 200 },
+      "assembleOmits": ["insert"]
+    },
+    {
+      "id": "unknown-target",
+      "query": "target=surge&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
+      "http": { "status": 400, "body": "Invalid target!" },
+      "workshopParse": { "ok": true, "warnings": ["invalid-target"] }
+    },
+    {
+      "id": "token-path",
+      "path": "/sub/deployer-token_1",
+      "query": "target=loon&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
+      "http": { "status": 404, "body": "Not Found" },
+      "workshop": {
+        "serviceOrigin": "https://sub-hub.example",
+        "accessToken": "deployer-token_1",
+        "sources": [
+          "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
+        ],
+        "target": "loon",
+        "configUrl": "",
+        "appendInfo": true
+      }
+    }
+  ]
+}
