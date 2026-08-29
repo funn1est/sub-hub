@@ -15,6 +15,29 @@ See [Security](SECURITY.md) for how to report a vulnerability and what a
 deployer should assume. See [Contributing](CONTRIBUTING.md) for local gates
 and the current public surface.
 
+Work-in-progress means the HTTP surface is closed, not that self-host is
+unfinished. This repository does not operate a public instance.
+
+## Run
+
+```sh
+git clone https://github.com/funn1est/sub-hub
+cd sub-hub
+mise install
+cargo run --locked -p sub-hub-native
+```
+
+The safe default listener is `127.0.0.1:25500`:
+
+```sh
+curl http://127.0.0.1:25500/version
+
+curl --get http://127.0.0.1:25500/sub \
+  --data-urlencode 'target=clash' \
+  --data-urlencode 'url=vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha' \
+  --output sub-hub-mihomo.yaml
+```
+
 ## Current HTTP surface
 
 The current compatibility surface contains only:

@@ -29,7 +29,8 @@ SUB_HUB_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173 \
   cargo run --locked -p sub-hub-native
 ```
 
-Terminal 2, from this directory:
+Terminal 2, from this directory (`mise install` from the repository root
+selects Node 24.19.0 and pnpm 11.22.0 from `mise.toml`):
 
 ```sh
 pnpm install --frozen-lockfile
