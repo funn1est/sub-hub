@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { Miniflare, createFetchMock } from "miniflare";
+import { MockAgent } from "undici";
 
 import {
   outboundUserAgent,
   readWorkspaceVersion,
   versionBody,
 } from "../../../scripts/workspace-version.mjs";
+
+const {
+  Miniflare,
+  convertV4MiniflareOptions,
+  fetch: miniflareFetch,
+} = createRequire(import.meta.url)("miniflare");
 
 const HOST_VISIBLE = JSON.parse(
   readFileSync(
@@ -29,6 +36,9 @@ const WORKSPACE_VERSION = readWorkspaceVersion(
 );
 const VERSION_BODY = versionBody(WORKSPACE_VERSION);
 const OUTBOUND_USER_AGENT = outboundUserAgent(WORKSPACE_VERSION);
+for (const vector of HOST_VISIBLE.vectors) {
+  if (vector.id === "version") vector.body = VERSION_BODY;
+}
 
 const VLESS = concat(
   "vless://01234567-89ab-cdef-0123-456789abcdef",
@@ -67,21 +77,30 @@ function concat(...parts) {
   return parts.join("");
 }
 
+const BUILD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../build");
+
+function createFetchMock() {
+  return new MockAgent();
+}
+
 function runtime(bindings = {}, fetchMock) {
   const options = {
-    // Miniflare 4.20260730.0 cannot accept a date later than its bundled workerd.
+    // Bundled workerd 1.20260811.1 cannot accept a date later than 2026-08-11.
     compatibilityDate: "2026-07-30",
     compatibilityFlags: ["global_fetch_strictly_public"],
-    modules: true,
-    modulesRules: [
-      { type: "CompiledWasm", include: ["**/*.wasm"], fallthrough: true },
-      { type: "ESModule", include: ["**/*.js"], fallthrough: true },
+    modulesRoot: BUILD_ROOT,
+    modules: [
+      { type: "ESModule", path: resolve(BUILD_ROOT, "worker/shim.mjs") },
+      { type: "ESModule", path: resolve(BUILD_ROOT, "index.js") },
+      { type: "CompiledWasm", path: resolve(BUILD_ROOT, "index_bg.wasm") },
     ],
-    scriptPath: "build/worker/shim.mjs",
     bindings,
   };
-  if (fetchMock !== undefined) options.fetchMock = fetchMock;
-  return new Miniflare(options);
+  if (fetchMock !== undefined) {
+    options.outboundService = (request) =>
+      miniflareFetch(request, { dispatcher: fetchMock });
+  }
+  return new Miniflare(convertV4MiniflareOptions(options));
 }
 
 function mockedRemote(path, reply) {

@@ -15,7 +15,8 @@
     "test:host": "node --test --test-isolation=none tests/miniflare.test.mjs && node --test scripts/ensure-access-token.test.mjs scripts/deploy-cloudflare.test.mjs scripts/install-workers-toolchain.test.mjs scripts/button-ready.test.mjs"
   },
   "devDependencies": {
-    "miniflare": "4.20260730.0",
+    "miniflare": "5.20260811.0-alpha",
+    "undici": "7.29.0",
     "wrangler": "4.122.0"
   },
   "engines": {
