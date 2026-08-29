@@ -242,13 +242,12 @@ async fn read_bounded_body(
         }
     }
 
-    let body = response
+    let chunk = response
         .bytes()
         .await
         .map_err(|error| map_fetch_error(&error))?;
-    if body.len() > max_body_bytes {
-        return Err(RemoteFetchError::Failure);
-    }
+    let mut body = Vec::new();
+    append_hop_chunk(&mut body, &chunk, max_body_bytes)?;
     Ok(body)
 }
 
