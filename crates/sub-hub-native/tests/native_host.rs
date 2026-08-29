@@ -140,6 +140,11 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVisi
         "{} must not emit subscription metadata",
         vector.id
     );
+    let expected_body = if vector.id == "version" {
+        VERSION_BODY.as_bytes()
+    } else {
+        vector.body.as_bytes()
+    };
     assert_eq!(
         response
             .into_body()
@@ -147,7 +152,7 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVisi
             .await
             .expect("body collection succeeds")
             .to_bytes(),
-        vector.body.as_bytes(),
+        expected_body,
         "{} body",
         vector.id
     );

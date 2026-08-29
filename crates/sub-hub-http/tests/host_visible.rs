@@ -3,7 +3,7 @@ use serde::Deserialize;
 use sub_hub_http::{Application, HttpRequest, SelfHosts};
 
 mod common;
-use common::UnreachableRemote;
+use common::{UnreachableRemote, VERSION_BODY};
 
 const HOST_VISIBLE: &str = include_str!("../../../testdata/host-visible-contract.json");
 
@@ -57,9 +57,14 @@ fn host_visible_application_contract_matches_handle() {
             "{} status",
             vector.id
         );
+        let expected_body = if vector.id == "version" {
+            std::str::from_utf8(VERSION_BODY).expect("version body is utf-8")
+        } else {
+            vector.body.as_str()
+        };
         assert_eq!(
             std::str::from_utf8(response.body()).expect("utf-8"),
-            vector.body,
+            expected_body,
             "{} body",
             vector.id
         );
