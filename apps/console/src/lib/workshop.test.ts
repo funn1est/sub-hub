@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { parseAccessToken } from "./service-contract.ts"
 import {
+  ACL4SSR_CLASSIC_FILES,
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
@@ -10,6 +11,8 @@ import {
   configPresetOf,
   configSelectionId,
 } from "./acl4ssr-catalog.ts"
+import { messages } from "./i18n.ts"
+import { configChoiceGroups } from "./workshop-config.ts"
 import {
   clashInstallUrl,
   evaluateWorkshop,
@@ -255,18 +258,22 @@ describe("assembleSubscription", () => {
 })
 
 describe("configPresetOf", () => {
-  it("maps empty, the 18 master files, and any other URL", () => {
+  it("maps empty, the 33 master files, and any other URL", () => {
     const files = [
       ...ACL4SSR_ONLINE_FILES,
       ...ACL4SSR_MINI_FILES,
       ...ACL4SSR_FULL_FILES,
+      ...ACL4SSR_CLASSIC_FILES,
     ]
-    expect(files).toHaveLength(18)
-    expect(new Set(files).size).toBe(18)
+    expect(files).toHaveLength(33)
+    expect(new Set(files).size).toBe(33)
     expect(configPresetOf("")).toEqual({ kind: "none" })
     expect(configPresetOf("  ")).toEqual({ kind: "none" })
     expect(acl4ssrConfigUrl("ACL4SSR_Online.ini")).toBe(
       "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online.ini"
+    )
+    expect(acl4ssrConfigUrl("ACL4SSR.ini")).toBe(
+      "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR.ini"
     )
     expect(acl4ssrConfigUrl("ACL4SSR_Online.ini")).not.toMatch(/[0-9a-f]{40}/)
 
@@ -288,9 +295,25 @@ describe("configPresetOf", () => {
         file,
       })
     }
+    for (const file of ACL4SSR_CLASSIC_FILES) {
+      expect(configPresetOf(acl4ssrConfigUrl(file))).toEqual({
+        kind: "classic",
+        file,
+      })
+    }
     expect(configPresetOf("https://example.com/custom.ini")).toEqual({
       kind: "custom",
     })
+    const groups = configChoiceGroups(messages.en)
+    expect(groups.map((group) => group.value)).toEqual([
+      messages.en.configNone,
+      messages.en.configOnline,
+      messages.en.configMini,
+      messages.en.configFull,
+      messages.en.configClassic,
+      messages.en.configCustom,
+    ])
+    expect(groups[4]?.items).toHaveLength(15)
   })
 })
 

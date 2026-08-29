@@ -1,4 +1,5 @@
 import {
+  ACL4SSR_CLASSIC_FILES,
   ACL4SSR_FULL_FILES,
   ACL4SSR_MINI_FILES,
   ACL4SSR_ONLINE_FILES,
@@ -40,6 +41,13 @@ export function configChoiceGroups(copy: Messages): ConfigChoiceGroup[] {
     {
       value: copy.configFull,
       items: ACL4SSR_FULL_FILES.map((file) => ({
+        id: file,
+        label: acl4ssrConfigLabel(file),
+      })),
+    },
+    {
+      value: copy.configClassic,
+      items: ACL4SSR_CLASSIC_FILES.map((file) => ({
         id: file,
         label: acl4ssrConfigLabel(file),
       })),

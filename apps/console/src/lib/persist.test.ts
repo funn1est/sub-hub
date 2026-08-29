@@ -161,4 +161,18 @@ describe("persist", () => {
       })
     ).toEqual({ ...sample, locale: "en", theme: "dark" })
   })
+
+  it("round-trips a Classic ACL4SSR config URL", () => {
+    const classic =
+      "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR.ini"
+    const storage = memoryStorage()
+    const store = createConsolePersist(storage)
+    store.setState({ ...sample, configUrl: classic })
+    expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? "").configUrl).toBe(
+      classic
+    )
+    expect(
+      workshopFieldsOf(createConsolePersist(storage).getState()).configUrl
+    ).toBe(classic)
+  })
 })

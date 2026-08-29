@@ -161,6 +161,10 @@ describe("createWorkshopSession", () => {
     session.actions.selectConfig("none")
     expect(view().fields.configUrl).toBe("")
     expect(view().configSelection).toBe("none")
+
+    session.actions.selectConfig("ACL4SSR.ini")
+    expect(view().fields.configUrl).toBe(acl4ssrConfigUrl("ACL4SSR.ini"))
+    expect(view().configSelection).toBe("ACL4SSR.ini")
   })
 
   it("probes /version for the canonical origin and drops stale probes", async () => {

@@ -55,10 +55,9 @@ hop/pins/gecko, and every TUIC node, omits process-name rules, and maps
 load-balance to `pcc`. Egern skips Trojan gRPC, cleartext VMess gRPC, Hysteria2
 gecko, and non-default TUIC congestion, omits process-name rules, and maps
 url-test to `auto_test`. VLESS WebSocket+Reality is a parse reject on every
-target; Trojan WebSocket+Reality is kept on Egern. The Console lists the 18
-`ACL4SSR_Online*.ini` files from ACL4SSR `master`
-(`https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/`);
-that branch moves. Import a generated Egern file in store Egern 2.20.0 to
+target; Trojan WebSocket+Reality is kept on Egern. The Console lists 33 INIs from ACL4SSR `master`
+(`https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/`):
+18 Online plus 15 Classic / other. That branch moves. Import a generated Egern file in store Egern 2.20.0 to
 confirm it parses; there is no official `egern check` CLI.
 
 The service does not currently expose POST conversion, capabilities, or an
