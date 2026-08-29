@@ -37,14 +37,14 @@ uses the default PROXY/AUTO policy; that is not a remote Rule frontend.
 Omit `expand` or set `expand=false` to leave HTTPS subscriptions and Online
 Rule Sets as client remote refs on targets that can name them:
 `clash`/`mihomo` (`proxy-providers` / `rule-providers`), `egern`
-(`external` / `rule_set`), and `quanx` subscriptions (`[server_remote]`).
-Quantumult X remote resources are QX snippets by default; a generic Clash
-YAML or Base64 share-URI container may fail on the client the same way a
-Mihomo `proxy-providers` URL may fail on a non-YAML subscription.
-`quanx` still inlines ACL4SSR Online `.list` files (Clash `DOMAIN-SUFFIX`
-is not QX `HOST-SUFFIX`; no `[filter_remote]`). Explicit `expand=true`
-inlines remotes through Unique-flight as before. The Web Console switch
-defaults on and writes `expand=true`. `singbox` and `loon` still inline
+(`external` / `rule_set`), `loon` (`[Remote Proxy]` / `[Remote Rule]`), and
+`quanx` subscriptions (`[server_remote]`). Quantumult X remote resources are
+QX snippets by default; Loon may need a client `resource-parser` for a
+generic Clash YAML or Base64 share-URI container. Sub Hub does not emit that
+parser. `quanx` still inlines ACL4SSR Online `.list` files (Clash
+`DOMAIN-SUFFIX` is not QX `HOST-SUFFIX`; no `[filter_remote]`). Explicit
+`expand=true` inlines remotes through Unique-flight as before. The Web
+Console switch defaults on and writes `expand=true`. `singbox` still inlines
 when `expand` is omitted.
 `URL-REGEX` is emitted for Loon and omitted on the other targets. Quantumult X
 skips gRPC, VLESS Vision without Reality, `auto`/`zero` VMess, and every

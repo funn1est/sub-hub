@@ -3,7 +3,9 @@ use crate::{
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::{VmessCipher, VmessSecurity},
     node::{NodeProtocol, ProxyNode},
-    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
+    policy::{
+        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
+    },
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text_sections, hysteria2_has_gecko,
         hysteria2_has_pin, keep_named, keep_tagged, map_compiled_rules, policy_member_token,
@@ -27,9 +29,23 @@ pub(crate) fn render_loon_from_policy_v1(
     policy: &CompiledPolicyV1,
     limit_bytes: usize,
 ) -> Result<RenderedTargetV1, AdapterRenderError> {
-    let (kept, valid_tags, proxies) = keep_tagged(named_nodes, encode_node)?;
+    let (kept, valid_tags, proxies) =
+        if named_nodes.is_empty() && !policy.unexpanded_subscriptions().is_empty() {
+            (
+                crate::render::KeptNodes {
+                    capability_skips: 0,
+                    name_skips: 0,
+                },
+                Vec::new(),
+                Vec::new(),
+            )
+        } else {
+            keep_tagged(named_nodes, encode_node)?
+        };
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
+    let remotes = render_remote_proxies(policy)?;
     let groups = render_groups(policy, &valid)?;
+    let remote_rules = render_remote_rules(policy, &valid)?;
     let (rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
 
     let mut leading = String::new();
@@ -43,17 +59,21 @@ pub(crate) fn render_loon_from_policy_v1(
         leading.push('\n');
         leading.push('\n');
     }
-    bounded_text_sections(
-        &leading,
-        &[
-            ("[Proxy]", proxies.as_slice()),
-            ("[Proxy Group]", groups.as_slice()),
-            ("[Rule]", rules.as_slice()),
-        ],
-        limit_bytes,
-        &kept,
-        omitted_url_regex,
-    )
+    let mut sections: Vec<(&str, &[String])> = Vec::new();
+    if !proxies.is_empty() {
+        sections.push(("[Proxy]", proxies.as_slice()));
+    }
+    if !remotes.is_empty() {
+        sections.push(("[Remote Proxy]", remotes.as_slice()));
+    }
+    sections.push(("[Proxy Group]", groups.as_slice()));
+    if !rules.is_empty() {
+        sections.push(("[Rule]", rules.as_slice()));
+    }
+    if !remote_rules.is_empty() {
+        sections.push(("[Remote Rule]", remote_rules.as_slice()));
+    }
+    bounded_text_sections(&leading, &sections, limit_bytes, &kept, omitted_url_regex)
 }
 
 fn encode_node(node: &ProxyNode) -> Result<(String, String), NodeKeep> {
@@ -402,15 +422,60 @@ fn render_shadowsocks_line(
     ))
 }
 
+fn render_remote_proxies(policy: &CompiledPolicyV1) -> Result<Vec<String>, AdapterRenderError> {
+    let mut lines = Vec::new();
+    for sub in policy.unexpanded_subscriptions() {
+        let name = loon_group_tag(sub.name())?;
+        if !is_safe_field(sub.url()) {
+            return Err(AdapterRenderError::Internal);
+        }
+        lines.push(format!("{name} = {}", sub.url()));
+    }
+    Ok(lines)
+}
+
+fn render_remote_rules(
+    policy: &CompiledPolicyV1,
+    valid_nodes: &[&str],
+) -> Result<Vec<String>, AdapterRenderError> {
+    let mut lines = Vec::new();
+    for rule_set in policy.remote_rule_sets() {
+        if !is_safe_field(rule_set.url()) {
+            return Err(AdapterRenderError::Internal);
+        }
+        let Some(policy_name) = policy_member_token(
+            rule_set.target(),
+            "DIRECT",
+            "REJECT",
+            |name| loon_group_tag(name).map(|tag| Some(tag.to_owned())),
+            valid_nodes,
+        )?
+        else {
+            continue;
+        };
+        lines.push(format!("{},{policy_name}", rule_set.url()));
+    }
+    Ok(lines)
+}
+
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
 ) -> Result<Vec<String>, AdapterRenderError> {
+    let unexpanded_names = policy
+        .unexpanded_subscriptions()
+        .iter()
+        .map(crate::policy::UnexpandedSubscriptionV1::name)
+        .collect::<Vec<_>>();
     let mut lines = Vec::new();
     for group in policy.groups() {
         let name = loon_group_tag(group.name())?;
         let mut members = Vec::new();
         for member in group.members() {
+            if matches!(member, PolicyMemberV1::UnexpandedAll) {
+                members.extend(unexpanded_names.iter().map(|name| (*name).to_owned()));
+                continue;
+            }
             if let Some(token) = policy_member_token(
                 member,
                 "DIRECT",

@@ -159,7 +159,7 @@ fn omitted_expand_emits_rule_providers_without_fetching_rule_sets() {
 }
 
 #[test]
-fn omitted_expand_still_inlines_loon_rule_sets() {
+fn omitted_expand_emits_loon_remote_rules_without_fetching_lists() {
     let requested_urls = Arc::new(Mutex::new(Vec::new()));
     let application = Application::new(
         AclResources {
@@ -183,15 +183,13 @@ fn omitted_expand_still_inlines_loon_rule_sets() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = std::str::from_utf8(response.body()).expect("Loon output is UTF-8");
-    assert!(body.contains("DOMAIN,example.org,PROXY"));
+    assert!(body.contains("[Remote Rule]"));
+    assert!(body.contains("https://rules.example/list,PROXY"));
     assert!(body.contains("GEOIP,CN,DIRECT"));
-    assert!(!body.contains("rule-providers:"));
+    assert!(!body.contains("DOMAIN,example.org"));
     assert_eq!(
         *requested_urls.lock().expect("test recorder lock"),
-        [
-            "https://config.example/acl.ini".to_owned(),
-            "https://rules.example/list".to_owned()
-        ]
+        ["https://config.example/acl.ini".to_owned()]
     );
 }
 
