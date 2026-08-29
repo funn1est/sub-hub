@@ -67,6 +67,11 @@ fn declared_urls_group_fields_and_probe_numbers_are_strict() {
         "ruleset=P,https://127.0.0.1/x",
         "ruleset=P,https://user@rules.example/x",
         "ruleset=P,https://rules.example/x#fragment",
+        "ruleset=P,rules/ACL4SSR/Clash/../BanAD.list",
+        "ruleset=P,rules/ACL4SSR/Clash/",
+        "ruleset=P,rules/foo.list",
+        "ruleset=P,rules/ACL4SSR/Clash/BanAD.txt",
+        "ruleset=P,rules/ACL4SSR/Clash/Ruleset/Nested/SteamCN.list",
     ];
     for directive in invalid_directives {
         let config = format!(
@@ -78,6 +83,32 @@ fn declared_urls_group_fields_and_probe_numbers_are_strict() {
             "{directive}"
         );
     }
+}
+
+#[test]
+fn local_acl4ssr_clash_rule_paths_rewrite_to_github_raw() {
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "custom_proxy_group=P`select`.*\n",
+        "ruleset=P,rules/ACL4SSR/Clash/BanAD.list\n",
+        "ruleset=P,rules/ACL4SSR/Clash/Ruleset/SteamCN.list\n",
+        "ruleset=P,[]FINAL\n",
+        "overwrite_original_rules=true\n",
+    );
+    let prepared = prepare_config(config).expect("rewritten local Clash paths");
+    let urls = prepared
+        .rule_set_requests()
+        .iter()
+        .map(Acl4SsrRuleSetRequestV1::url)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        urls,
+        [
+            "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list",
+            "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/SteamCN.list",
+        ]
+    );
 }
 
 #[test]

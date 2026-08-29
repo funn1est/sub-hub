@@ -88,6 +88,31 @@ fn group_regex_may_end_with_a_character_class() {
 }
 
 #[test]
+fn local_clash_rule_paths_are_fetched_as_github_raw() {
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "custom_proxy_group=PROXY`select`.*\n",
+        "ruleset=PROXY,rules/ACL4SSR/Clash/BanAD.list\n",
+        "ruleset=PROXY,[]FINAL\n",
+        "overwrite_original_rules=true\n",
+    );
+    let outcome = render_mihomo(config, |url| {
+        assert_eq!(
+            url,
+            "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list"
+        );
+        b"DOMAIN,example.org\n".to_vec()
+    })
+    .unwrap();
+    assert_eq!(
+        outcome.outbound_urls,
+        ["https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list".to_owned()]
+    );
+    assert!(yaml(outcome.document.as_bytes()).contains("DOMAIN,example.org,PROXY"));
+}
+
+#[test]
 fn remote_rule_set_plan_and_typed_rules_preserve_occurrence_order() {
     let config = concat!(
         "[custom]\n",

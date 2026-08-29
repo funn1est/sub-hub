@@ -222,7 +222,11 @@ fn parse_ruleset(value: &str) -> Result<UnresolvedDirective, Acl4SsrPreparationE
         source if source.starts_with("[]") => {
             return Err(Acl4SsrPreparationError::InvalidConfig);
         }
-        source => RuleSource::Remote(validate_url(source, UrlPurpose::RuleSet)?),
+        source => {
+            let rewritten = rewrite_local_acl4ssr_clash_rule_set(source);
+            let declared = rewritten.as_deref().unwrap_or(source);
+            RuleSource::Remote(validate_url(declared, UrlPurpose::RuleSet)?)
+        }
     };
     Ok(UnresolvedDirective::Ruleset {
         target: target.to_owned(),
@@ -363,6 +367,35 @@ where
 enum UrlPurpose {
     RuleSet,
     Health,
+}
+
+const LOCAL_ACL4SSR_CLASH_PREFIX: &str = "rules/ACL4SSR/Clash/";
+const ACL4SSR_GITHUB_RAW_CLASH: &str =
+    "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/";
+
+fn is_safe_list_file_name(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".list") else {
+        return false;
+    };
+    let Some((first, rest)) = stem.as_bytes().split_first() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && rest
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+/// Maps Classic INI `rules/ACL4SSR/Clash/…` Rule Sets to GitHub raw HTTPS.
+fn rewrite_local_acl4ssr_clash_rule_set(declared: &str) -> Option<String> {
+    let rest = declared.strip_prefix(LOCAL_ACL4SSR_CLASH_PREFIX)?;
+    match rest.split_once('/') {
+        None if is_safe_list_file_name(rest) => Some(format!("{ACL4SSR_GITHUB_RAW_CLASH}{rest}")),
+        Some(("Ruleset", name)) if is_safe_list_file_name(name) => {
+            Some(format!("{ACL4SSR_GITHUB_RAW_CLASH}{rest}"))
+        }
+        _ => None,
+    }
 }
 
 fn validate_url(
