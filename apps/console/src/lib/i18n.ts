@@ -91,6 +91,7 @@ export const messages = {
     subscription: "Subscription URL",
     subscriptionDescription:
       "The importable URL a client fetches. Preview uses this exact URL.",
+    subscriptionTargets: "All targets",
     copyUrl: "Copy URL",
     copied: "Copied",
     copyFailed: "Could not copy",
@@ -178,6 +179,7 @@ export const messages = {
     subscription: "Subscription URL",
     subscriptionDescription:
       "客户端导入的转换 URL。Preview 会 GET 同一条 URL。",
+    subscriptionTargets: "全部 target",
     copyUrl: "复制 URL",
     copied: "已复制",
     copyFailed: "无法复制",

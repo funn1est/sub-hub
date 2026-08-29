@@ -1,5 +1,6 @@
 import {
   GET_TARGET_LIMIT_BYTES,
+  TARGETS,
   encodeSubGetTarget,
   isHttpSource,
   parseAccessToken,
@@ -40,12 +41,20 @@ export function clashInstallUrl(subscriptionUrl: string): string {
   return `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`
 }
 
+export type AssembledTarget = {
+  target: Target
+  url: string
+  getTarget: string
+  overLimit: boolean
+}
+
 export type Assembled = {
   url: string | null
   getTarget: string | null
   overLimit: boolean
   previewable: boolean
   clashInstall: boolean
+  siblings: AssembledTarget[]
 }
 
 export type WorkshopView = {
@@ -127,6 +136,7 @@ const emptyAssembled: Assembled = {
   overLimit: false,
   previewable: false,
   clashInstall: false,
+  siblings: [],
 }
 
 /** Field chrome and assemble share one Workshop job diagnosis. */
@@ -144,10 +154,7 @@ export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
     sources.length > 0 &&
     !sources.some((source) => source.includes("|") || isHttpSource(source))
   const assembled =
-    origin !== null &&
-    token.ok &&
-    sourcesOk &&
-    !configInvalid
+    origin !== null && token.ok && sourcesOk && !configInvalid
       ? assembledFrom({
           origin,
           token: token.token,
@@ -177,21 +184,34 @@ function assembledFrom(input: {
   appendInfo: boolean
   expand: boolean
 }): Assembled {
-  const getTarget = encodeSubGetTarget({
-    accessToken: input.token,
-    target: input.target,
-    sources: input.sources,
-    configUrl: input.configUrl,
-    appendInfo: input.appendInfo,
-    expand: input.expand,
+  const siblings = TARGETS.map((target) => {
+    const getTarget = encodeSubGetTarget({
+      accessToken: input.token,
+      target,
+      sources: input.sources,
+      configUrl: input.configUrl,
+      appendInfo: input.appendInfo,
+      expand: input.expand,
+    })
+    return {
+      target,
+      url: `${input.origin}${getTarget}`,
+      getTarget,
+      overLimit:
+        new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES,
+    }
   })
-  const overLimit =
-    new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES
+  const primary =
+    siblings.find((sibling) => sibling.target === input.target) ?? siblings[0]
+  if (primary === undefined) {
+    return emptyAssembled
+  }
   return {
-    url: `${input.origin}${getTarget}`,
-    getTarget,
-    overLimit,
-    previewable: !overLimit,
+    url: primary.url,
+    getTarget: primary.getTarget,
+    overLimit: primary.overLimit,
+    previewable: !primary.overLimit,
     clashInstall: input.target === "clash" || input.target === "mihomo",
+    siblings,
   }
 }

@@ -75,7 +75,7 @@ export type WorkshopSessionActions = {
   editCustomConfigUrl: (value: string) => void
   blurOrigin: () => void
   preview: () => Promise<void>
-  copy: () => Promise<void>
+  copy: (url?: string) => Promise<void>
   download: () => void
 }
 
@@ -260,14 +260,14 @@ export function createWorkshopSession(options: {
       preview = outcome
       emit()
     },
-    copy: async () => {
-      const url = getView().assembled.url
-      if (url === null) {
+    copy: async (url) => {
+      const text = url ?? getView().assembled.url
+      if (text === null || text.length === 0) {
         return
       }
       const write = ports.writeClipboard ?? writeClipboardInBrowser
       try {
-        await write(url)
+        await write(text)
         ports.notify?.("copied")
       } catch {
         ports.notify?.("copy-failed")

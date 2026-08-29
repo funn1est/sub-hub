@@ -307,6 +307,28 @@ describe("createWorkshopSession", () => {
     const empty = makeSession({ fields: { serviceOrigin: "" } })
     await empty.session.actions.copy()
     expect(empty.notices).toEqual([])
+
+    const sibling = makeSession({
+      fields: { serviceOrigin: ORIGIN },
+      ports: {
+        writeClipboard: (text) => {
+          wrote.push(text)
+          return Promise.resolve()
+        },
+      },
+    })
+    wrote.length = 0
+    const quanx = sibling
+      .view()
+      .assembled.siblings.find((item) => item.target === "quanx")
+    expect(quanx?.url).toBe(
+      `${ORIGIN}/sub?target=quanx&url=${VLESS_ENCODED}&expand=true`
+    )
+    await sibling.session.actions.copy(quanx?.url)
+    expect(wrote).toEqual([
+      `${ORIGIN}/sub?target=quanx&url=${VLESS_ENCODED}&expand=true`,
+    ])
+    expect(sibling.view().preview.status).toBe("idle")
   })
 
   it("downloads only a 200 Preview document through the save port", async () => {

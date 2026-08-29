@@ -249,6 +249,38 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
                 <AlertTitle>{copy.overLimit}</AlertTitle>
               </Alert>
             ) : null}
+            {assembled.siblings.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm font-medium">
+                  {copy.subscriptionTargets}
+                </p>
+                <ul className="flex flex-col gap-px overflow-hidden rounded-lg bg-muted/60 p-1">
+                  {assembled.siblings.map((sibling) => (
+                    <li
+                      key={sibling.target}
+                      className="flex items-center gap-2 rounded-md px-2.5 py-1.5"
+                    >
+                      <span className="w-16 shrink-0 font-mono text-xs">
+                        {sibling.target}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                        {sibling.url}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`${copy.copyUrl} ${sibling.target}`}
+                        disabled={sibling.overLimit}
+                        onClick={() => void actions.copy(sibling.url)}
+                      >
+                        <CopyIcon />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </FieldGroup>
         </CardContent>
         <CardFooter>

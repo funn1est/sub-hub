@@ -150,9 +150,9 @@ describe("assembleSubscription", () => {
     expect(assembleSubscription(input()).getTarget).toBe(
       `/sub?target=clash&url=${VLESS_ENCODED}&expand=true`
     )
-    expect(
-      assembleSubscription(input({ expand: false })).getTarget
-    ).toBe(`/sub?target=clash&url=${VLESS_ENCODED}`)
+    expect(assembleSubscription(input({ expand: false })).getTarget).toBe(
+      `/sub?target=clash&url=${VLESS_ENCODED}`
+    )
   })
 
   it("emits mihomo as the exact selected token", () => {
@@ -160,6 +160,44 @@ describe("assembleSubscription", () => {
     expect(assembled.getTarget).toBe(
       `/sub?target=mihomo&url=${VLESS_ENCODED}&expand=true`
     )
+  })
+
+  it("lists a sibling URL for every released target without changing the primary", () => {
+    const clash = assembleSubscription(input())
+    expect(clash.siblings.map((sibling) => sibling.target)).toEqual([
+      "clash",
+      "mihomo",
+      "quanx",
+      "singbox",
+      "loon",
+      "egern",
+    ])
+    expect(clash.siblings.map((sibling) => sibling.getTarget)).toEqual([
+      `/sub?target=clash&url=${VLESS_ENCODED}&expand=true`,
+      `/sub?target=mihomo&url=${VLESS_ENCODED}&expand=true`,
+      `/sub?target=quanx&url=${VLESS_ENCODED}&expand=true`,
+      `/sub?target=singbox&url=${VLESS_ENCODED}&expand=true`,
+      `/sub?target=loon&url=${VLESS_ENCODED}&expand=true`,
+      `/sub?target=egern&url=${VLESS_ENCODED}&expand=true`,
+    ])
+    expect(clash.url).toBe(
+      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&expand=true`
+    )
+    expect(clash.url).toBe(clash.siblings[0]?.url)
+
+    const loon = assembleSubscription(input({ target: "loon" }))
+    expect(loon.getTarget).toBe(
+      `/sub?target=loon&url=${VLESS_ENCODED}&expand=true`
+    )
+    expect(loon.url).toBe(loon.siblings[4]?.url)
+    expect(loon.siblings).toHaveLength(6)
+
+    const collapsed = assembleSubscription(input({ expand: false }))
+    expect(
+      collapsed.siblings.every(
+        (sibling) => !sibling.getTarget.includes("expand=")
+      )
+    ).toBe(true)
   })
 
   it("flags GET targets longer than 8192 bytes and still returns the URL", () => {
@@ -173,6 +211,13 @@ describe("assembleSubscription", () => {
     const over = assembleSubscription(input({ sources: ["a".repeat(8159)] }))
     expect(new TextEncoder().encode(over.getTarget ?? "").length).toBe(8193)
     expect(over.overLimit).toBe(true)
+    expect(
+      atLimit.siblings.find((sibling) => sibling.target === "clash")?.overLimit
+    ).toBe(false)
+    expect(
+      atLimit.siblings.find((sibling) => sibling.target === "singbox")
+        ?.overLimit
+    ).toBe(true)
     expect(over.url).toBe(
       `http://127.0.0.1:25500/sub?target=clash&url=${"a".repeat(8159)}&expand=true`
     )
@@ -196,6 +241,9 @@ describe("assembleSubscription", () => {
       assembleSubscription(input({ sources: ["http://insecure.example/sub"] }))
         .url
     ).toBeNull()
+    expect(assembleSubscription(input({ serviceOrigin: "" })).siblings).toEqual(
+      []
+    )
   })
 
   it("does not copy Conversion Service outbound host policy", () => {
