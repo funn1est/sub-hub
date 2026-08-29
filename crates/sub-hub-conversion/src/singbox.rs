@@ -3,7 +3,6 @@ use std::borrow::Cow;
 use serde::Serialize;
 
 use crate::{
-    node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::trojan::TrojanSecurity,
     node::vless::{ClientFingerprint, RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
@@ -90,12 +89,9 @@ fn encode_node(node: &ProxyNode) -> Result<(String, Outbound<'_>), NodeKeep> {
 fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Option<Outbound<'a>> {
     Some(match node.protocol() {
         NodeProtocol::Vless(vless) => Outbound::Vless(vless_outbound(node, vless, tag)),
-        NodeProtocol::Shadowsocks(shadowsocks) => Outbound::Shadowsocks(shadowsocks_outbound(
-            node,
-            shadowsocks.cipher(),
-            shadowsocks.credential(),
-            tag,
-        )),
+        NodeProtocol::Shadowsocks(shadowsocks) => {
+            Outbound::Shadowsocks(shadowsocks_outbound(node, shadowsocks, tag))
+        }
         NodeProtocol::Trojan(trojan) => Outbound::Trojan(trojan_outbound(node, trojan, tag)),
         NodeProtocol::Vmess(vmess) => Outbound::Vmess(vmess_outbound(node, vmess, tag)),
         NodeProtocol::Hysteria2(hysteria2) => {
@@ -288,17 +284,29 @@ fn tls_object<'a>(
 
 fn shadowsocks_outbound<'a>(
     node: &'a ProxyNode,
-    cipher: &ShadowsocksCipher,
-    credential: &'a ShadowsocksCredential,
+    shadowsocks: &'a crate::node::shadowsocks::ShadowsocksNode,
     tag: &'a str,
 ) -> ShadowsocksOutbound<'a> {
+    let (plugin, plugin_opts) = match shadowsocks.obfs() {
+        Some(obfs) => {
+            let mut opts = format!("obfs={}", obfs.mode().as_token());
+            if let Some(host) = obfs.host() {
+                opts.push_str(";obfs-host=");
+                opts.push_str(host);
+            }
+            (Some("obfs-local"), Some(opts))
+        }
+        None => (None, None),
+    };
     ShadowsocksOutbound {
         kind: "shadowsocks",
         tag,
         server: render_host_plain(node.endpoint().host()),
         server_port: node.endpoint().port().get(),
-        method: shadowsocks_method(cipher),
-        password: shadowsocks_password(credential),
+        method: shadowsocks_method(shadowsocks.cipher()),
+        password: shadowsocks_password(shadowsocks.credential()),
+        plugin,
+        plugin_opts,
     }
 }
 
@@ -586,6 +594,10 @@ struct ShadowsocksOutbound<'a> {
     server_port: u16,
     method: &'static str,
     password: Cow<'a, str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin_opts: Option<String>,
 }
 
 #[derive(Serialize)]

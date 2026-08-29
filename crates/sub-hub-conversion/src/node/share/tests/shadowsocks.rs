@@ -1,7 +1,7 @@
 use super::{InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_share_uri, rejection};
 use crate::node::{
     Host, NodeNameInput, NodeProtocol,
-    shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
+    shadowsocks::{ShadowsocksCipher, ShadowsocksCredential, ShadowsocksObfsMode},
 };
 
 #[test]
@@ -260,10 +260,25 @@ fn shadowsocks_empty_query_is_absent_query() {
 }
 
 #[test]
+fn shadowsocks_obfs_local_http_is_accepted() {
+    let node = parse_share_uri(
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dbing.com",
+    )
+    .expect("obfs-local http");
+    let NodeProtocol::Shadowsocks(ss) = node.protocol else {
+        panic!("expected Shadowsocks")
+    };
+    let obfs = ss.obfs().expect("obfs");
+    assert_eq!(obfs.mode(), ShadowsocksObfsMode::Http);
+    assert_eq!(obfs.host(), Some("bing.com"));
+}
+
+#[test]
 fn shadowsocks_query_capabilities_are_rejected_without_lossy_fallback() {
     let base = "ss://aes-128-gcm:password@example.com:8388";
     let known = [
         "plugin=v2ray-plugin",
+        "plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-uri%3D%2F",
         "uot=true",
         "udp-over-tcp=true",
         "udp_over_tcp=true",

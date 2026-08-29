@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::{
-    node::shadowsocks::{ShadowsocksCipher, ShadowsocksCredential},
     node::trojan::TrojanSecurity,
     node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
@@ -474,11 +473,7 @@ impl<'a> From<&'a ProxyNode> for MihomoProxy<'a> {
         match node.protocol() {
             NodeProtocol::Vless(vless) => Self::Vless(MihomoVlessProxy::from_node(node, vless)),
             NodeProtocol::Shadowsocks(shadowsocks) => {
-                Self::Shadowsocks(MihomoShadowsocksProxy::from_node(
-                    node,
-                    shadowsocks.cipher(),
-                    shadowsocks.credential(),
-                ))
+                Self::Shadowsocks(MihomoShadowsocksProxy::from_node(node, shadowsocks))
             }
             NodeProtocol::Trojan(trojan) => {
                 Self::Trojan(MihomoTrojanProxy::from_node(node, trojan))
@@ -562,6 +557,17 @@ pub(crate) struct MihomoShadowsocksProxy<'a> {
     cipher: &'static str,
     password: Cow<'a, str>,
     udp: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plugin: Option<&'static str>,
+    #[serde(rename = "plugin-opts", skip_serializing_if = "Option::is_none")]
+    plugin_opts: Option<MihomoObfsPluginOpts<'a>>,
+}
+
+#[derive(Serialize)]
+struct MihomoObfsPluginOpts<'a> {
+    mode: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -710,17 +716,28 @@ impl<'a> MihomoTrojanProxy<'a> {
 impl<'a> MihomoShadowsocksProxy<'a> {
     fn from_node(
         node: &'a ProxyNode,
-        cipher: &ShadowsocksCipher,
-        credential: &'a ShadowsocksCredential,
+        shadowsocks: &'a crate::node::shadowsocks::ShadowsocksNode,
     ) -> Self {
+        let (plugin, plugin_opts) = match shadowsocks.obfs() {
+            Some(obfs) => (
+                Some("obfs"),
+                Some(MihomoObfsPluginOpts {
+                    mode: obfs.mode().as_token(),
+                    host: obfs.host(),
+                }),
+            ),
+            None => (None, None),
+        };
         Self {
             name: node.name().as_str(),
             kind: "ss",
             server: render_host_plain(node.endpoint().host()),
             port: node.endpoint().port().get(),
-            cipher: shadowsocks_method(cipher),
-            password: shadowsocks_password(credential),
+            cipher: shadowsocks_method(shadowsocks.cipher()),
+            password: shadowsocks_password(shadowsocks.credential()),
             udp: true,
+            plugin,
+            plugin_opts,
         }
     }
 }

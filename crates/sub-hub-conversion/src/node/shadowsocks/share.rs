@@ -12,7 +12,7 @@ use crate::node::{
 
 use super::{
     SecretBytes, SecretString, ShadowsocksCipher, ShadowsocksCredential,
-    ShadowsocksCredentialRequirement, ShadowsocksNode,
+    ShadowsocksCredentialRequirement, ShadowsocksNode, ShadowsocksObfs, ShadowsocksObfsMode,
 };
 
 pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
@@ -33,15 +33,16 @@ pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
         }
     };
     let endpoint = parse_endpoint(uri.authority)?;
-    if let Some(query) = uri.query {
-        reject_query(query)?;
-    }
+    let obfs = match uri.query {
+        Some(query) => parse_query(query)?,
+        None => None,
+    };
 
     Ok(ProxyNodeDraft {
         endpoint,
         name_input: uri.name_input,
         protocol: NodeProtocol::Shadowsocks(
-            ShadowsocksNode::new(cipher, credential)
+            ShadowsocksNode::new(cipher, credential, obfs)
                 .ok_or(NodeRejection::Invalid(InvalidNodeReason::Credential))?,
         ),
     })
@@ -58,16 +59,85 @@ fn parse_cipher(method: &str) -> Result<ShadowsocksCipher, NodeRejection> {
     })
 }
 
-fn reject_query(query: &str) -> Result<(), NodeRejection> {
-    let first = scan_query(query)?
-        .into_iter()
-        .next()
+fn parse_query(query: &str) -> Result<Option<ShadowsocksObfs>, NodeRejection> {
+    let pairs = scan_query(query)?;
+    let first = pairs
+        .first()
         .ok_or(NodeRejection::Invalid(InvalidNodeReason::Parameter))?;
-    let capability = match first.key {
-        "plugin" | "uot" | "udp-over-tcp" | "udp_over_tcp" => UnsupportedCapability::ProtocolOption,
-        _ => UnsupportedCapability::UnknownParameter,
-    };
-    Err(NodeRejection::Unsupported(capability))
+    if first.key != "plugin" {
+        let capability = match first.key {
+            "uot" | "udp-over-tcp" | "udp_over_tcp" => UnsupportedCapability::ProtocolOption,
+            _ => UnsupportedCapability::UnknownParameter,
+        };
+        return Err(NodeRejection::Unsupported(capability));
+    }
+    if pairs.len() != 1 {
+        let extra = &pairs[1];
+        let capability = match extra.key {
+            "plugin" | "uot" | "udp-over-tcp" | "udp_over_tcp" => {
+                UnsupportedCapability::ProtocolOption
+            }
+            _ => UnsupportedCapability::UnknownParameter,
+        };
+        return Err(NodeRejection::Unsupported(capability));
+    }
+    parse_obfs_local(&first.value)
+}
+
+fn parse_obfs_local(value: &str) -> Result<Option<ShadowsocksObfs>, NodeRejection> {
+    let mut parts = value.split(';');
+    let name = parts.next().ok_or(NodeRejection::Unsupported(
+        UnsupportedCapability::ProtocolOption,
+    ))?;
+    if name != "obfs-local" && name != "simple-obfs" {
+        return Err(NodeRejection::Unsupported(
+            UnsupportedCapability::ProtocolOption,
+        ));
+    }
+    let mut mode = None;
+    let mut host = None;
+    for part in parts {
+        let (key, option) = part.split_once('=').ok_or(NodeRejection::Unsupported(
+            UnsupportedCapability::ProtocolOption,
+        ))?;
+        match key {
+            "obfs" => {
+                if mode.is_some() || option.is_empty() {
+                    return Err(NodeRejection::Unsupported(
+                        UnsupportedCapability::ProtocolOption,
+                    ));
+                }
+                mode = Some(match option {
+                    "http" => ShadowsocksObfsMode::Http,
+                    "tls" => ShadowsocksObfsMode::Tls,
+                    _ => {
+                        return Err(NodeRejection::Unsupported(
+                            UnsupportedCapability::ProtocolOption,
+                        ));
+                    }
+                });
+            }
+            "obfs-host" => {
+                if host.is_some() || option.is_empty() {
+                    return Err(NodeRejection::Unsupported(
+                        UnsupportedCapability::ProtocolOption,
+                    ));
+                }
+                host = Some(option.to_owned());
+            }
+            _ => {
+                return Err(NodeRejection::Unsupported(
+                    UnsupportedCapability::ProtocolOption,
+                ));
+            }
+        }
+    }
+    let mode = mode.ok_or(NodeRejection::Unsupported(
+        UnsupportedCapability::ProtocolOption,
+    ))?;
+    Ok(Some(ShadowsocksObfs::new(mode, host).ok_or(
+        NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption),
+    )?))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -88,6 +88,10 @@ fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
                 port: node.endpoint().port().get(),
                 tfo: false,
                 udp_relay: true,
+                obfs: shadowsocks.obfs().map(|obfs| obfs.mode().as_token()),
+                obfs_host: shadowsocks
+                    .obfs()
+                    .and_then(|obfs| obfs.host().map(str::to_owned)),
             }),
         }),
         NodeProtocol::Trojan(trojan) => Some(ProxyEntry::Trojan {
@@ -629,6 +633,10 @@ struct ShadowsocksProxy {
     port: u16,
     tfo: bool,
     udp_relay: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    obfs: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    obfs_host: Option<String>,
 }
 
 #[derive(Serialize)]

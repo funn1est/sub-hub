@@ -112,6 +112,9 @@ fn render_proxy_line(node: &ProxyNode, tag: &str) -> Option<String> {
     match node.protocol() {
         NodeProtocol::Vless(_) => None,
         NodeProtocol::Shadowsocks(shadowsocks) => {
+            if shadowsocks.obfs().is_some() {
+                return None;
+            }
             render_shadowsocks_line(tag, &host, port, shadowsocks)
         }
         NodeProtocol::Trojan(trojan) => render_trojan_line(tag, &host, port, trojan),

@@ -416,10 +416,22 @@ fn render_shadowsocks_line(
 ) -> Option<String> {
     let password = shadowsocks_password(shadowsocks.credential());
     let password = quote(&password)?;
-    Some(format!(
+    let mut line = format!(
         "{tag} = Shadowsocks,{host},{port},{},{password},fast-open=false,udp=true",
         shadowsocks_method(shadowsocks.cipher())
-    ))
+    );
+    if let Some(obfs) = shadowsocks.obfs() {
+        line.push_str(",obfs-name=");
+        line.push_str(obfs.mode().as_token());
+        if let Some(host) = obfs.host() {
+            if !is_safe_field(host) {
+                return None;
+            }
+            line.push_str(",obfs-host=");
+            line.push_str(host);
+        }
+    }
+    Some(line)
 }
 
 fn render_remote_proxies(policy: &CompiledPolicyV1) -> Result<Vec<String>, AdapterRenderError> {

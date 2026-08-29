@@ -117,10 +117,24 @@ fn render_server_line(node: &ProxyNode, tag: &str) -> Option<String> {
             if !is_safe_field(&password) {
                 return None;
             }
-            format!(
-                "shadowsocks={endpoint}, method={}, password={password}, udp-relay=true, fast-open=false, tag={tag}",
+            let mut line = format!(
+                "shadowsocks={endpoint}, method={}, password={password}, udp-relay=true, fast-open=false",
                 shadowsocks_method(shadowsocks.cipher())
-            )
+            );
+            if let Some(obfs) = shadowsocks.obfs() {
+                line.push_str(", obfs=");
+                line.push_str(obfs.mode().as_token());
+                if let Some(host) = obfs.host() {
+                    if !is_safe_field(host) {
+                        return None;
+                    }
+                    line.push_str(", obfs-host=");
+                    line.push_str(host);
+                }
+            }
+            line.push_str(", tag=");
+            line.push_str(tag);
+            line
         }
         NodeProtocol::Trojan(trojan) => render_trojan_line(&endpoint, trojan, tag)?,
         NodeProtocol::Vmess(vmess) => render_vmess_line(&endpoint, vmess, tag)?,

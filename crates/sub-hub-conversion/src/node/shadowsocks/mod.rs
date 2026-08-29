@@ -7,14 +7,20 @@ pub(crate) use share::parse;
 pub(crate) struct ShadowsocksNode {
     cipher: ShadowsocksCipher,
     credential: ShadowsocksCredential,
+    obfs: Option<ShadowsocksObfs>,
 }
 
 impl ShadowsocksNode {
     pub(crate) fn new(
         cipher: ShadowsocksCipher,
         credential: ShadowsocksCredential,
+        obfs: Option<ShadowsocksObfs>,
     ) -> Option<Self> {
-        let node = Self { cipher, credential };
+        let node = Self {
+            cipher,
+            credential,
+            obfs,
+        };
         let valid = match (node.cipher().credential_requirement(), node.credential()) {
             (
                 ShadowsocksCredentialRequirement::Password,
@@ -35,6 +41,46 @@ impl ShadowsocksNode {
 
     pub(crate) const fn credential(&self) -> &ShadowsocksCredential {
         &self.credential
+    }
+
+    pub(crate) const fn obfs(&self) -> Option<&ShadowsocksObfs> {
+        self.obfs.as_ref()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ShadowsocksObfs {
+    mode: ShadowsocksObfsMode,
+    host: Option<String>,
+}
+
+impl ShadowsocksObfs {
+    pub(crate) fn new(mode: ShadowsocksObfsMode, host: Option<String>) -> Option<Self> {
+        let host_ok = host.as_ref().is_none_or(|value| !value.is_empty());
+        host_ok.then_some(Self { mode, host })
+    }
+
+    pub(crate) const fn mode(&self) -> ShadowsocksObfsMode {
+        self.mode
+    }
+
+    pub(crate) fn host(&self) -> Option<&str> {
+        self.host.as_deref()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShadowsocksObfsMode {
+    Http,
+    Tls,
+}
+
+impl ShadowsocksObfsMode {
+    pub(crate) const fn as_token(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Tls => "tls",
+        }
     }
 }
 

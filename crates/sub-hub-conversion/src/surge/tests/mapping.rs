@@ -4,6 +4,20 @@ use crate::prepare_subscription_v1;
 use crate::subscription_prepare::{render_acl4ssr_target, render_remote_builtin};
 
 #[test]
+fn simple_obfs_is_capability_skipped() {
+    let source = concat!(
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dbing.com#Obfs\n",
+        "ss://aes-128-gcm:password@example.com:8388#Classic\n",
+    );
+    let output =
+        render_remote_builtin(OutputTarget::Surge, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("Classic = ss"));
+    assert!(!text.contains("Obfs ="));
+    assert_eq!(output.skip_counts().capability, 1);
+}
+
+#[test]
 fn every_vless_node_is_capability_skipped() {
     let source = concat!(
         "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha\n",
