@@ -194,6 +194,38 @@ fn omitted_expand_emits_loon_remote_rules_without_fetching_lists() {
 }
 
 #[test]
+fn omitted_expand_emits_surge_rule_sets_without_fetching_lists() {
+    let requested_urls = Arc::new(Mutex::new(Vec::new()));
+    let application = Application::new(
+        AclResources {
+            requested_urls: Arc::clone(&requested_urls),
+        },
+        SelfHosts::new(["service.example"]).expect("valid aliases"),
+    );
+    let source = "ss://aes-128-gcm:password@example.com:8388#Alpha";
+    let query = format!(
+        "target=surge&url={}&config={}",
+        percent_encode(source),
+        percent_encode("https://config.example/acl.ini"),
+    );
+
+    let response = futures::executor::block_on(application.handle(
+        HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
+    ));
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = std::str::from_utf8(response.body()).expect("Surge output is UTF-8");
+    assert!(body.contains("RULE-SET,https://rules.example/list,PROXY"));
+    assert!(body.contains("GEOIP,CN,DIRECT"));
+    assert!(body.contains("FINAL,"));
+    assert!(!body.contains("DOMAIN,example.org"));
+    assert_eq!(
+        *requested_urls.lock().expect("test recorder lock"),
+        ["https://config.example/acl.ini".to_owned()]
+    );
+}
+
+#[test]
 fn omitted_expand_still_inlines_quanx_rule_sets() {
     let requested_urls = Arc::new(Mutex::new(Vec::new()));
     let application = Application::new(

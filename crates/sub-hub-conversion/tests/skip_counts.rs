@@ -3,6 +3,7 @@ use sub_hub_conversion::{OutputTarget, SkipCountsV1, UniqueFlightFillFailure};
 mod common;
 
 const VLESS: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha";
+const SS: &str = "ss://aes-128-gcm:password@example.com:8388#Alpha";
 const ANYTLS: &str = "anytls://secret-canary.example:443#Canary";
 const HYSTERIA2: &str = "hysteria2://password@example.com:443#Plain";
 const RESERVED: &str = "vless://fedcba98-7654-3210-fedc-ba9876543210@example.net:8443#direct";
@@ -17,7 +18,7 @@ fn builtin_facade_dispatches_every_released_target() {
         OutputTarget::Egern,
     ] {
         let rendered = common::render_direct(&[VLESS], target)
-            .expect("vless is kept on every released target");
+            .expect("vless is kept on every released target except surge");
         assert!(!rendered.as_bytes().is_empty());
         assert_eq!(rendered.omitted_url_regex(), 0);
         assert_eq!(
@@ -29,6 +30,26 @@ fn builtin_facade_dispatches_every_released_target() {
             }
         );
     }
+
+    let surge = common::render_direct(&[SS], OutputTarget::Surge).expect("ss is kept on surge");
+    assert!(!surge.as_bytes().is_empty());
+    assert_eq!(
+        surge.skip_counts(),
+        SkipCountsV1 {
+            parse: 0,
+            capability: 0,
+            name: 0,
+        }
+    );
+    let skipped = common::render_direct(&[VLESS, SS], OutputTarget::Surge).expect("ss survives");
+    assert_eq!(
+        skipped.skip_counts(),
+        SkipCountsV1 {
+            parse: 0,
+            capability: 1,
+            name: 0,
+        }
+    );
 }
 
 #[test]

@@ -113,6 +113,11 @@ pub(crate) fn subscription_response_for(target: OutputTarget, body: Vec<u8>) -> 
             TEXT_CONTENT_TYPE,
             false,
         ),
+        OutputTarget::Surge => (
+            HeaderValue::from_static("attachment; filename=\"sub-hub-surge.conf\""),
+            TEXT_CONTENT_TYPE,
+            false,
+        ),
     };
     response.headers.insert(header::CONTENT_TYPE, content_type);
     response

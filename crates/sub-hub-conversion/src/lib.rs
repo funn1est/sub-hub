@@ -12,6 +12,8 @@ mod egern;
 
 mod loon;
 
+mod surge;
+
 mod quanx;
 
 mod render;

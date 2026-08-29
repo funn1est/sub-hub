@@ -180,6 +180,14 @@ fn sub_requires_one_exact_clash_target_after_wire_validation() {
         Some(&format!("target=Egern&url={ENCODED_VLESS}")),
         b"Invalid target!",
     );
+    assert_sub_error(
+        Some(&format!("target=Surge&url={ENCODED_VLESS}")),
+        b"Invalid target!",
+    );
+    assert_sub_error(
+        Some(&format!("target=surge4&url={ENCODED_VLESS}")),
+        b"Invalid target!",
+    );
     assert_sub_error(Some("target=clash"), b"Invalid request!");
 
     assert_sub_error(

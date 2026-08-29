@@ -367,3 +367,44 @@ fn get_sub_converts_a_direct_share_uri_to_exact_egern_bytes() {
     );
     assert_eq!(response.headers().len(), 4);
 }
+
+#[test]
+fn get_sub_converts_a_direct_share_uri_to_exact_surge_bytes() {
+    let query = concat!(
+        "target=surge&",
+        "url=ss%3A%2F%2Faes-128-gcm%3Apassword%40example.com%3A8388%23Alpha",
+    );
+    let response = handle(HttpRequest::new(Method::GET, "/sub", Some(query)));
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        std::str::from_utf8(response.body()).expect("utf8"),
+        concat!(
+            "[General]\n",
+            "proxy-test-url = https://www.gstatic.com/generate_204\n",
+            "\n",
+            "[Proxy]\n",
+            "Alpha = ss, example.com, 8388, encrypt-method=aes-128-gcm, password=password\n",
+            "\n",
+            "[Proxy Group]\n",
+            "PROXY = select, AUTO, Alpha, DIRECT\n",
+            "AUTO = url-test, Alpha, interval=300\n",
+            "\n",
+            "[Rule]\n",
+            "FINAL,PROXY\n",
+        )
+    );
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "text/plain;charset=utf-8"
+    );
+    assert_eq!(
+        response.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename=\"sub-hub-surge.conf\""
+    );
+    assert!(response.headers().get("profile-update-interval").is_none());
+    assert_eq!(
+        response.headers().get(header::REFERRER_POLICY).unwrap(),
+        "no-referrer"
+    );
+    assert_eq!(response.headers().len(), 4);
+}

@@ -104,6 +104,7 @@ export const messages = {
     previewing: "Previewing…",
     download: "Download",
     clashInstall: "Open in Clash",
+    surgeInstall: "Open in Surge",
     secretWarning:
       "Preview bodies contain node credentials. They stay in memory only and are not written to localStorage.",
     truncated: "Truncated in view. Download still uses the full fetched body.",
@@ -192,6 +193,7 @@ export const messages = {
     previewing: "正在 Preview…",
     download: "下载",
     clashInstall: "在 Clash 中打开",
+    surgeInstall: "在 Surge 中打开",
     secretWarning:
       "Preview 正文含有节点凭据。只留在内存中，不会写入 localStorage。",
     truncated: "页内展示已截断。下载仍使用完整 fetch 正文。",

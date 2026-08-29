@@ -42,7 +42,7 @@ import type {
   WorkshopSessionActions,
   WorkshopSessionView,
 } from "@/lib/workshop-session.ts"
-import { clashInstallUrl, urlField } from "@/lib/workshop.ts"
+import { clashInstallUrl, surgeInstallUrl, urlField } from "@/lib/workshop.ts"
 import { PreviewCard } from "@/components/workshop-preview.tsx"
 import { WorkshopOptions } from "@/components/workshop-options.tsx"
 import { SourceFields } from "@/components/workshop-source-fields.tsx"
@@ -69,6 +69,10 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
   const clashInstallHref =
     assembled.clashInstall && assembled.url !== null
       ? clashInstallUrl(assembled.url)
+      : null
+  const surgeInstallHref =
+    assembled.surgeInstall && assembled.url !== null
+      ? surgeInstallUrl(assembled.url)
       : null
   const [revealToken, setRevealToken] = React.useState(false)
   const [serviceOpen, setServiceOpen] = React.useState(
@@ -307,6 +311,15 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
               render={<a href={clashInstallHref} />}
             >
               {copy.clashInstall}
+            </Button>
+          ) : null}
+          {surgeInstallHref !== null ? (
+            <Button
+              nativeButton={false}
+              variant="outline"
+              render={<a href={surgeInstallHref} />}
+            >
+              {copy.surgeInstall}
             </Button>
           ) : null}
         </CardFooter>

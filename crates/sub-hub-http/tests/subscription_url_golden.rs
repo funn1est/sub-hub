@@ -10,6 +10,7 @@ use common::UnreachableRemote;
 const GOLDEN: &str = include_str!("../../../testdata/subscription-url/cases.json");
 const VLESS: &str =
     "vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha";
+const SS: &str = "ss%3A%2F%2Faes-128-gcm%3Apassword%40example.com%3A8388%23Alpha";
 
 fn handle(path: &str, query: &str) -> sub_hub_http::HttpResponse {
     handle_on(
@@ -244,7 +245,12 @@ fn get_contract_tables_match_the_http_adapter() {
 fn get_contract_target_headers_match_the_http_adapter() {
     let contract = load().contract;
     for target in &contract.targets {
-        let response = handle("/sub", &format!("target={target}&url={VLESS}"));
+        let probe = if target.as_str() == "surge" {
+            SS
+        } else {
+            VLESS
+        };
+        let response = handle("/sub", &format!("target={target}&url={probe}"));
         assert_eq!(response.status(), StatusCode::OK, "{target}");
         let filename = contract.filenames.get(target).expect("filename");
         let media_type = contract.media_types.get(target).expect("media type");

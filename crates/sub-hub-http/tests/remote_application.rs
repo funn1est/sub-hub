@@ -189,6 +189,28 @@ fn expand_true_still_fetches_a_quanx_subscription() {
 }
 
 #[test]
+fn omitted_expand_emits_surge_policy_path_without_fetching_the_subscription() {
+    let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
+    let application = Application::new(UnreachableRemote, self_hosts);
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some("target=surge&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let text = std::str::from_utf8(response.body()).expect("UTF-8 Surge output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text.contains("policy-path=https://upstream.example/subscription"));
+    assert!(text.contains("update-interval=86400"));
+    assert!(text.contains("PROXY = select"));
+    assert!(!text.contains("[Proxy]\n"));
+    assert!(!text.contains("01234567-89ab-cdef-0123-456789abcdef"));
+}
+
+#[test]
 fn omitted_expand_emits_a_loon_remote_proxy_without_fetching_the_subscription() {
     let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
     let application = Application::new(UnreachableRemote, self_hosts);

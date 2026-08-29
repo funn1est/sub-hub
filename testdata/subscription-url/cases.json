@@ -1,6 +1,6 @@
 {
   "contract": {
-    "targets": ["clash", "mihomo", "quanx", "singbox", "loon", "egern"],
+    "targets": ["clash", "mihomo", "quanx", "singbox", "loon", "egern", "surge"],
     "queryKeys": ["target", "url", "config", "append_info", "insert", "expand"],
     "getTargetLimitBytes": 8192,
     "versionPath": "/version",
@@ -33,7 +33,8 @@
       "quanx": "sub-hub-quanx.conf",
       "singbox": "sub-hub-singbox.json",
       "loon": "sub-hub-loon.conf",
-      "egern": "sub-hub-egern.yaml"
+      "egern": "sub-hub-egern.yaml",
+      "surge": "sub-hub-surge.conf"
     },
     "mediaTypes": {
       "clash": "text/plain;charset=utf-8",
@@ -41,7 +42,8 @@
       "quanx": "text/plain;charset=utf-8",
       "singbox": "application/json;charset=utf-8",
       "loon": "text/plain;charset=utf-8",
-      "egern": "text/plain;charset=utf-8"
+      "egern": "text/plain;charset=utf-8",
+      "surge": "text/plain;charset=utf-8"
     },
     "dispositions": {
       "clash": "attachment; filename=\"sub-hub-mihomo.yaml\"",
@@ -49,7 +51,8 @@
       "quanx": "attachment; filename=\"sub-hub-quanx.conf\"",
       "singbox": "attachment; filename=\"sub-hub-singbox.json\"",
       "loon": "attachment; filename=\"sub-hub-loon.conf\"",
-      "egern": "attachment; filename=\"sub-hub-egern.yaml\""
+      "egern": "attachment; filename=\"sub-hub-egern.yaml\"",
+      "surge": "attachment; filename=\"sub-hub-surge.conf\""
     },
     "percentDecode": [
       { "id": "literal-plus", "encoded": "a+b", "decoded": "a+b" },
@@ -92,7 +95,7 @@
       {
         "id": "invalid-target",
         "path": "/sub",
-        "query": "target=surge&url=vless%3A%2F%2Fx",
+        "query": "target=v2ray&url=vless%3A%2F%2Fx",
         "body": "Invalid target!"
       },
       {
@@ -186,7 +189,7 @@
     },
     {
       "id": "unknown-target",
-      "query": "target=surge&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
+      "query": "target=v2ray&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
       "http": { "status": 400, "body": "Invalid target!" },
       "workshopParse": { "ok": true, "warnings": ["invalid-target"] }
     },

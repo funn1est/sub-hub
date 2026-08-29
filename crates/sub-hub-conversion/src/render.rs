@@ -28,6 +28,7 @@ use crate::{
     singbox::render_singbox_from_policy_v1,
     skip::SkipCountsV1,
     subscription_source::ParsedSubscriptionSources,
+    surge::render_surge_from_policy_v1,
 };
 
 /// Request-wide serialized output limit shared by every target adapter.
@@ -289,6 +290,7 @@ pub(crate) fn render_fn(target: OutputTarget) -> RenderFromPolicyFn {
         OutputTarget::Singbox => render_singbox_from_policy_v1,
         OutputTarget::Loon => render_loon_from_policy_v1,
         OutputTarget::Egern => render_egern_from_policy_v1,
+        OutputTarget::Surge => render_surge_from_policy_v1,
     }
 }
 

@@ -41,6 +41,10 @@ export function clashInstallUrl(subscriptionUrl: string): string {
   return `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`
 }
 
+export function surgeInstallUrl(subscriptionUrl: string): string {
+  return `surge:///install-config?url=${encodeURIComponent(subscriptionUrl)}`
+}
+
 export type AssembledTarget = {
   target: Target
   url: string
@@ -54,6 +58,7 @@ export type Assembled = {
   overLimit: boolean
   previewable: boolean
   clashInstall: boolean
+  surgeInstall: boolean
   siblings: AssembledTarget[]
 }
 
@@ -136,6 +141,7 @@ const emptyAssembled: Assembled = {
   overLimit: false,
   previewable: false,
   clashInstall: false,
+  surgeInstall: false,
   siblings: [],
 }
 
@@ -212,6 +218,7 @@ function assembledFrom(input: {
     overLimit: primary.overLimit,
     previewable: !primary.overLimit,
     clashInstall: input.target === "clash" || input.target === "mihomo",
+    surgeInstall: input.target === "surge",
     siblings,
   }
 }

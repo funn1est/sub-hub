@@ -64,6 +64,7 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
         Some("singbox") => OutputTarget::Singbox,
         Some("loon") => OutputTarget::Loon,
         Some("egern") => OutputTarget::Egern,
+        Some("surge") => OutputTarget::Surge,
         _ => return Err(QueryError::InvalidTarget),
     };
     if insert.as_deref().is_some_and(|value| value != "false") {

@@ -17,6 +17,7 @@ import {
   clashInstallUrl,
   evaluateWorkshop,
   parseServiceOrigin,
+  surgeInstallUrl,
   type WorkshopFields,
 } from "./workshop.ts"
 
@@ -174,6 +175,7 @@ describe("assembleSubscription", () => {
       "singbox",
       "loon",
       "egern",
+      "surge",
     ])
     expect(clash.siblings.map((sibling) => sibling.getTarget)).toEqual([
       `/sub?target=clash&url=${VLESS_ENCODED}&expand=true`,
@@ -182,6 +184,7 @@ describe("assembleSubscription", () => {
       `/sub?target=singbox&url=${VLESS_ENCODED}&expand=true`,
       `/sub?target=loon&url=${VLESS_ENCODED}&expand=true`,
       `/sub?target=egern&url=${VLESS_ENCODED}&expand=true`,
+      `/sub?target=surge&url=${VLESS_ENCODED}&expand=true`,
     ])
     expect(clash.url).toBe(
       `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&expand=true`
@@ -193,7 +196,7 @@ describe("assembleSubscription", () => {
       `/sub?target=loon&url=${VLESS_ENCODED}&expand=true`
     )
     expect(loon.url).toBe(loon.siblings[4]?.url)
-    expect(loon.siblings).toHaveLength(6)
+    expect(loon.siblings).toHaveLength(7)
 
     const collapsed = assembleSubscription(input({ expand: false }))
     expect(
@@ -327,6 +330,16 @@ describe("clashInstallUrl", () => {
   })
 })
 
+describe("surgeInstallUrl", () => {
+  it("uses the official three-slash install-config scheme", () => {
+    const subscription =
+      "http://127.0.0.1:25500/sub?target=surge&url=ss%3A%2F%2Fx"
+    expect(surgeInstallUrl(subscription)).toBe(
+      `surge:///install-config?url=${encodeURIComponent(subscription)}`
+    )
+  })
+})
+
 describe("evaluateWorkshop", () => {
   it("diagnoses fields with the same rules assemble uses", () => {
     const ready = evaluateWorkshop(input())
@@ -346,6 +359,10 @@ describe("evaluateWorkshop", () => {
     expect(
       evaluateWorkshop(input({ target: "loon" })).assembled.clashInstall
     ).toBe(false)
+    expect(
+      evaluateWorkshop(input({ target: "surge" })).assembled.surgeInstall
+    ).toBe(true)
+    expect(evaluateWorkshop(input()).assembled.surgeInstall).toBe(false)
     expect(
       evaluateWorkshop(input({ serviceOrigin: "not a url" })).originInvalid
     ).toBe(true)

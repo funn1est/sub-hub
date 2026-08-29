@@ -5,7 +5,7 @@ Rust, plus a static Web Console that operates a self-hosted Conversion Service.
 It accepts selected VLESS, Shadowsocks, Trojan, VMess, Hysteria2, and
 TUIC v5 inputs, can load HTTPS subscription resources and strict ACL4SSR
 configurations, and renders configurations for Mihomo (Clash-compatible),
-Quantumult X, sing-box, Loon, and Egern.
+Quantumult X, sing-box, Loon, Egern, and Surge.
 
 The native service and Cloudflare Worker share the same host-neutral HTTP and
 conversion modules. This repository does not operate a public Sub Hub instance;
@@ -24,8 +24,8 @@ The current compatibility surface contains only:
 - `GET /sub/:token` and `HEAD /sub/:token` when `SUB_HUB_ACCESS_TOKEN` is set
 
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
-`quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), or `egern`
-(Egern YAML). Its `url` value accepts one or more ordered inputs separated by
+`quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), `egern`
+(Egern YAML), or `surge` (Surge). Its `url` value accepts one or more ordered inputs separated by
 `|`: supported share URIs (VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess,
 Hysteria2 `hysteria2://` / `hy2://`, TUIC v5
 `tuic://uuid:password@host:port`) or HTTPS subscription URLs whose raw/Base64
@@ -37,7 +37,8 @@ uses the default PROXY/AUTO policy; that is not a remote Rule frontend.
 Omit `expand` or set `expand=false` to leave HTTPS subscriptions and Online
 Rule Sets as client remote refs on targets that can name them:
 `clash`/`mihomo` (`proxy-providers` / `rule-providers`), `egern`
-(`external` / `rule_set`), `loon` (`[Remote Proxy]` / `[Remote Rule]`), and
+(`external` / `rule_set`), `loon` (`[Remote Proxy]` / `[Remote Rule]`),
+`surge` (`policy-path=` / `RULE-SET`), and
 `quanx` subscriptions (`[server_remote]`). Quantumult X remote resources are
 QX snippets by default; Loon may need a client `resource-parser` for a
 generic Clash YAML or Base64 share-URI container. Sub Hub does not emit that
@@ -46,7 +47,10 @@ parser. `quanx` still inlines ACL4SSR Online `.list` files (Clash
 `expand=true` inlines remotes through Unique-flight as before. The Web
 Console switch defaults on and writes `expand=true`. `singbox` still inlines
 when `expand` is omitted.
-`URL-REGEX` is emitted for Loon and omitted on the other targets. Quantumult X
+`URL-REGEX` is emitted for Loon and Surge and omitted on the other targets.
+Surge skips every VLESS node (the Manual has no `vless` type). Generic
+share-URI or Clash YAML remotes named via `policy-path=` may fail on the
+client; Sub Hub does not add a second conversion hop. Quantumult X
 skips gRPC, VLESS Vision without Reality, `auto`/`zero` VMess, and every
 Hysteria2 and TUIC node, and omits process-name rules. sing-box omits GeoIP CN,
 maps fallback to `urltest` and load-balance to `selector`, and skips Hysteria2

@@ -114,9 +114,15 @@ jobs:
                   "- vless:\n",
               ),
           }
+          ss_source = "ss://aes-128-gcm:password@example.com:8388#Alpha"
+          checks["surge"] = (
+              "Alpha = ss, example.com, 8388, encrypt-method=aes-128-gcm, password=password\n",
+              "FINAL,PROXY\n",
+          )
 
           for target, fragments in checks.items():
-              query = urllib.parse.urlencode({"target": target, "url": source})
+              probe = ss_source if target == "surge" else source
+              query = urllib.parse.urlencode({"target": target, "url": probe})
               url = f"http://127.0.0.1:{port}/sub?{query}"
               result = subprocess.run(
                   ["curl", "-fsS", "--max-time", "5", url],
@@ -137,7 +143,7 @@ jobs:
                   raise SystemExit(1)
 
           print(
-              "Native release smoke passed: /version and direct VLESS -> "
-              "clash/mihomo/quanx/singbox/loon/egern."
+              "Native release smoke passed: /version and direct share URIs -> "
+              "clash/mihomo/quanx/singbox/loon/egern/surge."
           )
           PY

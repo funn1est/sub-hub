@@ -18,6 +18,7 @@ export const TARGETS = [
   "singbox",
   "loon",
   "egern",
+  "surge",
 ] as const
 
 export type Target = (typeof TARGETS)[number]
@@ -97,6 +98,8 @@ export function fallbackDownloadName(target: Target): string {
       return "sub-hub-loon.conf"
     case "egern":
       return "sub-hub-egern.yaml"
+    case "surge":
+      return "sub-hub-surge.conf"
   }
 }
 
@@ -110,6 +113,7 @@ export function subscriptionMediaType(target: Target): string {
     case "quanx":
     case "loon":
     case "egern":
+    case "surge":
       return "text/plain;charset=utf-8"
   }
 }
