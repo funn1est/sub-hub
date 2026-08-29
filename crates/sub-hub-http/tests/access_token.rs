@@ -2,7 +2,7 @@ use http::{Method, StatusCode, header};
 use sub_hub_http::{AccessTokens, Application, HttpRequest, HttpResponse, SelfHosts};
 
 mod common;
-use common::UnreachableRemote;
+use common::{UnreachableRemote, VERSION_BODY};
 
 const TOKEN: &str = "deployer-token";
 const DIRECT_QUERY: &str = concat!(
@@ -116,7 +116,7 @@ fn configured_token_head_matches_get_status_and_suppresses_bodies() {
 fn version_stays_public_when_a_token_is_configured() {
     let response = protected(HttpRequest::new(Method::GET, "/version", None));
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.body(), b"sub-hub v0.1.0 backend");
+    assert_eq!(response.body(), VERSION_BODY);
 }
 
 #[test]

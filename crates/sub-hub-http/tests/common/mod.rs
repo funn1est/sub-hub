@@ -23,6 +23,9 @@ impl RemoteAdapter for UnreachableRemote {
     }
 }
 
+pub const VERSION_BODY: &[u8] =
+    concat!("sub-hub v", env!("CARGO_PKG_VERSION"), " backend").as_bytes();
+
 pub fn handle(request: HttpRequest<'_>) -> HttpResponse {
     let application = Application::new(
         UnreachableRemote,

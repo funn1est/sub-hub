@@ -146,9 +146,10 @@ curl --get "$WORKER_URL/sub" \
 
 After deploy, replace `/sub` with `/sub/<token>` in the second command.
 
-`GET /version` must print `sub-hub v0.1.0 backend`. The `/sub` response must
-be Mihomo YAML that contains that VLESS node. On layout `all`,
-`GET $WORKER_URL/` must be the Console HTML.
+`GET /version` must print `sub-hub vX.Y.Z backend` for the workspace
+version in `Cargo.toml`. The `/sub` response must be Mihomo YAML that
+contains that VLESS node. On layout `all`, `GET $WORKER_URL/` must be the
+Console HTML.
 
 ### Local session
 

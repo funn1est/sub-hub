@@ -134,13 +134,13 @@ curl -D - -o NUL "$ORIGIN/"
 # CSP default-src 'self'; connect-src 'self' http: https:; script-src 'self'
 
 curl -D - "$ORIGIN/version"
-# Expect: sub-hub v0.1.0 backend. No Access-Control-Allow-Origin.
+# Expect: sub-hub vX.Y.Z backend for the workspace version. No Access-Control-Allow-Origin.
 ```
 
 In the Web Console, the Conversion Service origin should already be this
 page's origin. Set the access token to the operator-kept value (empty only
 if the Worker is anonymous). The `/version` probe should show
-`sub-hub v0.1.0 backend`. Preview a direct VLESS with `target=clash`; the
+`sub-hub vX.Y.Z backend`. Preview a direct VLESS with `target=clash`; the
 body should be Mihomo YAML that contains that node.
 
 Native pairing from `pnpm run dev` still needs

@@ -1,6 +1,8 @@
 mod common;
 
-use common::{ENCODED_VLESS, ENCODED_VLESS_BETA, SINGLE_VLESS_YAML, assert_sub_error, handle};
+use common::{
+    ENCODED_VLESS, ENCODED_VLESS_BETA, SINGLE_VLESS_YAML, VERSION_BODY, assert_sub_error, handle,
+};
 use http::{Method, StatusCode, header};
 use sub_hub_http::{HttpRequest, HttpResponse};
 
@@ -9,7 +11,7 @@ fn get_version_returns_the_exact_backend_identity() {
     let response = handle(HttpRequest::new(Method::GET, "/version", None));
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.body(), b"sub-hub v0.1.0 backend");
+    assert_eq!(response.body(), VERSION_BODY);
     assert_eq!(
         response.headers().get(header::CONTENT_TYPE).unwrap(),
         "text/plain;charset=utf-8"

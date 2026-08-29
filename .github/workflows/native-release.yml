@@ -26,27 +26,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Node
+        uses: jdx/mise-action@v4
+        with:
+          install_args: node
+
       - name: Read the workspace version
         id: version
         run: |
           set -eu
-          version="$(python3 - <<'PY'
-          import re
-          from pathlib import Path
-
-          text = Path("Cargo.toml").read_text(encoding="utf-8")
-          section = re.search(
-              r"(?ms)^\[workspace\.package\]\s*(.*?)(?=^\[|\Z)",
-              text,
-          )
-          if section is None:
-              raise SystemExit("missing [workspace.package] in Cargo.toml")
-          match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', section.group(1))
-          if match is None:
-              raise SystemExit("missing workspace.package version in Cargo.toml")
-          print(match.group(1), end="")
-          PY
-          )"
+          version="$(node scripts/workspace-version.mjs)"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           if [ "${{ github.ref_type }}" = "tag" ]; then
             expected="v${version}"

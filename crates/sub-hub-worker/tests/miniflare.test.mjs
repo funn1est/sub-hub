@@ -5,6 +5,12 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { Miniflare, createFetchMock } from "miniflare";
 
+import {
+  outboundUserAgent,
+  readWorkspaceVersion,
+  versionBody,
+} from "../../../scripts/workspace-version.mjs";
+
 const HOST_VISIBLE = JSON.parse(
   readFileSync(
     resolve(
@@ -14,6 +20,15 @@ const HOST_VISIBLE = JSON.parse(
     "utf8",
   ),
 );
+
+const WORKSPACE_VERSION = readWorkspaceVersion(
+  readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../../Cargo.toml"),
+    "utf8",
+  ),
+);
+const VERSION_BODY = versionBody(WORKSPACE_VERSION);
+const OUTBOUND_USER_AGENT = outboundUserAgent(WORKSPACE_VERSION);
 
 const VLESS = concat(
   "vless://01234567-89ab-cdef-0123-456789abcdef",
@@ -181,7 +196,7 @@ test("configured access token protects /sub and leaves /version public", async (
 
   const version = await mf.dispatchFetch("https://worker.example/version");
   assert.equal(version.status, 200);
-  assert.equal(await version.text(), "sub-hub v0.1.0 backend");
+  assert.equal(await version.text(), VERSION_BODY);
 
   const missing = await mf.dispatchFetch(
     `https://worker.example/sub?target=clash&url=${encodeURIComponent(VLESS)}`,
@@ -335,7 +350,7 @@ test("listed console origin can read /version and /sub", async (t) => {
     "access-control-expose-headers": expose,
     vary: "Origin",
   });
-  assert.equal(await version.text(), "sub-hub v0.1.0 backend");
+  assert.equal(await version.text(), VERSION_BODY);
 
   const sub = await mf.dispatchFetch(
     `https://worker.example/sub?target=clash&url=${encodeURIComponent(VLESS)}`,
@@ -436,7 +451,7 @@ test("remote fetch is constrained and preserves the shared response", async (t) 
   assert.equal(observed.headers.accept, "*/*");
   assert.equal(observed.headers["accept-encoding"], "identity");
   assert.equal(observed.headers["cache-control"], "no-store");
-  assert.equal(observed.headers["user-agent"], "sub-hub/0.1.0");
+  assert.equal(observed.headers["user-agent"], OUTBOUND_USER_AGENT);
   assert.equal(observed.headers.authorization, undefined);
   assert.equal(observed.headers.cookie, undefined);
   assert.equal(observed.headers["x-caller-header"], undefined);

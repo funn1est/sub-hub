@@ -40,9 +40,19 @@ pnpm run build
 pnpm run test:host
 ```
 
+Native-release helper (`scripts/`):
+
+```sh
+node --test scripts/workspace-version.test.mjs scripts/cut-native-release.test.mjs
+```
+
 CI does not deploy to Cloudflare and does not hold Cloudflare credentials.
 A `v*` tag that matches the workspace version publishes unsigned Native
-binaries.
+binaries. From a clean `origin/main`, cut that tag with `pnpm release`
+(patch +1, commit, annotated tag, push) or `pnpm release X.Y.Z` for an
+explicit minor or major. Tests and smoke read the workspace version; do
+not hard-code `GET /version` bodies. Root `package.json` `build` / `deploy`
+stay the Cloudflare button helpers; do not replace them.
 
 Do not modify the existing root `.gitignore` unless a maintainer asks for that
 change in the same review.

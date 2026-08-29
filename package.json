@@ -8,7 +8,8 @@
   },
   "scripts": {
     "build": "sh crates/sub-hub-worker/scripts/install-workers-toolchain.sh",
-    "deploy": "sh crates/sub-hub-worker/scripts/workers-builds-deploy.sh"
+    "deploy": "sh crates/sub-hub-worker/scripts/workers-builds-deploy.sh",
+    "release": "node scripts/cut-native-release.mjs"
   },
   "cloudflare": {
     "bindings": {

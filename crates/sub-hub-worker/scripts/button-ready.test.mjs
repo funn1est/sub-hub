@@ -23,6 +23,7 @@ test("repository-root package.json pre-populates C1 Workers Builds commands", ()
     pkg.scripts.deploy,
     "sh crates/sub-hub-worker/scripts/workers-builds-deploy.sh",
   );
+  assert.equal(pkg.scripts.release, "node scripts/cut-native-release.mjs");
   assert.equal(pkg.dependencies, undefined);
   assert.equal(pkg.devDependencies, undefined);
   const description = pkg.cloudflare?.bindings?.SUB_HUB_ACCESS_TOKEN?.description;

@@ -19,6 +19,7 @@ use sub_hub_native::{
 use tower::ServiceExt;
 
 const HOST_VISIBLE: &str = include_str!("../../../testdata/host-visible-contract.json");
+const VERSION_BODY: &str = concat!("sub-hub v", env!("CARGO_PKG_VERSION"), " backend");
 
 #[derive(serde::Deserialize)]
 struct HostVisibleFile {
@@ -577,7 +578,7 @@ async fn configured_console_serves_files_after_application_routes() {
 
     let version = request(&router, Method::GET, "/version").await;
     assert_eq!(version.status(), StatusCode::OK);
-    assert_eq!(body_text(version).await, "sub-hub v0.1.0 backend");
+    assert_eq!(body_text(version).await, VERSION_BODY);
 
     let sub = request(
         &router,

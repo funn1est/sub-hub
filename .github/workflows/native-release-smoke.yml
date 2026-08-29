@@ -28,10 +28,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust
+      - name: Install Rust and Node
         uses: jdx/mise-action@v4
         with:
-          install_args: rust
+          install_args: rust node
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
@@ -42,6 +42,7 @@ jobs:
       - name: Run the process-level conversion smoke test
         run: |
           set -eu
+          expected="$(node scripts/workspace-version.mjs --body)"
           port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
           export SUB_HUB_BIND="127.0.0.1:${port}"
           unset SUB_HUB_SELF_HOSTS
@@ -62,7 +63,7 @@ jobs:
             fi
             if curl -fsS --max-time 1 "http://127.0.0.1:${port}/version" -o version.txt; then
               version="$(cat version.txt)"
-              if [ "$version" = 'sub-hub v0.1.0 backend' ]; then
+              if [ "$version" = "$expected" ]; then
                 break
               fi
             fi
@@ -70,7 +71,7 @@ jobs:
             i=$((i + 1))
             sleep 0.1
           done
-          if [ "$version" != 'sub-hub v0.1.0 backend' ]; then
+          if [ "$version" != "$expected" ]; then
             echo 'native backend did not return the expected version response' >&2
             exit 1
           fi
