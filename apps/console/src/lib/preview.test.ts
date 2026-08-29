@@ -7,8 +7,10 @@ import {
   fallbackDownloadName,
   filenameFromDisposition,
   isLoopbackHost,
+  parseOmittedRulesHeader,
   parseSkippedHeader,
   PREVIEW_VIEW_LIMIT_BYTES,
+  readSubGetHeaders,
   runPreview,
   runVersionProbe,
   truncatePreviewBody,
@@ -136,6 +138,65 @@ describe("parseSkippedHeader", () => {
   })
 })
 
+describe("parseOmittedRulesHeader", () => {
+  it("summarizes lossy URL-REGEX=3", () => {
+    expect(parseOmittedRulesHeader("lossy", "URL-REGEX=3")).toEqual({
+      omittedUrlRegex: 3,
+    })
+  })
+
+  it("returns null when either header is missing", () => {
+    expect(parseOmittedRulesHeader(null, null)).toBeNull()
+    expect(parseOmittedRulesHeader("lossy", null)).toBeNull()
+    expect(parseOmittedRulesHeader(null, "URL-REGEX=3")).toBeNull()
+    expect(parseOmittedRulesHeader("", "URL-REGEX=3")).toBeNull()
+  })
+
+  it("returns null for unknown result tokens or malformed omitted rules", () => {
+    expect(parseOmittedRulesHeader("partial", "URL-REGEX=3")).toBeNull()
+    expect(parseOmittedRulesHeader("lossy", "URL-REGEX=")).toBeNull()
+    expect(parseOmittedRulesHeader("lossy", "URL-REGEX=-1")).toBeNull()
+    expect(parseOmittedRulesHeader("lossy", "PROCESS-NAME=1")).toBeNull()
+    expect(parseOmittedRulesHeader("lossy", "URL-REGEX=3;extra")).toBeNull()
+    expect(parseOmittedRulesHeader("lossy", "url-regex=3")).toBeNull()
+  })
+
+  it("surfaces the summary on readSubGetHeaders without throwing on junk", () => {
+    expect(
+      readSubGetHeaders(
+        {
+          get: (name) => {
+            if (name === "x-subconverter-result") {
+              return "lossy"
+            }
+            if (name === "x-subconverter-omitted-rules") {
+              return "URL-REGEX=3"
+            }
+            return null
+          },
+        },
+        "clash"
+      ).omitted
+    ).toEqual({ omittedUrlRegex: 3 })
+    expect(
+      readSubGetHeaders(
+        {
+          get: (name) => {
+            if (name === "x-subconverter-result") {
+              return "nope"
+            }
+            if (name === "x-subconverter-omitted-rules") {
+              return "garbage"
+            }
+            return null
+          },
+        },
+        "clash"
+      ).omitted
+    ).toBeNull()
+  })
+})
+
 describe("download filename", () => {
   it("prefers content-disposition and falls back to sub-hub-<target>.<ext>", () => {
     expect(
@@ -178,11 +239,43 @@ describe("runPreview", () => {
         },
       ],
       skipped: null,
+      omitted: null,
       body: "mode: rule\n",
       viewText: "mode: rule\n",
       truncated: false,
       filename: "sub-hub-mihomo.yaml",
     })
+  })
+
+  it("surfaces omitted URL-REGEX from lossy headers and keeps the raw headers", async () => {
+    const outcome = await runPreview({
+      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
+      target: "clash",
+      pageHttps: false,
+      fetchImpl: async () => ({
+        status: 200,
+        text: async () => "mode: rule\n",
+        headers: {
+          get: (name: string) => {
+            if (name === "x-subconverter-result") {
+              return "lossy"
+            }
+            if (name === "x-subconverter-omitted-rules") {
+              return "URL-REGEX=3"
+            }
+            return null
+          },
+        },
+      }),
+    })
+    expect(outcome.status).toBe("done")
+    if (outcome.status === "done") {
+      expect(outcome.omitted).toEqual({ omittedUrlRegex: 3 })
+      expect(outcome.headers).toEqual([
+        { name: "x-subconverter-result", value: "lossy" },
+        { name: "x-subconverter-omitted-rules", value: "URL-REGEX=3" },
+      ])
+    }
   })
 
   it("falls back to the Mihomo download name for the clash wire token", async () => {

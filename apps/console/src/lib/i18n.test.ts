@@ -3,7 +3,12 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { KNOWN_SERVICE_ERRORS } from "./service-contract.ts"
-import { knownErrorTitle, messages, skippedSummary } from "./i18n.ts"
+import {
+  knownErrorTitle,
+  messages,
+  omittedSummary,
+  skippedSummary,
+} from "./i18n.ts"
 
 describe("known Conversion Service errors", () => {
   it("has a distinct zh and en title for every exact English body", async () => {
@@ -58,6 +63,17 @@ describe("skippedSummary", () => {
     )
     expect(skippedSummary("zh", { parse: 1, capability: 4, name: 0 })).toBe(
       "跳过 5 个节点（解析失败 1，此 target 不支持 4）。"
+    )
+  })
+})
+
+describe("omittedSummary", () => {
+  it("names the omitted URL-REGEX count in zh and en", () => {
+    expect(omittedSummary("en", 3)).toBe(
+      "Omitted 3 URL-REGEX rules (unsupported on this target)."
+    )
+    expect(omittedSummary("zh", 3)).toBe(
+      "省略 3 条 URL-REGEX 规则（此 target 不支持）。"
     )
   })
 })

@@ -16,7 +16,12 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area.tsx"
 import { Spinner } from "@/components/ui/spinner.tsx"
 import { SectionHeading } from "@/components/workshop-section.tsx"
-import { knownErrorTitle, skippedSummary, t } from "@/lib/i18n.ts"
+import {
+  knownErrorTitle,
+  omittedSummary,
+  skippedSummary,
+  t,
+} from "@/lib/i18n.ts"
 import type { Locale } from "@/lib/persist.ts"
 import type { PreviewState } from "@/lib/preview.ts"
 
@@ -78,6 +83,7 @@ export function PreviewCard({
       ? knownErrorTitle(locale, preview.kind.body)
       : `${copy.status} ${preview.httpStatus}`
   const skipped = preview.skipped
+  const omitted = preview.omitted
 
   return (
     <Card>
@@ -105,6 +111,15 @@ export function PreviewCard({
               <AlertTitle>{copy.skipped}</AlertTitle>
               <AlertDescription>
                 {skippedSummary(locale, skipped)}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {omitted !== null ? (
+            <Alert>
+              <CircleAlertIcon />
+              <AlertTitle>{copy.omitted}</AlertTitle>
+              <AlertDescription>
+                {omittedSummary(locale, omitted.omittedUrlRegex)}
               </AlertDescription>
             </Alert>
           ) : null}

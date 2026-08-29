@@ -184,6 +184,25 @@ export function parseSkippedHeader(value: string | null): SkipCounts | null {
   }
 }
 
+export type OmittedRules = {
+  omittedUrlRegex: number
+}
+
+/** HTTP `insert_lossy_headers`: `lossy` + `URL-REGEX=<uint>`. Other tokens stay raw. */
+export function parseOmittedRulesHeader(
+  result: string | null,
+  omitted: string | null
+): OmittedRules | null {
+  if (result !== "lossy" || omitted === null) {
+    return null
+  }
+  const match = /^URL-REGEX=(\d+)$/.exec(omitted)
+  if (match === null) {
+    return null
+  }
+  return { omittedUrlRegex: Number(match[1]) }
+}
+
 export type AccessTokenParse = { ok: true; token: string } | { ok: false }
 
 export function parseAccessToken(raw: string): AccessTokenParse {

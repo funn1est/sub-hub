@@ -5,8 +5,10 @@ import {
   VERSION_PATH,
   fallbackDownloadName,
   isKnownServiceError,
+  parseOmittedRulesHeader,
   parseSkippedHeader,
   type KnownServiceError,
+  type OmittedRules,
   type SkipCounts,
   type Target,
 } from "./service-contract.ts"
@@ -14,7 +16,9 @@ import {
 export {
   VERSION_BODY,
   fallbackDownloadName,
+  parseOmittedRulesHeader,
   parseSkippedHeader,
+  type OmittedRules,
   type SkipCounts,
 } from "./service-contract.ts"
 
@@ -28,6 +32,7 @@ export function parseSkippedFromHeaders(
 
 export type SubGetHeaders = {
   skipped: SkipCounts | null
+  omitted: OmittedRules | null
   filename: string | null
   exposed: { name: string; value: string }[]
 }
@@ -67,6 +72,10 @@ export function readSubGetHeaders(
   const exposed = pickExposedHeaders(headers)
   return {
     skipped: parseSkippedFromHeaders(exposed),
+    omitted: parseOmittedRulesHeader(
+      headers.get("x-subconverter-result"),
+      headers.get("x-subconverter-omitted-rules")
+    ),
     filename:
       filenameFromDisposition(headers.get("content-disposition")) ??
       fallbackDownloadName(target),
@@ -134,9 +143,7 @@ export type VersionProbe =
   | { status: "unreachable" }
 
 export type VersionState =
-  | { status: "idle" }
-  | { status: "checking" }
-  | VersionProbe
+  { status: "idle" } | { status: "checking" } | VersionProbe
 
 export async function runVersionProbe(input: {
   origin: string
@@ -186,6 +193,7 @@ export type PreviewDone = {
   kind: PreviewBodyKind
   headers: { name: string; value: string }[]
   skipped: SkipCounts | null
+  omitted: OmittedRules | null
   body: string
   viewText: string
   truncated: boolean
@@ -222,6 +230,7 @@ export async function runPreview(input: {
       kind: classifyPreviewBody(response.status, body),
       headers: headers.exposed,
       skipped: headers.skipped,
+      omitted: headers.omitted,
       body,
       viewText: truncated.text,
       truncated: truncated.truncated,
