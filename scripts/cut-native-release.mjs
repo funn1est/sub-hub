@@ -123,6 +123,38 @@ function writeReleaseFiles(root, plan) {
   );
 }
 
+export function confirmReleaseVersion(
+  plan,
+  { stdout = process.stdout, readLine } = {},
+) {
+  const prompt = `Workspace ${plan.current} → ${plan.version} (tag ${plan.tag}).\nIs ${plan.version} correct? Type ${plan.version} or y to confirm: `;
+  const answer = (readLine ? readLine(prompt) : readStdinLine(stdout, prompt)).trim();
+  return answer === plan.version || /^y$/i.test(answer);
+}
+
+function readStdinLine(stdout, prompt) {
+  if (!process.stdin.isTTY) {
+    throw new Error("confirm the version in a terminal");
+  }
+  stdout.write(prompt);
+  const chunks = [];
+  const buf = Buffer.alloc(1);
+  for (;;) {
+    const n = fs.readSync(process.stdin.fd, buf, 0, 1);
+    if (n === 0) {
+      break;
+    }
+    if (buf[0] === 10) {
+      break;
+    }
+    if (buf[0] !== 13) {
+      chunks.push(buf[0]);
+    }
+  }
+  stdout.write("\n");
+  return Buffer.from(chunks).toString("utf8");
+}
+
 export function cutNativeRelease({
   root,
   version,
@@ -130,6 +162,7 @@ export function cutNativeRelease({
   push = true,
   fetch = true,
   git = runGit,
+  confirm = confirmReleaseVersion,
 } = {}) {
   const files = readReleaseFiles(root);
   const next =
@@ -140,6 +173,9 @@ export function cutNativeRelease({
   assertReleaseGitState(root, plan.tag, { git, fetch });
   if (dryRun) {
     return plan;
+  }
+  if (!confirm(plan)) {
+    throw new Error(`release cancelled; ${plan.version} was not confirmed`);
   }
   writeReleaseFiles(root, plan);
   git(["add", "Cargo.toml", "Cargo.lock", "apps/console/package.json"], {

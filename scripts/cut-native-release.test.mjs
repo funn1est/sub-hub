@@ -6,7 +6,12 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { cutNativeRelease, parseCutArgv, runGit } from "./cut-native-release.mjs";
+import {
+  confirmReleaseVersion,
+  cutNativeRelease,
+  parseCutArgv,
+  runGit,
+} from "./cut-native-release.mjs";
 import { readWorkspaceVersion } from "./workspace-version.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -123,7 +128,7 @@ test("cutNativeRelease dry-run does not commit or tag", () => {
 test("cutNativeRelease without a version patches the workspace version", () => {
   const { root, origin, work } = makeRepo();
   try {
-    const plan = cutNativeRelease({ root: work });
+    const plan = cutNativeRelease({ root: work, confirm: () => true });
     assert.equal(plan.current, "0.1.0");
     assert.equal(plan.version, "0.1.1");
     assert.equal(plan.tag, "v0.1.1");
@@ -143,6 +148,7 @@ test("cutNativeRelease commits, tags, and pushes the version bump", () => {
     const plan = cutNativeRelease({
       root: work,
       version: "0.2.0",
+      confirm: () => true,
     });
     assert.equal(plan.tag, "v0.2.0");
     assert.equal(
@@ -176,29 +182,85 @@ test("cutNativeRelease refuses a dirty tree, a side branch, and a live tag", () 
   try {
     fs.writeFileSync(path.join(work, "dirty.txt"), "nope");
     assert.throws(
-      () => cutNativeRelease({ root: work, version: "0.2.0" }),
+      () => cutNativeRelease({ root: work, version: "0.2.0", confirm: () => true }),
       /not clean/,
     );
     fs.rmSync(path.join(work, "dirty.txt"));
 
     git(work, ["checkout", "-b", "topic"]);
     assert.throws(
-      () => cutNativeRelease({ root: work, version: "0.2.0" }),
+      () => cutNativeRelease({ root: work, version: "0.2.0", confirm: () => true }),
       /from main/,
     );
     git(work, ["checkout", "main"]);
 
     git(work, ["tag", "-a", "v0.2.0", "-m", "v0.2.0"]);
     assert.throws(
-      () => cutNativeRelease({ root: work, version: "0.2.0" }),
+      () => cutNativeRelease({ root: work, version: "0.2.0", confirm: () => true }),
       /already exists locally/,
     );
     git(work, ["tag", "-d", "v0.2.0"]);
 
-    cutNativeRelease({ root: work, version: "0.2.0", push: false });
+    cutNativeRelease({ root: work, version: "0.2.0", push: false, confirm: () => true });
     assert.throws(
-      () => cutNativeRelease({ root: work, version: "0.2.1", push: false, fetch: false }),
+      () =>
+        cutNativeRelease({
+          root: work,
+          version: "0.2.1",
+          push: false,
+          fetch: false,
+          confirm: () => true,
+        }),
       /not origin\/main/,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("confirmReleaseVersion accepts the typed next version or y", () => {
+  const plan = { current: "0.1.0", version: "0.2.0", tag: "v0.2.0" };
+  const prompts = [];
+  assert.equal(
+    confirmReleaseVersion(plan, {
+      readLine: (prompt) => {
+        prompts.push(prompt);
+        return "0.2.0";
+      },
+    }),
+    true,
+  );
+  assert.match(prompts[0], /0\.1\.0 → 0\.2\.0 \(tag v0\.2\.0\)/);
+  assert.match(prompts[0], /Is 0\.2\.0 correct\?/);
+  assert.equal(confirmReleaseVersion(plan, { readLine: () => "y" }), true);
+  assert.equal(confirmReleaseVersion(plan, { readLine: () => "Y" }), true);
+  assert.equal(confirmReleaseVersion(plan, { readLine: () => "yes" }), false);
+  assert.equal(confirmReleaseVersion(plan, { readLine: () => "0.1.0" }), false);
+  assert.equal(confirmReleaseVersion(plan, { readLine: () => "0.2.0\n" }), true);
+});
+
+test("cutNativeRelease does not write when the version is not confirmed", () => {
+  const { root, work } = makeRepo();
+  try {
+    const head = git(work, ["rev-parse", "HEAD"]);
+    const seen = [];
+    assert.throws(
+      () =>
+        cutNativeRelease({
+          root: work,
+          version: "0.2.0",
+          confirm: (plan) => {
+            seen.push(plan.version);
+            return false;
+          },
+        }),
+      /not confirmed/,
+    );
+    assert.deepEqual(seen, ["0.2.0"]);
+    assert.equal(git(work, ["rev-parse", "HEAD"]), head);
+    assert.equal(
+      readWorkspaceVersion(fs.readFileSync(path.join(work, "Cargo.toml"), "utf8")),
+      "0.1.0",
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
