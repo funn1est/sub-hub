@@ -625,6 +625,30 @@ async fn console_path_escape_stays_inside_the_root() {
     let _ = std::fs::remove_file(outside);
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn console_spa_fallback_refuses_symlinked_index_outside_root() {
+    let fixture = console_fixture();
+    let outside = fixture
+        .path()
+        .parent()
+        .expect("temp parent")
+        .join("outside-index.html");
+    std::fs::write(&outside, b"outside-secret").expect("write outside");
+    let index = fixture.path().join("index.html");
+    std::fs::remove_file(&index).expect("remove fixture index");
+    std::os::unix::fs::symlink(&outside, &index).expect("symlink index");
+
+    let router = test_router_with_console(fixture.path().to_path_buf());
+    let response = request(&router, Method::GET, "/workshop").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body = body_text(response).await;
+    assert_eq!(body, "Not Found");
+    assert!(!body.contains("outside-secret"));
+
+    let _ = std::fs::remove_file(outside);
+}
+
 #[tokio::test]
 async fn unset_console_keeps_unknown_paths_as_application_not_found() {
     let response = request(&test_router(), Method::GET, "/").await;

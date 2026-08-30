@@ -72,6 +72,9 @@ fn resolve_file(root: &Path, candidate: &Path) -> Option<PathBuf> {
 
     let index = root.join("index.html");
     let index = index.canonicalize().ok()?;
+    if !index.starts_with(root) {
+        return None;
+    }
     index.is_file().then_some(index)
 }
 
