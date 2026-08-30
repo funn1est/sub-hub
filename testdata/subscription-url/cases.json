@@ -1,7 +1,7 @@
 {
   "contract": {
     "targets": ["clash", "mihomo", "quanx", "singbox", "loon", "egern", "surge"],
-    "queryKeys": ["target", "url", "config", "append_info", "insert", "expand"],
+    "queryKeys": ["target", "url", "config", "append_info", "insert", "expand", "filename"],
     "getTargetLimitBytes": 8192,
     "versionPath": "/version",
     "versionBodyPattern": "^sub-hub v\\d+\\.\\d+\\.\\d+ backend$",
@@ -132,7 +132,8 @@
         "target": "clash",
         "configUrl": "",
         "appendInfo": true,
-        "expand": false
+        "expand": false,
+        "filename": ""
       }
     },
     {
@@ -148,7 +149,8 @@
         "target": "mihomo",
         "configUrl": "",
         "appendInfo": true,
-        "expand": false
+        "expand": false,
+        "filename": ""
       }
     },
     {
@@ -164,7 +166,8 @@
         "target": "clash",
         "configUrl": "",
         "appendInfo": false,
-        "expand": false
+        "expand": false,
+        "filename": ""
       }
     },
     {
@@ -178,7 +181,8 @@
         "target": "singbox",
         "configUrl": "",
         "appendInfo": true,
-        "expand": false
+        "expand": false,
+        "filename": ""
       }
     },
     {
@@ -207,7 +211,25 @@
         "target": "loon",
         "configUrl": "",
         "appendInfo": true,
-        "expand": false
+        "expand": false,
+        "filename": ""
+      }
+    },
+    {
+      "id": "filename-stem",
+      "query": "target=egern&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha&filename=airport",
+      "http": { "status": 200 },
+      "workshop": {
+        "serviceOrigin": "http://127.0.0.1:25500",
+        "accessToken": "",
+        "sources": [
+          "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha"
+        ],
+        "target": "egern",
+        "configUrl": "",
+        "appendInfo": true,
+        "expand": false,
+        "filename": "airport"
       }
     }
   ]

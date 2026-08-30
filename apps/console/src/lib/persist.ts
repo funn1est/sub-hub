@@ -29,6 +29,7 @@ export function workshopFieldsOf(state: PersistedWorkshop): WorkshopFields {
     configUrl: state.configUrl,
     appendInfo: state.appendInfo,
     expand: state.expand,
+    filename: state.filename,
   }
 }
 
@@ -68,6 +69,7 @@ export function defaultPersisted(
     configUrl: "",
     appendInfo: true,
     expand: true,
+    filename: "",
     ...overrides,
   }
 }
@@ -83,6 +85,7 @@ export function serializePersisted(state: PersistedWorkshop): string {
     configUrl: state.configUrl,
     appendInfo: state.appendInfo,
     expand: state.expand,
+    filename: state.filename,
   }
   return JSON.stringify(body)
 }
@@ -140,6 +143,7 @@ export function parsePersisted(
         : defaults.appendInfo,
     expand:
       typeof value.expand === "boolean" ? value.expand : defaults.expand,
+    filename: typeof value.filename === "string" ? value.filename : defaults.filename,
   }
 }
 

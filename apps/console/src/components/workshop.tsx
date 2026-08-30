@@ -56,6 +56,7 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
       <WorkshopOptions
         fields={fields}
         configInvalid={view.configInvalid}
+        filenameInvalid={view.filenameInvalid}
         showCustomConfigField={view.configSelection === "custom"}
         configGroups={configGroups}
         selectedConfig={selectedConfig}

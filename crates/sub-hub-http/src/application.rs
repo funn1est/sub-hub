@@ -175,6 +175,7 @@ impl<A: RemoteAdapter> Application<A> {
             parsed.target,
             document,
             eligible_metadata,
+            parsed.filename.as_deref(),
         ))
     }
 }
@@ -202,10 +203,11 @@ pub(crate) fn finish_subscription(
     target: OutputTarget,
     config: RenderedConfig,
     metadata: Option<SubscriptionUserInfoV1>,
+    filename_stem: Option<&str>,
 ) -> HttpResponse {
     let skips = config.skip_counts();
     let omitted_url_regex = config.omitted_url_regex();
-    let mut response = subscription_response_for(target, config.into_bytes());
+    let mut response = subscription_response_for(target, config.into_bytes(), filename_stem);
     insert_subscription_user_info(&mut response, metadata);
     attach_conversion_headers(&mut response, skips, omitted_url_regex);
     response

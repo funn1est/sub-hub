@@ -20,6 +20,7 @@ const sample: PersistedWorkshop = {
   configUrl: "",
   appendInfo: true,
   expand: false,
+  filename: "",
 }
 
 function memoryStorage(initial: Iterable<readonly [string, string]> = []) {
@@ -98,6 +99,7 @@ describe("persist", () => {
       configUrl: "",
       appendInfo: true,
       expand: true,
+      filename: "",
     })
 
     const junk = createConsolePersist(
@@ -107,6 +109,15 @@ describe("persist", () => {
     expect(junk.sources).toEqual([""])
     expect(junk.accessToken).toBe("")
     expect(junk.expand).toBe(true)
+  })
+
+  it("treats a missing filename field as empty", () => {
+    const { filename, ...withoutFilename } = sample
+    expect(filename).toBe("")
+    const loaded = createConsolePersist(
+      memoryStorage([[PERSIST_KEY, JSON.stringify(withoutFilename)]])
+    ).getState()
+    expect(loaded.filename).toBe("")
   })
 
   it("treats a missing expand field as the default on", () => {
@@ -153,6 +164,7 @@ describe("persist", () => {
       configUrl: sample.configUrl,
       appendInfo: sample.appendInfo,
       expand: sample.expand,
+      filename: sample.filename,
     })
     expect(
       composePersisted(workshopFieldsOf(sample), {

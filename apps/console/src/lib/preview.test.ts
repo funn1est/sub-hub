@@ -210,6 +210,11 @@ describe("download filename", () => {
     expect(fallbackDownloadName("singbox")).toBe("sub-hub-singbox.json")
     expect(fallbackDownloadName("loon")).toBe("sub-hub-loon.conf")
     expect(fallbackDownloadName("egern")).toBe("sub-hub-egern.yaml")
+    expect(
+      filenameFromDisposition(
+        "attachment; filename=\"download.yaml\"; filename*=UTF-8''%E6%9C%BA%E5%9C%BA.yaml"
+      )
+    ).toBe("机场.yaml")
   })
 })
 

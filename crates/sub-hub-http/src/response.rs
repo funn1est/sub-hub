@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use sub_hub_conversion::{OutputTarget, SkipCountsV1, UniqueFlightFillFailure};
 
@@ -85,50 +87,107 @@ impl std::fmt::Debug for HttpResponse {
     }
 }
 
-pub(crate) fn subscription_response_for(target: OutputTarget, body: Vec<u8>) -> HttpResponse {
+pub(crate) fn subscription_response_for(
+    target: OutputTarget,
+    body: Vec<u8>,
+    filename_stem: Option<&str>,
+) -> HttpResponse {
     let mut response = success_response(StatusCode::OK, body);
-    let (disposition, content_type, profile_update_interval) = match target {
-        OutputTarget::Mihomo => (
-            HeaderValue::from_static("attachment; filename=\"sub-hub-mihomo.yaml\""),
-            TEXT_CONTENT_TYPE,
-            true,
-        ),
-        OutputTarget::Quanx => (
-            HeaderValue::from_static("attachment; filename=\"sub-hub-quanx.conf\""),
-            TEXT_CONTENT_TYPE,
-            false,
-        ),
-        OutputTarget::Singbox => (
-            HeaderValue::from_static("attachment; filename=\"sub-hub-singbox.json\""),
-            JSON_CONTENT_TYPE,
-            false,
-        ),
-        OutputTarget::Loon => (
-            HeaderValue::from_static("attachment; filename=\"sub-hub-loon.conf\""),
-            TEXT_CONTENT_TYPE,
-            false,
-        ),
-        OutputTarget::Egern => (
-            HeaderValue::from_static("attachment; filename=\"sub-hub-egern.yaml\""),
-            TEXT_CONTENT_TYPE,
-            false,
-        ),
-        OutputTarget::Surge => (
-            HeaderValue::from_static("attachment; filename=\"sub-hub-surge.conf\""),
-            TEXT_CONTENT_TYPE,
-            false,
-        ),
+    let (content_type, profile_update_interval) = match target {
+        OutputTarget::Mihomo => (TEXT_CONTENT_TYPE, true),
+        OutputTarget::Singbox => (JSON_CONTENT_TYPE, false),
+        OutputTarget::Quanx | OutputTarget::Loon | OutputTarget::Egern | OutputTarget::Surge => {
+            (TEXT_CONTENT_TYPE, false)
+        }
     };
     response.headers.insert(header::CONTENT_TYPE, content_type);
-    response
-        .headers
-        .insert(header::CONTENT_DISPOSITION, disposition);
+    response.headers.insert(
+        header::CONTENT_DISPOSITION,
+        content_disposition(target, filename_stem),
+    );
     if profile_update_interval {
         response
             .headers
             .insert("profile-update-interval", HeaderValue::from_static("24"));
     }
     response
+}
+
+fn default_filename_stem(target: OutputTarget) -> &'static str {
+    match target {
+        OutputTarget::Mihomo => "sub-hub-mihomo",
+        OutputTarget::Quanx => "sub-hub-quanx",
+        OutputTarget::Singbox => "sub-hub-singbox",
+        OutputTarget::Loon => "sub-hub-loon",
+        OutputTarget::Egern => "sub-hub-egern",
+        OutputTarget::Surge => "sub-hub-surge",
+    }
+}
+
+fn filename_extension(target: OutputTarget) -> &'static str {
+    match target {
+        OutputTarget::Mihomo | OutputTarget::Egern => "yaml",
+        OutputTarget::Singbox => "json",
+        OutputTarget::Quanx | OutputTarget::Loon | OutputTarget::Surge => "conf",
+    }
+}
+
+fn download_filename(target: OutputTarget, stem: Option<&str>) -> String {
+    format!(
+        "{}.{ext}",
+        stem.unwrap_or_else(|| default_filename_stem(target)),
+        ext = filename_extension(target)
+    )
+}
+
+fn content_disposition(target: OutputTarget, stem: Option<&str>) -> HeaderValue {
+    let filename = download_filename(target, stem);
+    if is_quoted_ascii_filename(&filename) {
+        return HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment; filename=\"download\""));
+    }
+    let encoded = encode_rfc5987(&filename);
+    let fallback = format!("download.{}", filename_extension(target));
+    HeaderValue::from_str(&format!(
+        "attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+    ))
+    .unwrap_or_else(|_| HeaderValue::from_static("attachment; filename=\"download\""))
+}
+
+fn is_quoted_ascii_filename(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii() && byte != b'"' && !byte.is_ascii_control())
+}
+
+fn encode_rfc5987(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.as_bytes() {
+        if matches!(
+            *byte,
+            b'A'..=b'Z'
+                | b'a'..=b'z'
+                | b'0'..=b'9'
+                | b'!'
+                | b'#'
+                | b'$'
+                | b'&'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'|'
+                | b'~'
+        ) {
+            encoded.push(char::from(*byte));
+        } else {
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
 }
 
 pub(crate) fn attach_conversion_headers(

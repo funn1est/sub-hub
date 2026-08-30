@@ -41,10 +41,6 @@ impl NamedSubscriptionSources {
         &self.occurrences
     }
 
-    pub(crate) fn unexpanded_https(&self) -> &[String] {
-        &self.unexpanded_https
-    }
-
     #[cfg_attr(
         not(test),
         expect(
@@ -137,12 +133,24 @@ impl NodeNameDiagnostics {
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "crate tests call the two-argument form")
+)]
 pub(crate) fn resolve_node_names(
     parsed: ParsedSubscriptionSources,
     final_group_names: &[&str],
 ) -> Result<NamedSubscriptionSources, NodeNameError> {
+    resolve_node_names_reserving(parsed, final_group_names, &[])
+}
+
+pub(crate) fn resolve_node_names_reserving(
+    parsed: ParsedSubscriptionSources,
+    final_group_names: &[&str],
+    reserved_extra: &[&str],
+) -> Result<NamedSubscriptionSources, NodeNameError> {
     let mut diagnostics = NodeNameDiagnostics::default();
-    let mut allocator = NameAllocator::new(final_group_names)?;
+    let mut allocator = NameAllocator::new(final_group_names, reserved_extra)?;
     let unexpanded_https = parsed.unexpanded_https;
     let occurrences = parsed
         .occurrences
@@ -240,7 +248,7 @@ struct NameAllocator {
 }
 
 impl NameAllocator {
-    fn new(final_group_names: &[&str]) -> Result<Self, NodeNameError> {
+    fn new(final_group_names: &[&str], reserved_extra: &[&str]) -> Result<Self, NodeNameError> {
         let mut occupied = POLICY_TOKENS
             .into_iter()
             .map(str::to_owned)
@@ -269,6 +277,16 @@ impl NameAllocator {
             }
             occupied.insert(group_name.to_owned());
             group_indices.insert(group_name, group_index);
+        }
+
+        for extra in reserved_extra {
+            if extra.is_empty() {
+                continue;
+            }
+            if occupied.len() == MAX_FROZEN_SYMBOLS {
+                return Err(NodeNameError::TooManySymbols);
+            }
+            occupied.insert((*extra).to_owned());
         }
 
         Ok(Self {

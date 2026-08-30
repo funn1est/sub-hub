@@ -1,4 +1,7 @@
+use std::collections::BTreeSet;
 use std::fmt;
+
+use url::{Host, Url};
 
 use crate::node::ProxyNode;
 
@@ -333,13 +336,85 @@ pub(crate) struct PolicyReportV1 {
     pub(crate) ignored_legacy_probe_hints: u8,
 }
 
-pub(crate) fn unexpanded_from_urls(urls: &[String]) -> Vec<UnexpandedSubscriptionV1> {
+/// Names each unexpanded HTTPS source from its canonical DNS host. The first
+/// occurrence of a host keeps the bare host; later repeats get `-2`, `-3`, …
+/// `reserved` (policy groups plus Direct/Reject) is occupied first so a host
+/// that collides is suffixed instead of clashing in the client.
+pub(crate) fn unexpanded_from_urls(
+    urls: &[String],
+    reserved: &[&str],
+) -> Vec<UnexpandedSubscriptionV1> {
+    let mut used = BTreeSet::new();
+    for name in reserved
+        .iter()
+        .copied()
+        .chain(["DIRECT", "REJECT", "direct", "reject"])
+    {
+        used.insert(occupied_key(name));
+    }
     urls.iter()
-        .enumerate()
-        .map(|(index, url)| {
-            UnexpandedSubscriptionV1::new(format!("sub-hub-{}", index + 1), url.clone())
+        .map(|url| {
+            let name = allocate_unexpanded_name(host_label_from_https(url), &mut used);
+            UnexpandedSubscriptionV1::new(name, url.clone())
         })
         .collect()
+}
+
+fn host_label_from_https(url: &str) -> String {
+    const FALLBACK: &str = "sub-hub";
+    let Ok(parsed) = Url::parse(url) else {
+        return FALLBACK.to_owned();
+    };
+    if parsed.scheme() != "https" {
+        return FALLBACK.to_owned();
+    }
+    let Some(Host::Domain(host)) = parsed.host() else {
+        return FALLBACK.to_owned();
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() {
+        FALLBACK.to_owned()
+    } else {
+        first_bytes(&host, 128).to_owned()
+    }
+}
+
+fn allocate_unexpanded_name(base: String, used: &mut BTreeSet<String>) -> String {
+    if try_occupy(&base, used) {
+        return base;
+    }
+    let root = first_bytes(&base, 122);
+    for index in 2_u32..=99_999 {
+        let candidate = format!("{root}-{index}");
+        if try_occupy(&candidate, used) {
+            return candidate;
+        }
+    }
+    base
+}
+
+fn try_occupy(name: &str, used: &mut BTreeSet<String>) -> bool {
+    let key = occupied_key(name);
+    if used.contains(&key) {
+        return false;
+    }
+    used.insert(key);
+    true
+}
+
+fn occupied_key(name: &str) -> String {
+    name.to_ascii_lowercase()
+}
+
+fn first_bytes(input: &str, max: usize) -> &str {
+    if input.len() <= max {
+        return input;
+    }
+    let mut end = max;
+    while !input.is_char_boundary(end) {
+        end -= 1;
+    }
+    &input[..end]
 }
 
 pub(crate) fn compile_builtin_policy_v1(
@@ -414,5 +489,37 @@ mod tests {
             !debug.contains("gstatic"),
             "probe URLs must not appear in policy debug: {debug}"
         );
+    }
+
+    #[test]
+    fn unexpanded_names_use_host_and_suffix_only_on_repeat() {
+        let named = super::unexpanded_from_urls(
+            &[
+                "https://panel.example/a".to_owned(),
+                "https://other.example/b".to_owned(),
+                "https://panel.example/c?token=one".to_owned(),
+            ],
+            &[],
+        );
+        assert_eq!(named[0].name(), "panel.example");
+        assert_eq!(named[1].name(), "other.example");
+        assert_eq!(named[2].name(), "panel.example-2");
+        assert!(
+            !named[2].name().contains("token"),
+            "path and query must not enter the name"
+        );
+    }
+
+    #[test]
+    fn unexpanded_names_suffix_when_the_host_matches_a_reserved_group() {
+        let named = super::unexpanded_from_urls(
+            &[
+                "https://proxy.example/sub".to_owned(),
+                "https://proxy/sub".to_owned(),
+            ],
+            &["PROXY", "AUTO"],
+        );
+        assert_eq!(named[0].name(), "proxy.example");
+        assert_eq!(named[1].name(), "proxy-2");
     }
 }

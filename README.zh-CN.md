@@ -69,7 +69,11 @@ ACL4SSR INI 及其远程 Rule Set。缺省或空的 `config=` 使用默认 PROXY
 Online `.list`（Clash `DOMAIN-SUFFIX` 不是 QX `HOST-SUFFIX`；没有
 `[filter_remote]`）。显式 `expand=true` 仍经 Unique-flight 内联远程。
 Web Console 开关默认打开并写入 `expand=true`。省略 `expand` 时
-`singbox` 仍会内联。`URL-REGEX` 只发给 Loon 和 Surge，其他 target 省略。
+`singbox` 仍会内联。未展开的 HTTPS 订阅用 URL 的 host 命名
+（`panel.example.com`）；同一 host 再次出现才加 `-2`、`-3`。share URI
+始终内联，不占这个名字。可选的 `filename` 是下载名词干（1–64 字节，不含
+路径字符），服务按 target 补扩展名；省略则仍是 `sub-hub-egern.yaml` 等默认名。
+`URL-REGEX` 只发给 Loon 和 Surge，其他 target 省略。
 Surge 跳过全部 VLESS 节点（手册没有 `vless` 类型）。经 `policy-path=`
 点名的通用 share-URI 或 Clash YAML 远程可能在客户端失败；Sub Hub 不增加
 第二次转换 hop。Quantumult X 跳过 gRPC、无 Reality 的 VLESS Vision、

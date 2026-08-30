@@ -283,7 +283,10 @@ fn optional_compatibility_parameters_accept_only_the_frozen_values() {
         "insert=False",
         "insert=0",
         "interval=86400",
-        "filename=config.yaml",
+        "filename=",
+        "filename=..",
+        "filename=a%2Fb",
+        "filename=a%5Cb",
     ] {
         let query = format!("target=clash&url={ENCODED_VLESS}&{suffix}");
         assert_sub_error(Some(&query), b"Invalid request!");
@@ -500,6 +503,41 @@ fn successful_head_matches_get_headers_without_body() {
         "attachment; filename=\"sub-hub-mihomo.yaml\""
     );
     assert_eq!(head.headers().get("profile-update-interval").unwrap(), "24");
+}
+
+#[test]
+fn filename_stem_appends_the_target_extension() {
+    let query = format!("target=clash&url={ENCODED_VLESS}&filename=airport");
+    let response = handle(HttpRequest::new(Method::GET, "/sub", Some(&query)));
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename=\"airport.yaml\""
+    );
+
+    let quanx = format!("target=quanx&url={ENCODED_VLESS}&filename=airport");
+    let quanx = handle(HttpRequest::new(Method::GET, "/sub", Some(&quanx)));
+    assert_eq!(
+        quanx.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+        "attachment; filename=\"airport.conf\""
+    );
+
+    let unicode = format!("target=egern&url={ENCODED_VLESS}&filename=%E6%9C%BA%E5%9C%BA");
+    let unicode = handle(HttpRequest::new(Method::GET, "/sub", Some(&unicode)));
+    let disposition = unicode
+        .headers()
+        .get(header::CONTENT_DISPOSITION)
+        .unwrap()
+        .to_str()
+        .expect("ascii disposition wrapper");
+    assert!(
+        disposition.contains("filename=\"download.yaml\""),
+        "{disposition}"
+    );
+    assert!(
+        disposition.contains("filename*=UTF-8''%E6%9C%BA%E5%9C%BA.yaml"),
+        "{disposition}"
+    );
 }
 
 #[test]

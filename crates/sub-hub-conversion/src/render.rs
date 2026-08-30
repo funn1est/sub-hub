@@ -23,7 +23,7 @@ use crate::{
     loon::render_loon_from_policy_v1,
     mihomo::render_mihomo_from_policy_v1,
     node::ProxyNode,
-    node_name::{NamedNodeOccurrence, NamedSubscriptionSources, resolve_node_names},
+    node_name::{NamedNodeOccurrence, NamedSubscriptionSources, resolve_node_names_reserving},
     policy::{CompiledPolicyV1, CompiledRuleV1, RuleMatcherV1, compile_builtin_policy_v1},
     quanx::render_quanx_from_policy_v1,
     singbox::render_singbox_from_policy_v1,
@@ -453,9 +453,14 @@ pub(crate) fn render_builtin_with_limit(
     render: RenderFromPolicyFn,
     limit_bytes: usize,
 ) -> Result<RenderedConfig, ConversionRenderError> {
-    let named = resolve_node_names(parsed, &["PROXY", "AUTO"])
+    let unexpanded =
+        crate::policy::unexpanded_from_urls(&parsed.unexpanded_https, &["PROXY", "AUTO"]);
+    let reserved: Vec<&str> = unexpanded
+        .iter()
+        .map(crate::policy::UnexpandedSubscriptionV1::name)
+        .collect();
+    let named = resolve_node_names_reserving(parsed, &["PROXY", "AUTO"], &reserved)
         .map_err(|_| ConversionRenderError::Internal)?;
-    let unexpanded = crate::policy::unexpanded_from_urls(named.unexpanded_https());
     let policy = compile_builtin_policy_v1(&accepted_nodes(&named), &unexpanded);
     render_named_policy_with(&named, &policy, render, limit_bytes)
 }
@@ -530,7 +535,7 @@ mod tests {
                 empty_groups: 0,
                 ignored_legacy_probe_hints: 0,
             },
-            unexpanded_from_urls(&["https://sub.example/list".to_owned()]),
+            unexpanded_from_urls(&["https://sub.example/list".to_owned()], &[]),
             Vec::new(),
         );
         let (kept, items) = KeptNodes::encode_or_unexpanded(

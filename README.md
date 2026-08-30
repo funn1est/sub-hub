@@ -75,7 +75,12 @@ parser. `quanx` still inlines ACL4SSR Online `.list` files (Clash
 `DOMAIN-SUFFIX` is not QX `HOST-SUFFIX`; no `[filter_remote]`). Explicit
 `expand=true` inlines remotes through Unique-flight as before. The Web
 Console switch defaults on and writes `expand=true`. `singbox` still inlines
-when `expand` is omitted.
+when `expand` is omitted. Unexpanded HTTPS remotes are named from the URL
+host (`panel.example.com`); a repeated host gets `-2`, `-3`. Direct share
+URIs stay inlined and never take that name. Optional `filename` is a
+download-name stem (1–64 bytes, no path characters); the service appends the
+per-target extension. Omit it for `sub-hub-egern.yaml` and the other
+defaults.
 `URL-REGEX` is emitted for Loon and Surge and omitted on the other targets.
 Surge skips every VLESS node (the Manual has no `vless` type). Generic
 share-URI or Clash YAML remotes named via `policy-path=` may fail on the

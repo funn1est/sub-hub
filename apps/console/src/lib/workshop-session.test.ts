@@ -25,6 +25,7 @@ function fields(overrides: Partial<WorkshopFields> = {}): WorkshopFields {
     configUrl: "",
     appendInfo: true,
     expand: true,
+    filename: "",
     ...overrides,
   }
 }

@@ -33,6 +33,7 @@ export const QUERY_KEYS = [
   "append_info",
   "insert",
   "expand",
+  "filename",
 ] as const
 
 export const KNOWN_SERVICE_ERRORS = [
@@ -231,6 +232,28 @@ export type SubGetEncodeInput = {
   configUrl: string
   appendInfo: boolean
   expand?: boolean
+  filename?: string
+}
+
+/** HTTP `query.rs`: download-name stem. Empty is omit. */
+export function parseFilenameStem(raw: string): string | null {
+  const bytes = new TextEncoder().encode(raw)
+  if (raw.length === 0 || bytes.length > 64 || raw === "." || raw === "..") {
+    return null
+  }
+  if (raw.startsWith(" ") || raw.endsWith(" ")) {
+    return null
+  }
+  for (let index = 0; index < raw.length; index += 1) {
+    const code = raw.charCodeAt(index)
+    if (code < 32 || code === 127) {
+      return null
+    }
+    if ('/\\:*?"<>|'.includes(raw[index] ?? "")) {
+      return null
+    }
+  }
+  return raw
 }
 
 export function encodeSubGetTarget(input: SubGetEncodeInput): string {
@@ -248,6 +271,9 @@ export function encodeSubGetTarget(input: SubGetEncodeInput): string {
   }
   if (input.expand === true) {
     queryParts.push("expand=true")
+  }
+  if (input.filename !== undefined && input.filename.length > 0) {
+    queryParts.push(`filename=${encodeURIComponent(input.filename)}`)
   }
   return `${path}?${queryParts.join("&")}`
 }

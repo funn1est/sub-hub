@@ -69,10 +69,13 @@ The public HTTP surface is `GET /version` and `GET`/`HEAD` `/sub` (plus
 default PROXY/AUTO policy, not an ACL4SSR profile. New protocols, client
 targets, query keys, or routes need an explicit design review before code. Do
 not add POST conversion, `GET /capabilities`, extra subconverter switches
-(`include` / `exclude` / `emoji` / `filename` / `udp` / `scv` / `sort`), a
+(`include` / `exclude` / `emoji` / `udp` / `scv` / `sort`), a
 second rule-file dialect, or AnyTLS / WireGuard / SSR in a drive-by PR.
 `expand` is an accepted query key: omitted or `false` leaves client remote
 refs when the target can name them; `expand=true` inlines remotes.
+`filename` is an accepted query key: a download-name stem (1..=64 bytes, no
+path or Windows reserved characters). The service appends the per-target
+extension. Omitted uses `sub-hub-<target>.<ext>`.
 Do not add a Dockerfile, `docker-compose.yml`, or GHCR publish job. Native
 without a Rust toolchain is the GitHub Release binaries; Cloudflare is the
 Worker in `crates/sub-hub-worker`.

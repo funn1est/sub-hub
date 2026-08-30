@@ -42,6 +42,7 @@ function input(overrides: Partial<WorkshopFields> = {}): WorkshopFields {
     configUrl: "",
     appendInfo: true,
     expand: true,
+    filename: "",
     ...overrides,
   }
 }
@@ -156,6 +157,16 @@ describe("assembleSubscription", () => {
     )
     expect(assembleSubscription(input({ expand: false })).getTarget).toBe(
       `/sub?target=clash&url=${VLESS_ENCODED}`
+    )
+  })
+
+  it("writes filename= only when the stem is set and valid", () => {
+    expect(assembleSubscription(input({ filename: "airport" })).getTarget).toBe(
+      `/sub?target=clash&url=${VLESS_ENCODED}&expand=true&filename=airport`
+    )
+    expect(assembleSubscription(input({ filename: ".." })).url).toBeNull()
+    expect(evaluateWorkshop(input({ filename: ".." })).filenameInvalid).toBe(
+      true
     )
   })
 

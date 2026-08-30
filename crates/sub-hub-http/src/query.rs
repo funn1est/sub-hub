@@ -10,6 +10,8 @@ pub(crate) struct SubQuery {
     /// Omitted or `expand=false` leaves them as client remote refs when the
     /// target can name them.
     pub(crate) expand: bool,
+    /// Optional download-name stem. HTTP appends the per-target extension.
+    pub(crate) filename: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +35,7 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
     let mut insert = None;
     let mut append_info = None;
     let mut expand = None;
+    let mut filename = None;
 
     if !raw_query.is_empty() {
         for pair in raw_query.split('&') {
@@ -50,6 +53,7 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
                 "insert" => &mut insert,
                 "append_info" => &mut append_info,
                 "expand" => &mut expand,
+                "filename" => &mut filename,
                 _ => return Err(QueryError::InvalidRequest),
             };
             if slot.replace(value).is_some() {
@@ -81,6 +85,10 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
         Some("true") => true,
         Some(_) => return Err(QueryError::InvalidRequest),
     };
+    let filename = match filename {
+        None => None,
+        Some(value) => Some(parse_filename_stem(&value).ok_or(QueryError::InvalidRequest)?),
+    };
     let sources = url.split('|').map(str::to_owned).collect::<Vec<_>>();
     if sources.iter().any(|source| is_http_source(source)) {
         return Err(QueryError::InvalidRequest);
@@ -92,7 +100,29 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
         config: config.filter(|value| !value.is_empty()),
         append_info,
         expand,
+        filename,
     })
+}
+
+/// Download-name stem: 1..=64 bytes, no path / Windows reserved characters,
+/// not `.` or `..`. HTTP appends the target extension.
+pub(crate) fn parse_filename_stem(value: &str) -> Option<String> {
+    if value.is_empty() || value.len() > 64 || value == "." || value == ".." {
+        return None;
+    }
+    if value.starts_with(' ') || value.ends_with(' ') {
+        return None;
+    }
+    if value.bytes().any(|byte| {
+        byte.is_ascii_control()
+            || matches!(
+                byte,
+                b'/' | b'\\' | b':' | b'*' | b'?' | b'"' | b'<' | b'>' | b'|'
+            )
+    }) {
+        return None;
+    }
+    Some(value.to_owned())
 }
 
 fn percent_decode_value(raw: &str) -> Option<String> {

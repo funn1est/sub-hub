@@ -113,7 +113,9 @@ fn omitted_expand_emits_a_proxy_provider_without_fetching_the_subscription() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(yaml.contains("proxy-providers:"));
     assert!(yaml.contains("url: https://upstream.example/subscription"));
-    assert!(yaml.contains("use:\n  - sub-hub-1") || yaml.contains("use: [sub-hub-1]"));
+    assert!(
+        yaml.contains("use:\n  - upstream.example") || yaml.contains("use: [upstream.example]")
+    );
     assert!(!yaml.contains("uuid:"));
 }
 
@@ -134,9 +136,9 @@ fn omitted_expand_emits_a_quanx_server_remote_without_fetching_the_subscription(
     assert_eq!(response.status(), StatusCode::OK);
     assert!(text.contains("[server_remote]"));
     assert!(text.contains(
-        "https://upstream.example/subscription, tag=sub-hub-1, update-interval=86400, as-policy=static"
+        "https://upstream.example/subscription, tag=upstream.example, update-interval=86400, as-policy=static"
     ));
-    assert!(text.contains("static = PROXY, AUTO, sub-hub-1, direct"));
+    assert!(text.contains("static = PROXY, AUTO, upstream.example, direct"));
     assert!(!text.contains("enabled="));
     assert!(!text.contains("uuid"));
 }
@@ -165,7 +167,7 @@ fn omitted_expand_keeps_quanx_direct_nodes_next_to_server_remote() {
     assert!(text.contains("tag=Alpha"));
     assert!(text.contains("[server_remote]"));
     assert!(text.contains("https://upstream.example/subscription"));
-    assert!(text.contains("static = PROXY, AUTO, Alpha, sub-hub-1, direct"));
+    assert!(text.contains("static = PROXY, AUTO, Alpha, upstream.example, direct"));
 }
 
 #[test]
@@ -226,9 +228,35 @@ fn omitted_expand_emits_a_loon_remote_proxy_without_fetching_the_subscription() 
 
     assert_eq!(response.status(), StatusCode::OK);
     assert!(text.contains("[Remote Proxy]"));
-    assert!(text.contains("sub-hub-1 = https://upstream.example/subscription"));
-    assert!(text.contains("PROXY = select,AUTO,sub-hub-1,DIRECT"));
+    assert!(text.contains("upstream.example = https://upstream.example/subscription"));
+    assert!(text.contains("PROXY = select,AUTO,upstream.example,DIRECT"));
     assert!(!text.contains("01234567-89ab-cdef-0123-456789abcdef"));
+}
+
+#[test]
+fn omitted_expand_suffixes_a_repeated_unexpanded_host() {
+    let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
+    let application = Application::new(UnreachableRemote, self_hosts);
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some(concat!(
+            "target=egern&url=",
+            "https%3A%2F%2Fupstream.example%2Fa",
+            "%7Chttps%3A%2F%2Fupstream.example%2Fb",
+        )),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let text = std::str::from_utf8(response.body()).expect("UTF-8 Egern output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text.contains("name: upstream.example\n"));
+    assert!(text.contains("name: upstream.example-2\n"));
+    assert!(text.contains("https://upstream.example/a"));
+    assert!(text.contains("https://upstream.example/b"));
+    assert!(!text.contains("sub-hub-"));
 }
 
 #[test]

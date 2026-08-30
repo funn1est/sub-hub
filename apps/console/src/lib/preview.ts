@@ -32,11 +32,19 @@ export function filenameFromDisposition(header: string | null): string | null {
   if (header === null || header.length === 0) {
     return null
   }
+  const rfc5987 = /filename\*=(?:UTF-8|utf-8)''([^;]+)/i.exec(header)
+  if (rfc5987?.[1] !== undefined) {
+    try {
+      return decodeURIComponent(rfc5987[1])
+    } catch {
+      // Fall through to filename=.
+    }
+  }
   const quoted = /filename="([^"]+)"/i.exec(header)
   if (quoted) {
     return quoted[1]
   }
-  const unquoted = /filename=([^;]+)/i.exec(header)
+  const unquoted = /filename=([^;*]+)/i.exec(header)
   if (unquoted) {
     return unquoted[1].trim()
   }

@@ -38,6 +38,7 @@ import { SectionCard } from "@/components/workshop-section.tsx"
 export function WorkshopOptions({
   fields,
   configInvalid,
+  filenameInvalid,
   showCustomConfigField,
   configGroups,
   selectedConfig,
@@ -47,6 +48,7 @@ export function WorkshopOptions({
 }: {
   fields: WorkshopFields
   configInvalid: boolean
+  filenameInvalid: boolean
   showCustomConfigField: boolean
   configGroups: ConfigChoiceGroup[]
   selectedConfig: ConfigChoice
@@ -179,6 +181,24 @@ export function WorkshopOptions({
             checked={fields.expand}
             onCheckedChange={(checked) => actions.patch({ expand: checked })}
           />
+        </Field>
+        <Field data-invalid={filenameInvalid || undefined}>
+          <FieldLabel htmlFor="filename">{copy.filename}</FieldLabel>
+          <InputGroup>
+            <InputGroupInput
+              id="filename"
+              value={fields.filename}
+              enterKeyHint="done"
+              aria-invalid={filenameInvalid || undefined}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(event) =>
+                actions.patch({ filename: event.target.value })
+              }
+            />
+          </InputGroup>
+          <FieldDescription>{copy.filenameHint}</FieldDescription>
         </Field>
       </FieldGroup>
     </SectionCard>

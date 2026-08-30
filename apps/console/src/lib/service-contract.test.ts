@@ -15,6 +15,7 @@ import {
   fallbackDownloadName,
   isQueryKey,
   isTarget,
+  parseFilenameStem,
   parseSkippedHeader,
   percentDecodeValue,
   subscriptionMediaType,
@@ -63,7 +64,7 @@ describe("Conversion Service GET contract", () => {
     expect(isTarget("clashmeta")).toBe(false)
     expect(QUERY_KEYS).toEqual(contract.queryKeys)
     expect(isQueryKey("insert")).toBe(true)
-    expect(isQueryKey("filename")).toBe(false)
+    expect(isQueryKey("filename")).toBe(true)
     expect(GET_TARGET_LIMIT_BYTES).toBe(contract.getTargetLimitBytes)
     expect(KNOWN_SERVICE_ERRORS).toEqual(contract.errors)
     expect(SKIPPED_HEADER).toBe(contract.skippedHeader)
@@ -110,5 +111,14 @@ describe("Conversion Service GET contract", () => {
       "/sub?target=clash&url=ss%3A%2F%2Faes-128-gcm%3Ap%2Bss%40example.com%3A8388%23Plus"
     )
     expect(getTarget).not.toContain("insert")
+  })
+
+  it("accepts a download-name stem and rejects path characters", () => {
+    expect(parseFilenameStem("airport")).toBe("airport")
+    expect(parseFilenameStem("机场")).toBe("机场")
+    expect(parseFilenameStem("")).toBeNull()
+    expect(parseFilenameStem("..")).toBeNull()
+    expect(parseFilenameStem("a/b")).toBeNull()
+    expect(parseFilenameStem("a".repeat(65))).toBeNull()
   })
 })

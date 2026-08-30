@@ -97,6 +97,9 @@ export const messages = {
     expand: "Expand remotes",
     expandHint:
       "On by default: writes expand=true and inlines HTTPS subscriptions and Online Rule Sets. Off omits the key so the Conversion Service leaves client remote refs when the target can name them.",
+    filename: "Download name",
+    filenameHint:
+      "Optional stem. The Conversion Service appends the target extension (yaml / conf / json). Empty omits filename=.",
     subscription: "Subscription URL",
     subscriptionDescription:
       "The importable URL a client fetches. Preview uses this exact URL.",
@@ -187,6 +190,9 @@ export const messages = {
     expand: "规则展开",
     expandHint:
       "默认打开：发送 expand=true，把 HTTPS 订阅和 Online Rule Set 抓下来内联。关闭则不写这个键，能写远端引用的 target 不抓、不内联。",
+    filename: "下载文件名",
+    filenameHint:
+      "可选词干。Conversion Service 会按 target 补扩展名（yaml / conf / json）。留空则不发送 filename=。",
     subscription: "Subscription URL",
     subscriptionDescription:
       "客户端导入的转换 URL。Preview 会 GET 同一条 URL。",

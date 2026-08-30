@@ -4,6 +4,7 @@ import {
   encodeSubGetTarget,
   isHttpSource,
   parseAccessToken,
+  parseFilenameStem,
   type Target,
 } from "./service-contract.ts"
 
@@ -17,6 +18,8 @@ export type WorkshopFields = {
   appendInfo: boolean
   /** When true, Subscription URL includes expand=true (inline remotes). */
   expand: boolean
+  /** Download-name stem. Empty omits filename=. */
+  filename: string
 }
 
 /** Shared input attrs for origin / source / config URL fields. */
@@ -68,6 +71,7 @@ export type WorkshopView = {
   originInvalid: boolean
   tokenInvalid: boolean
   configInvalid: boolean
+  filenameInvalid: boolean
   sourceInvalid: boolean[]
 }
 
@@ -155,12 +159,15 @@ export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
   const tokenInvalid = !token.ok
   const configInvalid =
     config.length > 0 && parseHttpsResourceUrl(config) === null
+  const filename = input.filename ?? ""
+  const filenameInvalid =
+    filename.length > 0 && parseFilenameStem(filename) === null
   const sourceInvalid = input.sources.map(sourceRowInvalid)
   const sourcesOk =
     sources.length > 0 &&
     !sources.some((source) => source.includes("|") || isHttpSource(source))
   const assembled =
-    origin !== null && token.ok && sourcesOk && !configInvalid
+    origin !== null && token.ok && sourcesOk && !configInvalid && !filenameInvalid
       ? assembledFrom({
           origin,
           token: token.token,
@@ -169,6 +176,7 @@ export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
           configUrl: config,
           appendInfo: input.appendInfo,
           expand: input.expand,
+          filename,
         })
       : emptyAssembled
   return {
@@ -177,6 +185,7 @@ export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
     originInvalid,
     tokenInvalid,
     configInvalid,
+    filenameInvalid,
     sourceInvalid,
   }
 }
@@ -189,6 +198,7 @@ function assembledFrom(input: {
   configUrl: string
   appendInfo: boolean
   expand: boolean
+  filename: string
 }): Assembled {
   const siblings = TARGETS.map((target) => {
     const getTarget = encodeSubGetTarget({
@@ -198,6 +208,7 @@ function assembledFrom(input: {
       configUrl: input.configUrl,
       appendInfo: input.appendInfo,
       expand: input.expand,
+      filename: input.filename,
     })
     return {
       target,
