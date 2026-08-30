@@ -193,4 +193,11 @@ test("workspace-version CLI prints the live workspace version", () => {
   );
   assert.equal(body.status, 0, body.stderr);
   assert.equal(body.stdout, versionBody(version));
+  const stdin = spawnSync(
+    process.execPath,
+    [path.join(here, "workspace-version.mjs"), "--stdin"],
+    { encoding: "utf8", input: FIXTURE_TOML },
+  );
+  assert.equal(stdin.status, 0, stdin.stderr);
+  assert.equal(stdin.stdout, "0.1.0");
 });

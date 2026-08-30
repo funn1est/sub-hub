@@ -136,13 +136,14 @@ test("cutNativeRelease without a version patches the workspace version", () => {
       readWorkspaceVersion(fs.readFileSync(path.join(work, "Cargo.toml"), "utf8")),
       "0.1.1",
     );
-    assert.equal(git(origin, ["tag", "-l", "v0.1.1"]), "v0.1.1");
+    assert.equal(git(origin, ["log", "-1", "--format=%s"]), "chore: release v0.1.1");
+    assert.equal(git(origin, ["tag", "-l", "v0.1.1"]), "");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("cutNativeRelease commits, tags, and pushes the version bump", () => {
+test("cutNativeRelease commits and pushes the version bump without a tag", () => {
   const { root, origin, work } = makeRepo();
   try {
     const plan = cutNativeRelease({
@@ -169,16 +170,19 @@ test("cutNativeRelease commits, tags, and pushes the version bump", () => {
       "0.2.0",
     );
     assert.equal(git(work, ["log", "-1", "--format=%s"]), "chore: release v0.2.0");
-    assert.equal(git(work, ["tag", "-l", "v0.2.0"]), "v0.2.0");
+    const tags = spawnSync("git", ["show-ref", "--verify", "--quiet", "refs/tags/v0.2.0"], {
+      cwd: work,
+    });
+    assert.notEqual(tags.status, 0);
     assert.equal(git(origin, ["log", "-1", "--format=%s"]), "chore: release v0.2.0");
-    assert.equal(git(origin, ["tag", "-l", "v0.2.0"]), "v0.2.0");
+    assert.equal(git(origin, ["tag", "-l", "v0.2.0"]), "");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 test("cutNativeRelease refuses a dirty tree, a side branch, and a live tag", () => {
-  const { root, work } = makeRepo();
+  const { root, origin, work } = makeRepo();
   try {
     fs.writeFileSync(path.join(work, "dirty.txt"), "nope");
     assert.throws(
@@ -201,18 +205,37 @@ test("cutNativeRelease refuses a dirty tree, a side branch, and a live tag", () 
     );
     git(work, ["tag", "-d", "v0.2.0"]);
 
-    cutNativeRelease({ root: work, version: "0.2.0", push: false, confirm: () => true });
+    git(work, ["commit", "--allow-empty", "-m", "diverge work"]);
+    const other = path.join(root, "other");
+    git(root, ["clone", origin, "other"]);
+    git(other, ["config", "user.email", "dev@example"]);
+    git(other, ["config", "user.name", "Dev"]);
+    git(other, ["config", "commit.gpgsign", "false"]);
+    git(other, ["commit", "--allow-empty", "-m", "diverge origin"]);
+    git(other, ["push", "origin", "HEAD:main"]);
     assert.throws(
-      () =>
-        cutNativeRelease({
-          root: work,
-          version: "0.2.1",
-          push: false,
-          fetch: false,
-          confirm: () => true,
-        }),
-      /not origin\/main/,
+      () => cutNativeRelease({ root: work, version: "0.2.0", confirm: () => true }),
+      /fast-forward/,
     );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cutNativeRelease pushes unpushed main commits with the version bump", () => {
+  const { root, origin, work } = makeRepo();
+  try {
+    fs.writeFileSync(path.join(work, "feature.txt"), "ready");
+    git(work, ["add", "feature.txt"]);
+    git(work, ["commit", "-m", "feature"]);
+    const plan = cutNativeRelease({
+      root: work,
+      version: "0.2.0",
+      confirm: () => true,
+    });
+    assert.equal(plan.tag, "v0.2.0");
+    assert.equal(git(origin, ["log", "-1", "--format=%s"]), "chore: release v0.2.0");
+    assert.equal(git(origin, ["log", "-2", "--format=%s"]), "chore: release v0.2.0\nfeature");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

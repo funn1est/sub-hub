@@ -166,17 +166,21 @@ const invokedDirectly =
 
 if (invokedDirectly) {
   try {
-    const cargoToml = fs.readFileSync(path.join(repoRoot, "Cargo.toml"), "utf8");
-    const version = readWorkspaceVersion(cargoToml);
     const flag = process.argv[2];
-    if (flag === "--body") {
-      process.stdout.write(versionBody(version));
-    } else if (flag === "--ua") {
-      process.stdout.write(outboundUserAgent(version));
-    } else if (flag === undefined) {
-      process.stdout.write(version);
+    if (flag === "--stdin") {
+      process.stdout.write(readWorkspaceVersion(fs.readFileSync(0, "utf8")));
     } else {
-      throw new Error("usage: node scripts/workspace-version.mjs [--body|--ua]");
+      const cargoToml = fs.readFileSync(path.join(repoRoot, "Cargo.toml"), "utf8");
+      const version = readWorkspaceVersion(cargoToml);
+      if (flag === "--body") {
+        process.stdout.write(versionBody(version));
+      } else if (flag === "--ua") {
+        process.stdout.write(outboundUserAgent(version));
+      } else if (flag === undefined) {
+        process.stdout.write(version);
+      } else {
+        throw new Error("usage: node scripts/workspace-version.mjs [--body|--ua|--stdin]");
+      }
     }
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : error}\n`);

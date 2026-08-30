@@ -43,13 +43,15 @@ pnpm run test:host
 Native-release helper (`scripts/`):
 
 ```sh
-node --test scripts/workspace-version.test.mjs scripts/cut-native-release.test.mjs
+node --test scripts/workspace-version.test.mjs scripts/cut-native-release.test.mjs scripts/native-release-gate.test.mjs
 ```
 
 CI does not deploy to Cloudflare and does not hold Cloudflare credentials.
-A `v*` tag that matches the workspace version publishes unsigned Native
-binaries. From a clean `origin/main`, cut that tag with `pnpm release`
-(patch +1, commit, annotated tag, push) or `pnpm release X.Y.Z` for an
+A workspace version bump on `main` publishes unsigned Native binaries
+(GitHub Release tag `v` plus that version). Ordinary pushes that do not
+change the workspace version do not publish. From a fast-forward of
+`origin/main` (local commits may still be unpushed), cut that bump with
+`pnpm release` (patch +1, commit, push) or `pnpm release X.Y.Z` for an
 explicit minor or major. Tests and smoke read the workspace version; do
 not hard-code `GET /version` bodies. Root `.gitignore` keeps `testdata/`
 ignored; do not remove that line. The two goldens already on origin

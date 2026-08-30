@@ -77,7 +77,6 @@ export function assertReleaseGitState(root, tag, { git = runGit, fetch = true } 
   if (dirty.length > 0) {
     throw new Error("working tree is not clean");
   }
-  const head = gitText(git, ["rev-parse", "HEAD"], { cwd: root });
   const origin = git(["rev-parse", "--verify", "origin/main"], {
     cwd: root,
     allowFailure: true,
@@ -85,8 +84,12 @@ export function assertReleaseGitState(root, tag, { git = runGit, fetch = true } 
   if ((origin.status ?? 1) !== 0) {
     throw new Error("origin/main is missing; fetch or push main first");
   }
-  if (head !== (origin.stdout || "").trim()) {
-    throw new Error("main is not origin/main; push or pull first");
+  const ancestor = git(["merge-base", "--is-ancestor", "origin/main", "HEAD"], {
+    cwd: root,
+    allowFailure: true,
+  });
+  if ((ancestor.status ?? 1) !== 0) {
+    throw new Error("main is not a fast-forward of origin/main; pull or rebase first");
   }
   const localTag = git(["show-ref", "--verify", "--quiet", `refs/tags/${tag}`], {
     cwd: root,
@@ -182,10 +185,8 @@ export function cutNativeRelease({
     cwd: root,
   });
   git(["commit", "-m", plan.commitMessage], { cwd: root });
-  git(["tag", "-a", plan.tag, "-m", plan.tag], { cwd: root });
   if (push) {
     git(["push", "origin", "HEAD"], { cwd: root });
-    git(["push", "origin", plan.tag], { cwd: root });
   }
   return plan;
 }
@@ -201,9 +202,9 @@ if (invokedDirectly) {
     if (flags.dryRun) {
       process.stdout.write(`dry-run ${plan.tag} from ${plan.current}\n`);
     } else if (flags.push) {
-      process.stdout.write(`pushed ${plan.tag}\n`);
+      process.stdout.write(`pushed ${plan.tag} bump; Native release publishes from the version change\n`);
     } else {
-      process.stdout.write(`tagged ${plan.tag} (not pushed)\n`);
+      process.stdout.write(`committed ${plan.tag} bump (not pushed)\n`);
     }
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : error}\n`);

@@ -136,7 +136,7 @@ cargo build --locked --release -p sub-hub-native
 
 CI 会在回环端口启动该 release 二进制，并对每个已发布 target（`clash`、
 `mihomo`、`quanx`、`singbox`、`loon`、`egern`）检查 `/version` 加一次
-本地 VLESS 转换。该 fixture 不拉取外部订阅。与工作区版本匹配的 tag
+本地 VLESS 转换。该 fixture 不拉取外部订阅。`main` 上的工作区版本 bump
 会发布同样的 linux-amd64、windows-amd64 和 macos-arm64 release 可执行文件。
 
 ## Rust 开发

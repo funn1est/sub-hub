@@ -35,7 +35,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run native-release helper tests
-        run: node --test scripts/workspace-version.test.mjs scripts/cut-native-release.test.mjs
+        run: node --test scripts/workspace-version.test.mjs scripts/cut-native-release.test.mjs scripts/native-release-gate.test.mjs
 
       - name: Run formatting gate
         run: cargo fmt --all -- --check

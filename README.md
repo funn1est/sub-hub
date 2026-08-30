@@ -147,7 +147,7 @@ cargo build --locked --release -p sub-hub-native
 CI launches that release binary on a loopback port and checks `/version` plus
 one local VLESS conversion for every released target (`clash`, `mihomo`,
 `quanx`, `singbox`, `loon`, `egern`). The fixture does not fetch an external
-subscription. A tag that matches the workspace version publishes the same
+subscription. A workspace version bump on `main` publishes the same
 release executable for linux-amd64, windows-amd64, and macos-arm64.
 
 ## Rust development
