@@ -13,9 +13,9 @@ use crate::{
     },
     render::{
         AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex,
-        hysteria2_official_ports, keep_named, map_compiled_rules, policy_member_token,
-        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_fingerprint,
-        render_host_plain, serialize_bounded, shadowsocks_method, shadowsocks_password,
+        hysteria2_official_ports, keep_named, map_compiled_rules, reality_public_key_base64,
+        reality_short_id_hex, reject_when_empty, render_fingerprint, render_host_plain,
+        serialize_bounded, shadowsocks_method, shadowsocks_password, walk_group_members,
     },
 };
 
@@ -195,24 +195,17 @@ fn mihomo_group(
     valid_nodes: &[&str],
     provider_names: &[&str],
 ) -> Result<MihomoRenderedGroup, AdapterRenderError> {
-    let mut proxies = Vec::new();
-    let mut uses_providers = false;
-    for member in group.members() {
-        if matches!(member, PolicyMemberV1::UnexpandedAll) {
-            uses_providers = true;
-            continue;
-        }
-        if let Some(token) = policy_member_token(
-            member,
-            "DIRECT",
-            "REJECT",
-            |name| Ok(Some(name.to_owned())),
-            valid_nodes,
-        )? {
-            proxies.push(token);
-        }
-    }
-    if !uses_providers || (proxies.is_empty() && provider_names.is_empty()) {
+    let walked = walk_group_members(
+        group.members(),
+        "DIRECT",
+        "REJECT",
+        |name| Ok(Some(name.to_owned())),
+        valid_nodes,
+        |_, token| token,
+    )?;
+    let unexpanded = walked.unexpanded();
+    let mut proxies = walked.tokens();
+    if !unexpanded || (proxies.is_empty() && provider_names.is_empty()) {
         reject_when_empty(&mut proxies, "REJECT");
     }
     let (kind, url, interval, tolerance, strategy) = match group.strategy() {
@@ -242,7 +235,7 @@ fn mihomo_group(
     Ok(MihomoRenderedGroup {
         name: group.name().to_owned(),
         kind,
-        use_providers: uses_providers.then(|| {
+        use_providers: unexpanded.then(|| {
             provider_names
                 .iter()
                 .map(|name| (*name).to_owned())

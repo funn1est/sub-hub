@@ -13,7 +13,7 @@ use crate::{
         hysteria2_singbox_ports, keep_named, keep_tagged, map_compiled_rules, plain_group_tag,
         plain_node_tag, policy_member_token, probe_url_or_default, reality_public_key_base64,
         reality_short_id_hex, reject_when_empty, render_fingerprint, render_host_plain,
-        shadowsocks_method, shadowsocks_password,
+        shadowsocks_method, shadowsocks_password, walk_group_members,
     },
 };
 
@@ -317,18 +317,15 @@ fn render_groups(
     let mut outbounds = Vec::new();
     for group in policy.groups() {
         let tag = plain_group_tag(group.name())?.to_owned();
-        let mut members = Vec::new();
-        for member in group.members() {
-            if let Some(token) = policy_member_token(
-                member,
-                "direct",
-                "reject",
-                |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
-                valid_nodes,
-            )? {
-                members.push(token);
-            }
-        }
+        let walked = walk_group_members(
+            group.members(),
+            "direct",
+            "reject",
+            |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+            valid_nodes,
+            |_, token| token,
+        )?;
+        let mut members = walked.tokens();
         reject_when_empty(&mut members, "reject");
         let outbound = match group.strategy() {
             GroupStrategyV1::Select | GroupStrategyV1::LoadBalance { .. } => {

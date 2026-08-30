@@ -7,10 +7,10 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text_sections,
-        encode_hex, is_reserved_tag, is_safe_field as ini_safe_field, keep_named,
-        map_compiled_rules, policy_member_token, reality_public_key_base64, reality_short_id_hex,
-        render_host_bracketed, shadowsocks_method, shadowsocks_password,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, WalkedGroupItem,
+        bounded_text_sections, encode_hex, is_reserved_tag, is_safe_field as ini_safe_field,
+        keep_named, map_compiled_rules, reality_public_key_base64, reality_short_id_hex,
+        render_host_bracketed, shadowsocks_method, shadowsocks_password, walk_group_members,
     },
 };
 
@@ -435,29 +435,27 @@ fn render_groups(
     for group in policy.groups() {
         let name = quanx_group_tag(group.name()).ok_or(AdapterRenderError::Internal)?;
         let group_url = automatic_url(group.strategy());
-        let mut members = Vec::new();
-        for member in group.members() {
-            if matches!(member, PolicyMemberV1::UnexpandedAll) {
-                members.extend(unexpanded_names.iter().map(|name| (*name).to_owned()));
-                continue;
-            }
-            let Some(token) = policy_member_token(
-                member,
-                "direct",
-                "reject",
-                |name| Ok(quanx_group_tag(name).map(str::to_owned)),
-                valid_nodes,
-            )?
-            else {
-                continue;
-            };
-            let token = match (member, group_url) {
+        let walked = walk_group_members(
+            group.members(),
+            "direct",
+            "reject",
+            |name| Ok(quanx_group_tag(name).map(str::to_owned)),
+            valid_nodes,
+            |member, token| match (member, group_url) {
                 (PolicyMemberV1::Node(original), Some(url)) => {
                     health_tag(original, url, unique_urls)
                 }
                 _ => token,
-            };
-            members.push(token);
+            },
+        )?;
+        let mut members = Vec::new();
+        for item in walked.items {
+            match item {
+                WalkedGroupItem::Token(token) => members.push(token),
+                WalkedGroupItem::Unexpanded => {
+                    members.extend(unexpanded_names.iter().map(|name| (*name).to_owned()));
+                }
+            }
         }
         if members.is_empty() {
             lines.push(format!("static = {name}, reject"));

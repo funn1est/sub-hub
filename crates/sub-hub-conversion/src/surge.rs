@@ -4,15 +4,13 @@ use crate::{
     node::vless::VlessTransport,
     node::vmess::{VmessCipher, VmessSecurity},
     node::{NodeProtocol, ProxyNode},
-    policy::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
-    },
+    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text_sections, encode_hex,
-        hysteria2_has_pin, is_safe_field as ini_safe_field, keep_named, keep_tagged_or_unexpanded,
-        map_compiled_rules, policy_member_token, reject_when_empty, render_host_plain,
-        reserved_group_tag, reserved_node_tag, shadowsocks_method, shadowsocks_password,
-        shared_probe_url,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, WalkedGroupItem, bounded_text_sections,
+        encode_hex, hysteria2_has_pin, is_safe_field as ini_safe_field, keep_named,
+        keep_tagged_or_unexpanded, map_compiled_rules, policy_member_token, reject_when_empty,
+        render_host_plain, reserved_group_tag, reserved_node_tag, shadowsocks_method,
+        shadowsocks_password, shared_probe_url, walk_group_members,
     },
 };
 
@@ -296,27 +294,27 @@ fn render_groups(
     let mut lines = Vec::new();
     for group in policy.groups() {
         let name = surge_group_tag(group.name())?;
+        let walked = walk_group_members(
+            group.members(),
+            "DIRECT",
+            "REJECT",
+            |name| surge_group_tag(name).map(|tag| Some(tag.to_owned())),
+            valid_nodes,
+            |_, token| token,
+        )?;
+        let unexpanded = walked.unexpanded();
         let mut members = Vec::new();
-        let mut included_remote = false;
-        for member in group.members() {
-            if matches!(member, PolicyMemberV1::UnexpandedAll) {
-                for sub in remotes {
-                    if !is_safe_field(sub.url()) {
-                        return Err(AdapterRenderError::Internal);
+        for item in walked.items {
+            match item {
+                WalkedGroupItem::Token(token) => members.push(token),
+                WalkedGroupItem::Unexpanded => {
+                    for sub in remotes {
+                        if !is_safe_field(sub.url()) {
+                            return Err(AdapterRenderError::Internal);
+                        }
+                        members.push(format!("policy-path={}", sub.url()));
                     }
-                    members.push(format!("policy-path={}", sub.url()));
                 }
-                included_remote = true;
-                continue;
-            }
-            if let Some(token) = policy_member_token(
-                member,
-                "DIRECT",
-                "REJECT",
-                |name| surge_group_tag(name).map(|tag| Some(tag.to_owned())),
-                valid_nodes,
-            )? {
-                members.push(token);
             }
         }
         reject_when_empty(&mut members, "REJECT");
@@ -342,7 +340,7 @@ fn render_groups(
                 format!("{name} = load-balance, {joined}, persistent=true, interval={interval}")
             }
         };
-        if included_remote {
+        if unexpanded {
             line.push_str(", update-interval=86400");
         }
         lines.push(line);

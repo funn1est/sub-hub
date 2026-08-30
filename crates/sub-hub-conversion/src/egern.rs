@@ -5,15 +5,14 @@ use crate::{
     node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
-    policy::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
-    },
+    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, hysteria2_has_gecko,
         hysteria2_official_ports, keep_named, keep_tagged_or_unexpanded, map_compiled_rules,
         plain_group_tag, plain_node_tag, policy_member_token, probe_url_or_default,
         reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_host_plain,
         serialize_bounded, shadowsocks_method, shadowsocks_password, shared_probe_url,
+        walk_group_members,
     },
 };
 
@@ -368,27 +367,20 @@ fn render_groups(
         .collect::<Vec<_>>();
     for group in policy.groups() {
         let name = plain_group_tag(group.name())?.to_owned();
-        let mut policies = Vec::new();
-        let mut uses_unexpanded = false;
-        for member in group.members() {
-            if matches!(member, PolicyMemberV1::UnexpandedAll) {
-                uses_unexpanded = true;
-                continue;
-            }
-            if let Some(token) = policy_member_token(
-                member,
-                "DIRECT",
-                "REJECT",
-                |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
-                valid_nodes,
-            )? {
-                policies.push(token);
-            }
-        }
-        if uses_unexpanded {
+        let walked = walk_group_members(
+            group.members(),
+            "DIRECT",
+            "REJECT",
+            |name| plain_group_tag(name).map(|tag| Some(tag.to_owned())),
+            valid_nodes,
+            |_, token| token,
+        )?;
+        let unexpanded = walked.unexpanded();
+        let mut policies = walked.tokens();
+        if unexpanded {
             policies.extend(unexpanded_names.iter().cloned());
         }
-        if !uses_unexpanded || policies.is_empty() {
+        if !unexpanded || policies.is_empty() {
             reject_when_empty(&mut policies, "REJECT");
         }
         groups.push(match group.strategy() {

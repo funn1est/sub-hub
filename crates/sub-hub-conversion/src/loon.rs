@@ -3,15 +3,14 @@ use crate::{
     node::vless::{ClientFingerprint, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::{VmessCipher, VmessSecurity},
     node::{NodeProtocol, ProxyNode},
-    policy::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
-    },
+    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text_sections, hysteria2_has_gecko,
-        hysteria2_has_pin, is_safe_field as ini_safe_field, keep_named, keep_tagged_or_unexpanded,
-        map_compiled_rules, policy_member_token, probe_url_or_default, reality_public_key_base64,
-        reality_short_id_hex, reject_when_empty, render_host_plain, reserved_group_tag,
-        reserved_node_tag, shadowsocks_method, shadowsocks_password, shared_probe_url,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, WalkedGroupItem, bounded_text_sections,
+        hysteria2_has_gecko, hysteria2_has_pin, is_safe_field as ini_safe_field, keep_named,
+        keep_tagged_or_unexpanded, map_compiled_rules, policy_member_token, probe_url_or_default,
+        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_host_plain,
+        reserved_group_tag, reserved_node_tag, shadowsocks_method, shadowsocks_password,
+        shared_probe_url, walk_group_members,
     },
 };
 
@@ -444,20 +443,21 @@ fn render_groups(
     let mut lines = Vec::new();
     for group in policy.groups() {
         let name = loon_group_tag(group.name())?;
+        let walked = walk_group_members(
+            group.members(),
+            "DIRECT",
+            "REJECT",
+            |name| loon_group_tag(name).map(|tag| Some(tag.to_owned())),
+            valid_nodes,
+            |_, token| token,
+        )?;
         let mut members = Vec::new();
-        for member in group.members() {
-            if matches!(member, PolicyMemberV1::UnexpandedAll) {
-                members.extend(unexpanded_names.iter().map(|name| (*name).to_owned()));
-                continue;
-            }
-            if let Some(token) = policy_member_token(
-                member,
-                "DIRECT",
-                "REJECT",
-                |name| loon_group_tag(name).map(|tag| Some(tag.to_owned())),
-                valid_nodes,
-            )? {
-                members.push(token);
+        for item in walked.items {
+            match item {
+                WalkedGroupItem::Token(token) => members.push(token),
+                WalkedGroupItem::Unexpanded => {
+                    members.extend(unexpanded_names.iter().map(|name| (*name).to_owned()));
+                }
             }
         }
         reject_when_empty(&mut members, "REJECT");

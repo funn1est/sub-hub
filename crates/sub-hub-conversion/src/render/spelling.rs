@@ -131,6 +131,63 @@ pub(crate) fn policy_member_token(
     }
 }
 
+pub(crate) enum WalkedGroupItem {
+    Token(String),
+    Unexpanded,
+}
+
+pub(crate) struct WalkedGroupMembers {
+    pub items: Vec<WalkedGroupItem>,
+}
+
+impl WalkedGroupMembers {
+    pub fn unexpanded(&self) -> bool {
+        self.items
+            .iter()
+            .any(|item| matches!(item, WalkedGroupItem::Unexpanded))
+    }
+
+    pub fn tokens(self) -> Vec<String> {
+        self.items
+            .into_iter()
+            .filter_map(|item| match item {
+                WalkedGroupItem::Token(token) => Some(token),
+                WalkedGroupItem::Unexpanded => None,
+            })
+            .collect()
+    }
+}
+
+/// Walks group members once: classifies [`PolicyMemberV1::UnexpandedAll`] in
+/// declaration order and maps the rest through [`policy_member_token`].
+/// Adapters spell unexpanded remotes themselves at each [`WalkedGroupItem::Unexpanded`].
+pub(crate) fn walk_group_members(
+    members: &[PolicyMemberV1],
+    direct_token: &'static str,
+    reject_token: &'static str,
+    mut group_token: impl FnMut(&str) -> Result<Option<String>, AdapterRenderError>,
+    valid_nodes: &[&str],
+    mut map_token: impl FnMut(&PolicyMemberV1, String) -> String,
+) -> Result<WalkedGroupMembers, AdapterRenderError> {
+    let mut items = Vec::new();
+    for member in members {
+        if matches!(member, PolicyMemberV1::UnexpandedAll) {
+            items.push(WalkedGroupItem::Unexpanded);
+            continue;
+        }
+        if let Some(token) = policy_member_token(
+            member,
+            direct_token,
+            reject_token,
+            |name| group_token(name),
+            valid_nodes,
+        )? {
+            items.push(WalkedGroupItem::Token(map_token(member, token)));
+        }
+    }
+    Ok(WalkedGroupMembers { items })
+}
+
 /// Renders a Reality public key with the URL-safe unpadded Base64 spelling
 /// shared by every target.
 pub(crate) fn reality_public_key_base64(options: &RealityOptions) -> String {
