@@ -8,8 +8,9 @@ use crate::{
     },
     render::{
         AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, bounded_text_sections,
-        encode_hex, keep_named, map_compiled_rules, policy_member_token, reality_public_key_base64,
-        reality_short_id_hex, render_host_bracketed, shadowsocks_method, shadowsocks_password,
+        encode_hex, is_reserved_tag, is_safe_field as ini_safe_field, keep_named,
+        map_compiled_rules, policy_member_token, reality_public_key_base64, reality_short_id_hex,
+        render_host_bracketed, shadowsocks_method, shadowsocks_password,
     },
 };
 
@@ -66,28 +67,18 @@ struct ServerRecord {
     line: String,
 }
 
+const QUANX_RESERVED_NODE_TAGS: [&str; 3] = ["direct", "reject", "proxy"];
+
 fn quanx_group_tag(name: &str) -> Option<&str> {
-    if name.is_empty() || name.contains([',', '\r', '\n']) {
-        None
-    } else {
-        Some(name)
-    }
+    is_safe_field(name).then_some(name)
 }
 
 fn quanx_node_tag(name: &str) -> Option<&str> {
-    if quanx_group_tag(name).is_some()
-        && !name.eq_ignore_ascii_case("direct")
-        && !name.eq_ignore_ascii_case("reject")
-        && !name.eq_ignore_ascii_case("proxy")
-    {
-        Some(name)
-    } else {
-        None
-    }
+    quanx_group_tag(name).filter(|name| !is_reserved_tag(name, &QUANX_RESERVED_NODE_TAGS))
 }
 
 fn is_safe_field(value: &str) -> bool {
-    !value.is_empty() && !value.contains([',', '\r', '\n'])
+    ini_safe_field(value, false)
 }
 
 fn render_server_line(node: &ProxyNode, tag: &str) -> Option<String> {

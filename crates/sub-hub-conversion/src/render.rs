@@ -8,10 +8,11 @@ mod spelling;
 
 pub(crate) use spelling::{
     encode_hex, hysteria2_has_gecko, hysteria2_has_pin, hysteria2_official_ports,
-    hysteria2_singbox_ports, plain_group_tag, plain_node_tag, policy_member_token,
-    probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
-    render_fingerprint, render_host_bracketed, render_host_plain, serialize_bounded,
-    shadowsocks_method, shadowsocks_password, shared_probe_url,
+    hysteria2_singbox_ports, is_reserved_tag, is_safe_field, plain_group_tag, plain_node_tag,
+    policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
+    reject_when_empty, render_fingerprint, render_host_bracketed, render_host_plain,
+    reserved_group_tag, reserved_node_tag, serialize_bounded, shadowsocks_method,
+    shadowsocks_password, shared_probe_url,
 };
 
 use std::fmt;

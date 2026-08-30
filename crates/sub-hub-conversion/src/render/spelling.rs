@@ -233,6 +233,62 @@ pub(crate) fn plain_group_tag(name: &str) -> Result<&str, AdapterRenderError> {
     Ok(name)
 }
 
+/// INI-adjacent field: non-empty, no comma/CR/LF. `forbid_quote` also rejects
+/// `"` and remaining ASCII controls (Loon / Surge). Quantumult X leaves quote
+/// and other controls to its own grammar.
+pub(crate) fn is_safe_field(value: &str, forbid_quote: bool) -> bool {
+    if value.is_empty() || value.contains([',', '\r', '\n']) {
+        return false;
+    }
+    if forbid_quote {
+        !value.contains('"') && !value.chars().any(|character| character.is_ascii_control())
+    } else {
+        true
+    }
+}
+
+pub(crate) fn is_reserved_tag(name: &str, reserved: &[&str]) -> bool {
+    reserved
+        .iter()
+        .any(|reserved| name.eq_ignore_ascii_case(reserved))
+}
+
+/// Node tag for INI-like targets: rejects empty, comma, ASCII controls, and
+/// the per-target reserved list.
+pub(crate) fn reserved_node_tag<'a>(name: &'a str, reserved: &[&str]) -> Option<&'a str> {
+    if name.is_empty()
+        || name.contains(',')
+        || name.chars().any(|character| character.is_ascii_control())
+        || is_reserved_tag(name, reserved)
+    {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// Group-name counterpart of [`reserved_node_tag`]. `allow` wins over
+/// `reserved` so Loon can keep a group named `proxy`.
+pub(crate) fn reserved_group_tag<'a>(
+    name: &'a str,
+    reserved: &[&str],
+    allow: &[&str],
+) -> Result<&'a str, AdapterRenderError> {
+    if name.is_empty()
+        || name.contains(',')
+        || name.chars().any(|character| character.is_ascii_control())
+    {
+        return Err(AdapterRenderError::Internal);
+    }
+    if is_reserved_tag(name, allow) {
+        return Ok(name);
+    }
+    if is_reserved_tag(name, reserved) {
+        return Err(AdapterRenderError::Internal);
+    }
+    Ok(name)
+}
+
 struct BoundedVec {
     bytes: Vec<u8>,
     limit: usize,

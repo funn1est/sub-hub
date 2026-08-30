@@ -8,10 +8,10 @@ use crate::{
     },
     render::{
         AdapterRenderError, NodeKeep, RenderedTargetV1, bounded_text_sections, hysteria2_has_gecko,
-        hysteria2_has_pin, keep_named, keep_tagged_or_unexpanded, map_compiled_rules,
-        policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
-        reject_when_empty, render_host_plain, shadowsocks_method, shadowsocks_password,
-        shared_probe_url,
+        hysteria2_has_pin, is_safe_field as ini_safe_field, keep_named, keep_tagged_or_unexpanded,
+        map_compiled_rules, policy_member_token, probe_url_or_default, reality_public_key_base64,
+        reality_short_id_hex, reject_when_empty, render_host_plain, reserved_group_tag,
+        reserved_node_tag, shadowsocks_method, shadowsocks_password, shared_probe_url,
     },
 };
 
@@ -72,42 +72,15 @@ fn encode_node(node: &ProxyNode) -> Result<(String, String), NodeKeep> {
 }
 
 fn loon_node_tag(name: &str) -> Option<&str> {
-    if name.is_empty()
-        || name.chars().any(|character| character.is_ascii_control())
-        || name.contains(',')
-        || RESERVED_NODE_TAGS
-            .iter()
-            .any(|reserved| name.eq_ignore_ascii_case(reserved))
-    {
-        None
-    } else {
-        Some(name)
-    }
+    reserved_node_tag(name, &RESERVED_NODE_TAGS)
 }
 
 fn loon_group_tag(name: &str) -> Result<&str, AdapterRenderError> {
-    if name.is_empty()
-        || name.chars().any(|character| character.is_ascii_control())
-        || name.contains(',')
-    {
-        return Err(AdapterRenderError::Internal);
-    }
-    if name.eq_ignore_ascii_case("proxy") {
-        return Ok(name);
-    }
-    if RESERVED_NODE_TAGS
-        .iter()
-        .any(|reserved| name.eq_ignore_ascii_case(reserved))
-    {
-        return Err(AdapterRenderError::Internal);
-    }
-    Ok(name)
+    reserved_group_tag(name, &RESERVED_NODE_TAGS, &["proxy"])
 }
 
 fn is_safe_field(value: &str) -> bool {
-    !value.is_empty()
-        && !value.contains([',', '"', '\r', '\n'])
-        && !value.chars().any(|character| character.is_ascii_control())
+    ini_safe_field(value, true)
 }
 
 fn quote(value: &str) -> Option<String> {
