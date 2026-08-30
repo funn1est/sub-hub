@@ -127,7 +127,6 @@ impl PreparedAcl4SsrV1 {
                         }
                     },
                 )),
-                _ => {}
             }
         }
         let policy = compile_acl4ssr_policy(
@@ -412,7 +411,7 @@ pub(crate) fn prepare(
             } => Some(Acl4SsrRuleSetRequestV1 {
                 url: url.declared.clone(),
             }),
-            _ => None,
+            Directive::Ruleset { .. } => None,
         })
         .collect();
     Ok(PreparedAcl4SsrV1 {

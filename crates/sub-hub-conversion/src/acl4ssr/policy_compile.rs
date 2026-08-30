@@ -149,9 +149,7 @@ fn consume_rule_sets(
     let mut remote_index = 0_usize;
     let mut rule_count = 0_usize;
     for directive in &config.directives {
-        let Directive::Ruleset { target, source } = directive else {
-            continue;
-        };
+        let Directive::Ruleset { target, source } = directive;
         match source {
             RuleSource::Remote(_) => {
                 if remote_index == occurrence_exclusive {

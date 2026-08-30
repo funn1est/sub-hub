@@ -33,15 +33,6 @@ pub(super) enum Directive {
         target: TargetRef,
         source: RuleSource,
     },
-    #[expect(
-        dead_code,
-        reason = "declaration-order slot; unused after fingerprint removal"
-    )]
-    Group(usize),
-    #[expect(dead_code, reason = "parsed grammar; unused after fingerprint removal")]
-    EnableRuleGenerator(bool),
-    #[expect(dead_code, reason = "parsed grammar; unused after fingerprint removal")]
-    OverwriteOriginalRules(bool),
 }
 
 #[derive(Clone)]
@@ -104,8 +95,6 @@ pub(super) struct DeclaredUrl {
 enum UnresolvedDirective {
     Ruleset { target: String, source: RuleSource },
     Group(UnresolvedGroup),
-    EnableRuleGenerator(bool),
-    OverwriteOriginalRules(bool),
 }
 
 struct UnresolvedGroup {
@@ -182,14 +171,14 @@ impl Config {
                         return Err(Acl4SsrPreparationError::InvalidConfig);
                     }
                     enable_seen = true;
-                    UnresolvedDirective::EnableRuleGenerator(true)
+                    continue;
                 }
                 "overwrite_original_rules" => {
                     if overwrite_seen || value != "true" {
                         return Err(Acl4SsrPreparationError::InvalidConfig);
                     }
                     overwrite_seen = true;
-                    UnresolvedDirective::OverwriteOriginalRules(true)
+                    continue;
                 }
                 "ruleset" => parse_ruleset(value)?,
                 "custom_proxy_group" => {
@@ -450,7 +439,7 @@ fn resolve_config(unresolved: Vec<UnresolvedDirective>) -> Result<Config, Acl4Ss
         .iter()
         .filter_map(|directive| match directive {
             UnresolvedDirective::Group(group) => Some(group.name.as_str()),
-            _ => None,
+            UnresolvedDirective::Ruleset { .. } => None,
         })
         .collect::<Vec<_>>();
     if group_names.len() > MAX_GROUPS {
@@ -480,7 +469,7 @@ fn resolve_config(unresolved: Vec<UnresolvedDirective>) -> Result<Config, Acl4Ss
     let mut final_seen = false;
     let mut geo_ip_seen = false;
     for directive in unresolved {
-        let directive = match directive {
+        match directive {
             UnresolvedDirective::Ruleset { target, source } => {
                 if final_seen {
                     return Err(Acl4SsrPreparationError::InvalidConfig);
@@ -495,10 +484,10 @@ fn resolve_config(unresolved: Vec<UnresolvedDirective>) -> Result<Config, Acl4Ss
                     RuleSource::Final => final_seen = true,
                     RuleSource::Remote(_) => {}
                 }
-                Directive::Ruleset {
+                directives.push(Directive::Ruleset {
                     target: resolve_target(target)?,
                     source,
-                }
+                });
             }
             UnresolvedDirective::Group(group) => {
                 let own_name = group.name.clone();
@@ -516,23 +505,14 @@ fn resolve_config(unresolved: Vec<UnresolvedDirective>) -> Result<Config, Acl4Ss
                         UnresolvedMember::NodeRegex(regex) => Ok(GroupMember::NodeRegex(regex)),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let index = groups.len();
                 groups.push(Group {
                     name: group.name,
                     kind: group.kind,
                     members,
                     payload: group.payload,
                 });
-                Directive::Group(index)
             }
-            UnresolvedDirective::EnableRuleGenerator(value) => {
-                Directive::EnableRuleGenerator(value)
-            }
-            UnresolvedDirective::OverwriteOriginalRules(value) => {
-                Directive::OverwriteOriginalRules(value)
-            }
-        };
-        directives.push(directive);
+        }
     }
     if !final_seen {
         return Err(Acl4SsrPreparationError::InvalidConfig);
