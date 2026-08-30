@@ -113,6 +113,27 @@ describe("createWorkshopSession", () => {
     expect(preview.filename).toBe("sub.yaml")
   })
 
+  it("previews omitted URL-REGEX from lossy Keep-pass headers", async () => {
+    const { session, view } = makeSession({
+      fields: { serviceOrigin: ORIGIN },
+      fetch: (url) =>
+        url.endsWith("/version")
+          ? response(200, VERSION_OK)
+          : response(200, "proxies: []", {
+              "x-subconverter-result": "lossy",
+              "x-subconverter-omitted-rules": "URL-REGEX=3",
+            }),
+    })
+    await session.actions.preview()
+    const preview = view().preview
+    expect(preview.status).toBe("done")
+    if (preview.status !== "done") {
+      return
+    }
+    expect(preview.kind).toEqual({ kind: "ok" })
+    expect(preview.omitted).toEqual({ omittedUrlRegex: 3 })
+  })
+
   it("resets Preview when fields change and drops the stale in-flight result", async () => {
     const gate = deferred<FakeResponse>()
     const { session, view } = makeSession({
@@ -372,6 +393,20 @@ describe("createWorkshopSession", () => {
     await error.session.actions.preview()
     error.session.actions.download()
     expect(failed).toEqual([])
+  })
+
+  it("adds a source row and refuses to remove the last one", () => {
+    const { session, view } = makeSession({ fields: { sources: [VLESS] } })
+    session.actions.addSource()
+    expect(view().fields.sources).toEqual([VLESS, ""])
+
+    session.actions.removeSource(0)
+    expect(view().fields.sources).toEqual([""])
+
+    session.actions.removeSource(0)
+    session.actions.removeSource(-1)
+    session.actions.removeSource(4)
+    expect(view().fields.sources).toEqual([""])
   })
 
   it("keeps one source row after clearing", () => {

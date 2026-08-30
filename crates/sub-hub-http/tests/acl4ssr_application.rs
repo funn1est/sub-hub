@@ -159,6 +159,40 @@ fn omitted_expand_emits_rule_providers_without_fetching_rule_sets() {
 }
 
 #[test]
+fn omitted_expand_names_https_subscription_and_rule_sets_without_fetching_them() {
+    let requested_urls = Arc::new(Mutex::new(Vec::new()));
+    let application = Application::new(
+        AclResources {
+            requested_urls: Arc::clone(&requested_urls),
+        },
+        SelfHosts::new(["service.example"]).expect("valid aliases"),
+    );
+    let query = format!(
+        "target=clash&url={}&config={}",
+        percent_encode("https://upstream.example/subscription"),
+        percent_encode("https://config.example/acl.ini"),
+    );
+
+    let response = futures::executor::block_on(application.handle(
+        HttpRequest::new_with_inbound_host(Method::GET, "/sub", Some(&query), "service.example"),
+    ));
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = std::str::from_utf8(response.body()).expect("Mihomo output is UTF-8");
+    assert!(body.contains("proxy-providers:"));
+    assert!(body.contains("url: https://upstream.example/subscription"));
+    assert!(body.contains("rule-providers:"));
+    assert!(body.contains("url: https://rules.example/list"));
+    assert!(body.contains("- RULE-SET,rs-1,PROXY"));
+    assert!(!body.contains("uuid:"));
+    assert!(!body.contains("DOMAIN,example.org"));
+    assert_eq!(
+        *requested_urls.lock().expect("test recorder lock"),
+        ["https://config.example/acl.ini".to_owned()]
+    );
+}
+
+#[test]
 fn omitted_expand_emits_loon_remote_rules_without_fetching_lists() {
     let requested_urls = Arc::new(Mutex::new(Vec::new()));
     let application = Application::new(

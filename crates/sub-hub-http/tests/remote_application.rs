@@ -26,6 +26,29 @@ fn remote_response_debug_exposes_only_low_cardinality_state() {
 
 struct SuccessfulRemote;
 
+struct RecordingSuccessfulRemote {
+    requested_urls: Arc<Mutex<Vec<String>>>,
+}
+
+impl RemoteAdapter for RecordingSuccessfulRemote {
+    type FetchFuture<'a> = Ready<Result<RemoteResponse, RemoteFetchError>>;
+
+    fn monotonic_millis(&self) -> u64 {
+        0
+    }
+
+    fn fetch_once(&self, attempt: RemoteAttempt) -> Self::FetchFuture<'_> {
+        self.requested_urls
+            .lock()
+            .expect("test recorder lock")
+            .push(attempt.url().to_owned());
+        future::ready(Ok(RemoteResponse::body(
+            StatusCode::OK,
+            REMOTE_SUBSCRIPTION.to_vec(),
+        )))
+    }
+}
+
 impl RemoteAdapter for SuccessfulRemote {
     type FetchFuture<'a> = Ready<Result<RemoteResponse, RemoteFetchError>>;
 
@@ -97,6 +120,37 @@ fn remote_subscription_is_loaded_and_rendered_through_the_application_interface(
 }
 
 #[test]
+fn omitted_expand_still_fetches_a_singbox_subscription() {
+    let requested_urls = Arc::new(Mutex::new(Vec::new()));
+    let application = Application::new(
+        RecordingSuccessfulRemote {
+            requested_urls: Arc::clone(&requested_urls),
+        },
+        SelfHosts::new(["service.example"]).expect("valid self hostname"),
+    );
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some("target=singbox&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let text = std::str::from_utf8(response.body()).expect("UTF-8 sing-box output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        *requested_urls.lock().expect("test recorder lock"),
+        ["https://upstream.example/subscription".to_owned()]
+    );
+    assert!(text.contains("\"type\": \"vless\""));
+    assert!(text.contains("\"tag\": \"Alpha\""));
+    assert!(text.contains("01234567-89ab-cdef-0123-456789abcdef"));
+    assert!(!text.contains("proxy-providers"));
+    assert!(!text.contains("[server_remote]"));
+}
+
+#[test]
 fn omitted_expand_emits_a_proxy_provider_without_fetching_the_subscription() {
     let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
     let application = Application::new(UnreachableRemote, self_hosts);
@@ -141,6 +195,37 @@ fn omitted_expand_emits_a_quanx_server_remote_without_fetching_the_subscription(
     assert!(text.contains("static = PROXY, AUTO, upstream.example, direct"));
     assert!(!text.contains("enabled="));
     assert!(!text.contains("uuid"));
+}
+
+#[test]
+fn omitted_expand_keeps_direct_nodes_next_to_a_proxy_provider() {
+    let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
+    let application = Application::new(UnreachableRemote, self_hosts);
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some(concat!(
+            "target=clash&url=",
+            "vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef",
+            "%40example.com%3A443%23Alpha",
+            "%7Chttps%3A%2F%2Fupstream.example%2Fsubscription",
+        )),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let yaml = std::str::from_utf8(response.body()).expect("UTF-8 Mihomo output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let alpha = yaml.find("- name: Alpha\n").expect("direct node");
+    let provider = yaml.find("proxy-providers:").expect("unexpanded remote");
+    assert!(alpha < provider, "direct nodes precede proxy-providers");
+    assert!(yaml.contains("uuid: 01234567-89ab-cdef-0123-456789abcdef"));
+    assert!(yaml.contains("url: https://upstream.example/subscription"));
+    assert!(yaml.contains("  - AUTO\n  - Alpha\n  - DIRECT\n"));
+    assert!(
+        yaml.contains("use:\n  - upstream.example") || yaml.contains("use: [upstream.example]")
+    );
 }
 
 #[test]
@@ -230,6 +315,40 @@ fn omitted_expand_emits_a_loon_remote_proxy_without_fetching_the_subscription() 
     assert!(text.contains("[Remote Proxy]"));
     assert!(text.contains("upstream.example = https://upstream.example/subscription"));
     assert!(text.contains("PROXY = select,AUTO,upstream.example,DIRECT"));
+    assert!(!text.contains("01234567-89ab-cdef-0123-456789abcdef"));
+}
+
+#[test]
+fn omitted_expand_emits_an_egern_external_without_fetching_the_subscription() {
+    let self_hosts = SelfHosts::new(["service.example"]).expect("valid self hostname");
+    let application = Application::new(UnreachableRemote, self_hosts);
+    let request = HttpRequest::new_with_inbound_host(
+        Method::GET,
+        "/sub",
+        Some("target=egern&url=https%3A%2F%2Fupstream.example%2Fsubscription"),
+        "service.example",
+    );
+
+    let response = futures::executor::block_on(application.handle(request));
+    let text = std::str::from_utf8(response.body()).expect("UTF-8 Egern output");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(text.contains(concat!(
+        "- external:\n",
+        "    name: upstream.example\n",
+        "    type: select\n",
+        "    urls:\n",
+        "    - https://upstream.example/subscription\n",
+        "    update_interval: 86400\n",
+    )));
+    assert!(text.contains(concat!(
+        "- select:\n",
+        "    name: PROXY\n",
+        "    policies:\n",
+        "    - AUTO\n",
+        "    - DIRECT\n",
+        "    - upstream.example\n",
+    )));
     assert!(!text.contains("01234567-89ab-cdef-0123-456789abcdef"));
 }
 
