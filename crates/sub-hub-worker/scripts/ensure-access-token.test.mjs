@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import {
@@ -7,6 +8,7 @@ import {
   generateToken,
   parseLastJsonArray,
   parseList,
+  putAndDeploy,
   secretsFileJson,
   splitArgv,
 } from "./ensure-access-token.mjs";
@@ -60,6 +62,11 @@ test("splitArgv copies targeting flags and keeps ensure flags out of wrangler ar
   assert.equal(split.flags.tokensFile, "tokens.txt");
   assert.deepEqual(split.targeting, ["--name", "other-worker", "--env", "staging"]);
   assert.deepEqual(split.forwarded, ["--preview-alias", "foo"]);
+  assert.throws(() => splitArgv(["--tokens", "alpha"]), /tokens-file or --from-env/);
+  const ensureArgv = ["--deploy", "--tokens-file", "tokens.txt", "--name", "other-worker"];
+  assert.ok(!ensureArgv.includes("alpha"));
+  assert.ok(!ensureArgv.includes("bravo"));
+  assert.ok(!ensureArgv.includes("deployer-token"));
 });
 
 test("decide refuses CI and ambient-less puts without an explicit blob", () => {
@@ -75,7 +82,7 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
     decide({
       ci: false,
       listResult: null,
-      flags: { tokens: "alpha" },
+      flags: { tokensFile: "tokens.txt" },
     }),
     "put-operator",
   );
@@ -83,7 +90,7 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
     decide({
       ci: false,
       listResult: "indeterminate",
-      flags: { tokens: "alpha\nbravo" },
+      flags: { fromEnv: true },
     }),
     "put-operator",
   );
@@ -166,4 +173,47 @@ test("classifySecretList is fail-closed unless a JSON array is parsed", () => {
 test("generateToken is 32 lowercase hex", () => {
   const token = generateToken();
   assert.match(token, /^[0-9a-f]{32}$/);
+});
+
+test("putAndDeploy writes a secrets-file then deletes it without echoing the blob", () => {
+  const blob = "operator-secret-blob";
+  let seenArgs;
+  let secretsFile;
+  const runWrangler = (args) => {
+    seenArgs = args;
+    const index = args.indexOf("--secrets-file");
+    assert.ok(index >= 0);
+    secretsFile = args[index + 1];
+    assert.ok(secretsFile);
+    assert.ok(fs.existsSync(secretsFile));
+    assert.equal(
+      JSON.parse(fs.readFileSync(secretsFile, "utf8")).SUB_HUB_ACCESS_TOKEN,
+      blob,
+    );
+    assert.ok(!args.includes(blob));
+    assert.ok(!JSON.stringify(args).includes(blob));
+    return { status: 0, stdout: "Published https://sub-hub.example.workers.dev\n", stderr: "" };
+  };
+  const chunks = [];
+  const write = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk, encoding, callback) => {
+    chunks.push(String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+      return true;
+    }
+    if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+  try {
+    putAndDeploy("deploy", [], [], blob, runWrangler);
+  } finally {
+    process.stdout.write = write;
+  }
+  assert.ok(seenArgs.includes("--secrets-file"));
+  assert.ok(!seenArgs.includes(blob));
+  assert.ok(!fs.existsSync(secretsFile));
+  assert.ok(!chunks.join("").includes(blob));
 });

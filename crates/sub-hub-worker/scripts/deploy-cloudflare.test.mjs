@@ -59,7 +59,8 @@ test("parseDeployArgv accepts one layout and worker-only CORS", () => {
   assert.throws(() =>
     parseDeployArgv(["--all", "--cors-origin", "https://console.example"]),
   );
-  assert.throws(() => parseDeployArgv(["--console-only", "--tokens", "alpha"]));
+  assert.throws(() => parseDeployArgv(["--console-only", "--tokens-file", "tokens.txt"]));
+  assert.throws(() => parseDeployArgv(["--tokens", "alpha"]), /tokens-file or --from-env/);
   assert.equal(
     parseDeployArgv(["--layout", "console", "--name", "mine"]).flags.consoleName,
     "mine",
@@ -113,17 +114,20 @@ test("ensure argv stays explicit and does not write CORS on all", () => {
   );
   assert.throws(
     () =>
-      ensureDeployArgv({ layout: "all", tokens: "alpha", fromEnv: true }),
+      ensureDeployArgv({ layout: "all", tokensFile: "tokens.txt", fromEnv: true }),
     /only one/,
   );
-  assert.deepEqual(ensureDeployArgv({ layout: "all", tokens: "alpha" }), [
-    "--deploy",
-    "--tokens",
-    "alpha",
-  ]);
-  const serialized = JSON.stringify(
-    ensureDeployArgv({ layout: "all", tokensFile: "tokens.txt", fromEnv: false }),
-  );
+  const ensureFromFile = ensureDeployArgv({
+    layout: "all",
+    tokensFile: "tokens.txt",
+    fromEnv: false,
+  });
+  assert.deepEqual(ensureFromFile, ["--deploy", "--tokens-file", "tokens.txt"]);
+  assert.ok(!ensureFromFile.includes("--tokens"));
+  assert.ok(!ensureFromFile.includes("alpha"));
+  assert.ok(!ensureFromFile.includes("bravo"));
+  assert.ok(!ensureFromFile.includes("deployer-token"));
+  const serialized = JSON.stringify(ensureFromFile);
   assert.equal(serialized.includes("CORS"), false);
   assert.equal(serialized.includes("SELF_HOSTS"), false);
   assert.throws(() => ensureDeployArgv({ layout: "console" }));

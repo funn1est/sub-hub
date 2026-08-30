@@ -52,10 +52,12 @@ install_rustup() {
   fi
   require_cmd curl
   log "installing rustup (${RUST_TOOLCHAIN}, ${WASM_TARGET})"
-  curl --proto '=https' --tlsv1.2 -sSf "$RUSTUP_URL" | sh -s -- -y \
-    --default-toolchain "$RUST_TOOLCHAIN" \
+  tmp=$(mktemp)
+  curl --proto '=https' --tlsv1.2 -sSf -o "$tmp" "$RUSTUP_URL"
+  sh "$tmp" -y --default-toolchain "$RUST_TOOLCHAIN" \
     --profile minimal \
     --target "$WASM_TARGET"
+  rm -f "$tmp"
   source_cargo_env
   command -v rustup >/dev/null 2>&1 || fail "rustup finished but rustup is not on PATH"
 }

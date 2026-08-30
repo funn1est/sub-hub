@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 const VALUE_FLAGS = new Set([
   "--worker-name",
   "--name",
-  "--tokens",
   "--tokens-file",
   "--layout",
   "--cors-origin",
@@ -44,7 +43,6 @@ export function parseDeployArgv(argv) {
     workerName: undefined,
     consoleName: undefined,
     corsOrigin: undefined,
-    tokens: undefined,
     tokensFile: undefined,
   };
   const forwarded = [];
@@ -78,6 +76,9 @@ export function parseDeployArgv(argv) {
       flags.preview = true;
       continue;
     }
+    if (arg === "--tokens") {
+      throw new Error("use --tokens-file or --from-env");
+    }
     if (arg === "--all" || arg === "--worker-only" || arg === "--console-only") {
       const alias =
         arg === "--all" ? "all" : arg === "--worker-only" ? "worker" : "console";
@@ -105,8 +106,6 @@ export function parseDeployArgv(argv) {
         flags.layout = layout;
       } else if (arg === "--cors-origin") {
         flags.corsOrigin = value;
-      } else if (arg === "--tokens") {
-        flags.tokens = value;
       } else {
         flags.tokensFile = value;
       }
@@ -127,7 +126,7 @@ export function parseDeployArgv(argv) {
   }
   if (
     flags.layout === "console" &&
-    (flags.tokens !== undefined || flags.tokensFile || flags.fromEnv || flags.replace)
+    (flags.tokensFile || flags.fromEnv || flags.replace)
   ) {
     throw new Error("access-token flags are only for the Conversion Worker");
   }
@@ -153,7 +152,6 @@ export function resolveDeployConfig({ flags, env, roots = { repoRoot, workerRoot
     dev: Boolean(flags.dev),
     preview: Boolean(flags.preview),
     layout,
-    tokens: flags.tokens,
     tokensFile: flags.tokensFile,
     corsOrigin: flags.corsOrigin,
     workerName: firstNonEmpty(flags.workerName, env.CLOUDFLARE_WORKER_NAME),
@@ -207,17 +205,13 @@ export function ensureDeployArgv(config, forwarded = []) {
   if (config.replace) {
     args.push("--replace");
   }
-  const sources = [
-    config.tokens !== undefined,
-    Boolean(config.tokensFile),
-    Boolean(config.fromEnv),
-  ].filter(Boolean).length;
+  const sources = [Boolean(config.tokensFile), Boolean(config.fromEnv)].filter(
+    Boolean,
+  ).length;
   if (sources > 1) {
-    throw new Error("use only one of --tokens, --tokens-file, or --from-env");
+    throw new Error("use only one of --tokens-file or --from-env");
   }
-  if (config.tokens !== undefined) {
-    args.push("--tokens", config.tokens);
-  } else if (config.tokensFile) {
+  if (config.tokensFile) {
     args.push("--tokens-file", config.tokensFile);
   } else if (config.fromEnv) {
     args.push("--from-env");

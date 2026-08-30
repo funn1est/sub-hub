@@ -39,7 +39,7 @@ shadows the secret.
 
 `pnpm run deploy` will:
 
-- put the list you pass with `--tokens-file`, `--tokens`, or `--from-env`;
+- put the list you pass with `--tokens-file` or `--from-env`;
 - leave an existing secret unchanged;
 - or, when `wrangler secret list` proves the name is absent, generate one
   32-character hex token, put it with the same deploy, and print it once.

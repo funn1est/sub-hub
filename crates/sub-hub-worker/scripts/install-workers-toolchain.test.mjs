@@ -32,6 +32,9 @@ test("Workers Builds toolchain pins match the workspace", () => {
   assert.match(mise, new RegExp(`version = "${rust}"`));
   assert.match(toolchain, new RegExp(`channel = "${rust}"`));
   assert.match(script, /pnpm install --frozen-lockfile/);
+  assert.match(script, /curl .* -o "\$tmp"/);
+  assert.match(script, /sh "\$tmp" -y --default-toolchain/);
+  assert.doesNotMatch(script, /curl[^\n]*\|[^\n]*sh/);
   const commands = script
     .split(/\r?\n/)
     .filter((line) => !/^\s*(#|$)/.test(line))

@@ -13,14 +13,13 @@ const TOKEN_PATTERN = /^[A-Za-z0-9._~-]+$/;
 const ENSURE_FLAGS = new Set([
   "--deploy",
   "--preview",
-  "--tokens",
   "--tokens-file",
   "--from-env",
   "--replace",
   "--print-only",
   "--dry-run",
 ]);
-const VALUE_FLAGS = new Set(["--tokens", "--tokens-file"]);
+const VALUE_FLAGS = new Set(["--tokens-file"]);
 const TARGETING_FLAGS = new Set(["--name", "--env", "-e", "--config", "-c", "--cwd"]);
 
 export function parseList(raw) {
@@ -70,7 +69,6 @@ export function splitArgv(argv) {
     printOnly: false,
     dryRun: false,
     fromEnv: false,
-    tokens: undefined,
     tokensFile: undefined,
   };
   const targeting = [];
@@ -105,17 +103,16 @@ export function splitArgv(argv) {
       flags.fromEnv = true;
       continue;
     }
+    if (arg === "--tokens") {
+      throw new Error("use --tokens-file or --from-env");
+    }
     if (VALUE_FLAGS.has(arg)) {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("-")) {
         throw new Error(`missing value for ${arg}`);
       }
       index += 1;
-      if (arg === "--tokens") {
-        flags.tokens = value;
-      } else {
-        flags.tokensFile = value;
-      }
+      flags.tokensFile = value;
       continue;
     }
     if (TARGETING_FLAGS.has(arg)) {
@@ -144,7 +141,6 @@ export function decide({ ci, listResult, flags }) {
       flags.preview ||
       flags.replace ||
       flags.dryRun ||
-      flags.tokens !== undefined ||
       flags.tokensFile ||
       flags.fromEnv
     ) {
@@ -158,8 +154,7 @@ export function decide({ ci, listResult, flags }) {
   if (flags.replace && flags.preview) {
     return "abort-usage";
   }
-  if (flags.tokens !== undefined) {
-    parseList(flags.tokens);
+  if (flags.tokensFile || flags.fromEnv) {
     return "put-operator";
   }
   if (listResult === "indeterminate" || listResult == null) {
@@ -268,10 +263,6 @@ function resolveOperatorBlob(flags) {
     parseList(raw);
     return raw;
   }
-  if (flags.tokens !== undefined) {
-    parseList(flags.tokens);
-    return flags.tokens;
-  }
   return undefined;
 }
 
@@ -289,7 +280,7 @@ function deployArgs(mode, targeting, forwarded, secretsFile) {
   return args;
 }
 
-function putAndDeploy(mode, targeting, forwarded, blob) {
+export function putAndDeploy(mode, targeting, forwarded, blob, run = runWrangler) {
   const file = path.join(
     os.tmpdir(),
     `sub-hub-secrets-${randomBytes(8).toString("hex")}.json`,
@@ -301,7 +292,7 @@ function putAndDeploy(mode, targeting, forwarded, blob) {
     } catch {
       // Windows may not honor 0600; the file is still in the temp directory.
     }
-    const result = runWrangler(deployArgs(mode, targeting, forwarded, file));
+    const result = run(deployArgs(mode, targeting, forwarded, file));
     if (result.error) {
       process.stderr.write(`${result.error.message}\n`);
     }
@@ -344,13 +335,10 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     fail(error instanceof Error ? error.message : "invalid arguments");
   }
   const { flags, targeting, forwarded } = split;
-  const explicitSources = [
-    flags.tokens !== undefined,
-    Boolean(flags.tokensFile),
-    flags.fromEnv,
-  ].filter(Boolean).length;
+  const explicitSources = [Boolean(flags.tokensFile), flags.fromEnv].filter(Boolean)
+    .length;
   if (explicitSources > 1) {
-    fail("use only one of --tokens, --tokens-file, or --from-env");
+    fail("use only one of --tokens-file or --from-env");
   }
 
   let operatorBlob;
@@ -360,17 +348,12 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     fail(error instanceof Error ? error.message : "invalid access token list");
   }
 
-  const decideFlags = {
-    ...flags,
-    tokens: operatorBlob,
-  };
-
   const needsList =
     operatorBlob === undefined && !flags.printOnly;
   const listResult = needsList ? listSecrets(targeting) : null;
   let action;
   try {
-    action = decide({ ci: false, listResult, flags: decideFlags });
+    action = decide({ ci: false, listResult, flags });
   } catch (error) {
     fail(error instanceof Error ? error.message : "invalid access token list");
   }
