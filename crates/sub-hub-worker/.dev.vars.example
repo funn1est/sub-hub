@@ -1,4 +1,4 @@
-# Deploy-to-Cloudflare button schema only. Do not copy this file to `.dev.vars`
-# and do not put a real token here. Set SUB_HUB_ACCESS_TOKEN as a Cloudflare
-# secret. Cloudflare cannot show the value after save.
+# Crate-local copy of the repository-root button schema. The Deploy-to-Cloudflare
+# prompt reads `.dev.vars.example` at the clone root. Do not copy this file to
+# `.dev.vars` and do not put a real token here.
 SUB_HUB_ACCESS_TOKEN=

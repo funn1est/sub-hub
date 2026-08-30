@@ -47,13 +47,14 @@ test("Workers Builds deploy helper keeps vars, builds Console, and skips token e
     path.join(here, "workers-builds-deploy.sh"),
     "utf8",
   );
-  assert.match(script, /wrangler deploy --keep-vars/);
-  assert.match(script, /wrangler versions upload --keep-vars/);
+  assert.match(script, /deploy --keep-vars --config/);
+  assert.match(script, /versions upload --keep-vars --config/);
   assert.match(script, /install-workers-toolchain\.sh/);
   assert.match(script, /apps\/console/);
   assert.match(script, /pnpm run build/);
   assert.match(script, /dist\/index\.html/);
   assert.match(script, /wrangler\.worker\.toml/);
+  assert.match(script, /repo_root\/wrangler\.toml/);
   assert.match(script, /all\|worker/);
   assert.doesNotMatch(script, /ensure-access-token/);
   assert.doesNotMatch(script, /pnpm run deploy/);

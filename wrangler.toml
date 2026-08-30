@@ -1,0 +1,37 @@
+# Deploy-to-Cloudflare / Workers Builds when the clone root is this
+# repository. Layout `all`: Conversion plus same-origin Console.
+# Local maintainer publish stays `cd crates/sub-hub-worker && pnpm run deploy`
+# (that crate wrangler.toml). Do not add Cloudflare account fields or
+# KV / D1 / R2 / Secrets Store bindings.
+
+name = "sub-hub"
+main = "crates/sub-hub-worker/build/worker/shim.mjs"
+compatibility_date = "2026-08-13"
+compatibility_flags = [
+  "global_fetch_strictly_public",
+]
+
+# Errors only. Invocation logs include the request URL; /sub query strings
+# commonly contain credentials.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false
+
+[build]
+command = "cd crates/sub-hub-worker && worker-build --release"
+
+[build.upload]
+dir = "crates/sub-hub-worker/build/worker"
+format = "modules"
+main = "./shim.mjs"
+
+[[build.upload.rules]]
+globs = ["**/*.wasm"]
+type = "CompiledWasm"
+
+[assets]
+directory = "apps/console/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/version", "/sub", "/sub/*"]

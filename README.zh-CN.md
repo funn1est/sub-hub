@@ -2,6 +2,14 @@
 
 [English](README.md) | 中文
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/funn1est/sub-hub)
+
+点击该按钮。Cloudflare 提示时，把 `SUB_HUB_ACCESS_TOKEN` 设成你自己选的
+token（字母、数字和 `-` `.` `_` `~`，1–128 个字符）。部署完成后打开
+Worker URL，把同一个 token 贴进 Console。这是你自己的 Worker（Conversion
+与 Console），不是项目托管的实例。其他发布路径见
+[Cloudflare Worker](#cloudflare-worker)。
+
 Sub Hub 是用 Rust 实现的、仍在演进的订阅转换后端，外加用来操作自托管
 Conversion Service 的静态 Web Console。它接受选定的 VLESS、Shadowsocks、
 Trojan、VMess、Hysteria2 和 TUIC v5 输入，可以加载 HTTPS 订阅资源和严格的
@@ -197,17 +205,14 @@ Native 二进制有意不终止 TLS，也不提供部署级限流。网络部署
 ## Cloudflare Worker
 
 Worker 在 [`crates/sub-hub-worker`](crates/sub-hub-worker)。部署你自己的
-副本；本仓库不运营公共实例。
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/funn1est/sub-hub)
-
-该按钮把本仓库克隆到你的 GitHub 或 GitLab 账号，并从**仓库根**跑
-Workers Builds（layout `all`：Conversion 与 Console 同一 origin）。
-Cloudflare 要求该 Git URL 为 **public**。提示时把 `SUB_HUB_ACCESS_TOKEN`
-设为 Cloudflare **secret**；不要把 `.dev.vars.example` 复制成
-`.dev.vars`。该 secret 未设置时，Worker 的 `GET /sub` 保持匿名。Native
-非回环仍会在没有 token 时拒绝启动。`GET /version` 无论哪种情况都公开。
-该按钮不是项目托管的实例。
+副本；本仓库不运营公共实例。通常用本文件顶部的 Deploy-to-Cloudflare
+按钮：点一下，把 `SUB_HUB_ACCESS_TOKEN` 设成你自己选的 token，然后打开
+Worker URL。该按钮把本仓库克隆到你的 GitHub 或 GitLab 账号，并在同一
+origin 发布 Conversion 与 Console。Cloudflare 要求该 Git URL 为
+**public**。不要把 `.dev.vars.example` 复制成 `.dev.vars`。该 secret
+未设置时，Worker 的 `GET /sub` 保持匿名。Native 非回环仍会在没有 token
+时拒绝启动。`GET /version` 无论哪种情况都公开。该按钮不是项目托管的
+实例。
 
 从已有机器发布时，需要一个 Cloudflare 账号、带
 `wasm32-unknown-unknown` 的 Rust 1.97.1、Node.js 24.19.0 或更新，以及
@@ -231,8 +236,8 @@ token 贴进页面。
 仅 Conversion：`pnpm run deploy:worker`。仅 Console：
 `pnpm run deploy:console`（然后在 Conversion 上用 `--cors-origin` 设置
 `SUB_HUB_CORS_ORIGINS`）。不要提交 `account_id`、API token、本地
-`name` 改名，或带真实值的 `.dev.vars`。`crates/sub-hub-worker` 里的
-`.dev.vars.example` 只是按钮 schema；不要复制它。用
+`name` 改名，或带真实值的 `.dev.vars`。仓库根的 `.dev.vars.example`
+是按钮的 token 提示；不要复制它。用
 `CLOUDFLARE_WORKER_NAME` 或 `--worker-name` 覆盖 Worker 名；除非你打算
 让每个克隆都用那个默认名，否则不要改已提交的 name。
 
@@ -271,8 +276,8 @@ CI 不持有 Cloudflare 凭据，也不部署。Worker 把出站 HTTPS 资源限
 
 把仓库接成一个 Worker（Workers Builds，根目录
 `crates/sub-hub-worker`）。该发布包含 Web Console。克隆根是整个仓库时
-（本节开头的 Deploy-to-Cloudflare 按钮），仓库根 `package.json` 的
-`build` / `deploy` 脚本会调用同一套 helper。构建镜像有 Node 没有 Rust；
+（本文件顶部的 Deploy-to-Cloudflare 按钮），仓库根 `wrangler.toml` 与
+`package.json` 的 `build` / `deploy` 是按钮合同。构建镜像有 Node 没有 Rust；
 Build 命令用 `sh scripts/install-workers-toolchain.sh`，Deploy 命令用
 `sh scripts/workers-builds-deploy.sh`。这些脚本安装 Rust 1.97.1、
 `wasm32-unknown-unknown` 和 `worker-build` 0.8.5，构建 Console，并运行

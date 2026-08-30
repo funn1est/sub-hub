@@ -14,7 +14,7 @@
   "cloudflare": {
     "bindings": {
       "SUB_HUB_ACCESS_TOKEN": {
-        "description": "Path token for `GET /sub/<token>`. Set it as a Cloudflare **secret** (Dashboard or the Deploy-to-Cloudflare prompt). Do not copy `.dev.vars.example` to `.dev.vars`, and do not commit the value. Cloudflare cannot show a secret after save."
+        "description": "Choose a token for `GET /sub/<token>` (letters, numbers, and `-` `.` `_` `~`, 1–128 characters). Cloudflare saves it as a **secret** and cannot show it again."
       }
     }
   }

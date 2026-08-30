@@ -7,8 +7,10 @@ same license.
 This repository does not operate a public instance. Do not send a real
 subscription URL to a shared converter, and do not commit `account_id`, API
 tokens, `.dev.vars` values, or an access-token list.
-`crates/sub-hub-worker/.dev.vars.example` is button schema only; do not copy
-it to `.dev.vars`.
+Repository-root `.dev.vars.example` is the Deploy-to-Cloudflare token
+prompt; `crates/sub-hub-worker/.dev.vars.example` stays an empty copy.
+Do not copy either file to `.dev.vars`. Root `wrangler.toml` is the
+button contract (layout `all`); do not add KV, D1, R2, or Secrets Store.
 
 ## Development gates
 
@@ -59,7 +61,8 @@ ignored; do not remove that line. The two goldens already on origin
 `testdata/subscription-url/cases.json`) are tracked exceptions. Do not
 `git add -f` new testdata unless a maintainer asks. Console tests read
 the subscription URL golden. Root `package.json` `build` / `deploy`
-stay the Cloudflare button helpers; do not replace them.
+and root `wrangler.toml` stay the Cloudflare button contract; do not
+replace them.
 
 Do not modify the existing root `.gitignore` unless a maintainer asks for that
 change in the same review.

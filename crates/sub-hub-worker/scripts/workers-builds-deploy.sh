@@ -1,22 +1,26 @@
 #!/bin/sh
 # Publish the Conversion Worker from a Workers Builds image.
 # Requires scripts/install-workers-toolchain.sh in the Build command.
-# Does not touch SUB_HUB_ACCESS_TOKEN; set that Dashboard secret yourself.
+# Does not touch SUB_HUB_ACCESS_TOKEN; the Deploy-to-Cloudflare prompt or
+# a Dashboard secret supplies it.
 #
 #   sh scripts/workers-builds-deploy.sh
 #   sh scripts/workers-builds-deploy.sh preview
 #   sh scripts/workers-builds-deploy.sh worker
 #   sh scripts/workers-builds-deploy.sh preview worker
 #
-# Default layout is all (Wasm + same-origin Console). `worker` skips
-# Console assets and uses wrangler.worker.toml.
+# Default layout is all (Wasm + same-origin Console). That path publishes
+# the repository-root wrangler.toml so the Deploy-to-Cloudflare wizard
+# name edits apply. `worker` skips Console assets and uses
+# wrangler.worker.toml.
 
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 worker_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
-console_root=$(CDPATH= cd -- "$worker_root/../../apps/console" && pwd)
-cd "$worker_root"
+repo_root=$(CDPATH= cd -- "$worker_root/../.." && pwd)
+console_root=$(CDPATH= cd -- "$repo_root/apps/console" && pwd)
+wrangler_bin="$worker_root/node_modules/.bin/wrangler"
 
 cargo_env="${CARGO_HOME:-$HOME/.cargo}/env"
 if [ -f "$cargo_env" ]; then
@@ -31,6 +35,11 @@ fi
 
 if ! command -v pnpm >/dev/null 2>&1; then
   printf '%s\n' "pnpm missing; set PNPM_VERSION on the Workers Builds project" >&2
+  exit 1
+fi
+
+if [ ! -x "$wrangler_bin" ]; then
+  printf '%s\n' "wrangler missing; run sh scripts/install-workers-toolchain.sh first" >&2
   exit 1
 fi
 
@@ -61,21 +70,28 @@ for arg in "$@"; do
   esac
 done
 
-wrangler_args=""
 if [ "$layout" = "worker" ]; then
-  wrangler_args="--config wrangler.worker.toml"
+  wrangler_config="$worker_root/wrangler.worker.toml"
+  wrangler_cwd="$worker_root"
 else
   build_console
+  if [ -f "$repo_root/wrangler.toml" ]; then
+    wrangler_config="$repo_root/wrangler.toml"
+    wrangler_cwd="$repo_root"
+  else
+    wrangler_config="$worker_root/wrangler.toml"
+    wrangler_cwd="$worker_root"
+  fi
 fi
+
+cd "$wrangler_cwd"
 
 case "$mode" in
   deploy)
-    # shellcheck disable=SC2086
-    exec npx wrangler deploy --keep-vars $wrangler_args
+    exec "$wrangler_bin" deploy --keep-vars --config "$wrangler_config"
     ;;
   preview)
-    # shellcheck disable=SC2086
-    exec npx wrangler versions upload --keep-vars $wrangler_args
+    exec "$wrangler_bin" versions upload --keep-vars --config "$wrangler_config"
     ;;
   *)
     usage

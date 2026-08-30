@@ -7,7 +7,11 @@
 # Dashboard (Worker name `sub-hub`, root `crates/sub-hub-worker`):
 #   Build:  sh scripts/install-workers-toolchain.sh
 #   Deploy: sh scripts/workers-builds-deploy.sh
-# The deploy helper builds apps/console into dist/ for [assets].
+# Deploy-to-Cloudflare (clone root = repository):
+#   Build:  sh crates/sub-hub-worker/scripts/install-workers-toolchain.sh
+#   Deploy: sh crates/sub-hub-worker/scripts/workers-builds-deploy.sh
+# The deploy helper builds apps/console into dist/ for [assets] and
+# publishes repository-root wrangler.toml for layout `all`.
 #
 # Local Windows PowerShell is not a target. Use WSL/Git Bash, or stay on
 # `pnpm run deploy` after a machine-local `cargo install worker-build`.

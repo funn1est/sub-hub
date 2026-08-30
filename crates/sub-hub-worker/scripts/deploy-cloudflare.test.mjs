@@ -202,6 +202,7 @@ test("Workers Logs stay on without recording GET URLs", () => {
   const files = [
     path.join(here, "..", "wrangler.toml"),
     path.join(here, "..", "wrangler.worker.toml"),
+    path.join(here, "..", "..", "..", "wrangler.toml"),
     path.join(here, "..", "..", "..", "apps", "console", "wrangler.toml"),
   ];
   for (const file of files) {

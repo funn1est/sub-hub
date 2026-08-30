@@ -20,8 +20,9 @@ subscription and config URLs must not point at that host.
 ## Access token
 
 `SUB_HUB_ACCESS_TOKEN` is a Cloudflare **secret** (never a `[vars]` value or a
-committed `.dev.vars` file). `.dev.vars.example` in this directory is button
-schema only; do not copy it to `.dev.vars`. The blob is a comma- or
+committed `.dev.vars` file). The Deploy-to-Cloudflare prompt reads
+repository-root `.dev.vars.example`; the copy in this directory stays empty
+and in sync. Do not copy either file to `.dev.vars`. The blob is a comma- or
 newline-separated list of at most eight equivalent tokens. Each token is 1–128 bytes from
 `A–Z a–z 0–9 - . _ ~`. Any configured token authorizes `GET`/`HEAD /sub/<token>`.
 `GET /sub` then returns `401 Unauthorized!`. `GET /version` stays public.
@@ -208,10 +209,11 @@ After the first successful build, set the runtime
 separate Worker whose root is `apps/console`. A local `pnpm run deploy`
 remains the simpler publish.
 
-The repository-root `package.json` `build` / `deploy` scripts call these
-same helpers so the Deploy-to-Cloudflare button in the root `README.md`
-can pre-populate them when the clone root is the whole repository.
-Cloudflare requires that Git URL to be public. Do not change the
+The repository-root `wrangler.toml`, `.dev.vars.example`, and
+`package.json` `build` / `deploy` scripts are the Deploy-to-Cloudflare
+contract when the clone root is the whole repository. Layout `all`
+publish uses that root `wrangler.toml` so the wizard can rename the
+Worker. Cloudflare requires that Git URL to be public. Do not change the
 Dashboard **Root directory** in the table above to `.` unless you also
 change the script paths.
 

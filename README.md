@@ -2,6 +2,15 @@
 
 English | [中文](README.zh-CN.md)
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/funn1est/sub-hub)
+
+Click the button. When Cloudflare asks, set `SUB_HUB_ACCESS_TOKEN` to a
+token you choose (letters, numbers, and `-` `.` `_` `~`, 1–128 characters).
+After the deploy finishes, open the Worker URL and paste that same token
+into the Console. This is your own Worker (Conversion plus Console), not a
+project-hosted instance. Other publish paths are in
+[Cloudflare Worker](#cloudflare-worker).
+
 Sub Hub is a work-in-progress subscription-conversion backend implemented in
 Rust, plus a static Web Console that operates a self-hosted Conversion Service.
 It accepts selected VLESS, Shadowsocks, Trojan, VMess, Hysteria2, and
@@ -214,18 +223,15 @@ sending a real subscription URL to a non-loopback listener.
 ## Cloudflare Worker
 
 The Worker lives in [`crates/sub-hub-worker`](crates/sub-hub-worker). Deploy
-your own copy; this repository does not operate a public instance.
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/funn1est/sub-hub)
-
-The button clones this repository into your GitHub or GitLab account and
-runs Workers Builds from the **repository root** (layout `all`: Conversion
-plus Console on one origin). Cloudflare requires that Git URL to be
-**public**. Set `SUB_HUB_ACCESS_TOKEN` as a Cloudflare **secret** when
-prompted; do not copy `.dev.vars.example` to `.dev.vars`. If that secret
-is unset, Worker `GET /sub` stays anonymous. Native non-loopback still
-refuses to start without tokens. `GET /version` stays public either way.
-The button is not a project-hosted instance.
+your own copy; this repository does not operate a public instance. The
+usual path is the Deploy-to-Cloudflare button at the top of this file:
+click it, set `SUB_HUB_ACCESS_TOKEN` to a token you choose, then open the
+Worker URL. The button clones this repository into your GitHub or GitLab
+account and publishes Conversion plus Console on one origin. Cloudflare
+requires that Git URL to be **public**. Do not copy `.dev.vars.example` to
+`.dev.vars`. If that secret is unset, Worker `GET /sub` stays anonymous.
+Native non-loopback still refuses to start without tokens. `GET /version`
+stays public either way. The button is not a project-hosted instance.
 
 To publish from a machine you already have, a Cloudflare account, Rust
 1.97.1 with the `wasm32-unknown-unknown` target, Node.js 24.19.0 or newer,
@@ -250,7 +256,7 @@ Conversion only: `pnpm run deploy:worker`. Console only:
 `pnpm run deploy:console` (then set `SUB_HUB_CORS_ORIGINS` on Conversion
 with `--cors-origin`). Do not commit an `account_id`, API tokens, a local
 `name` rename, or a `.dev.vars` file with real values.
-`.dev.vars.example` in `crates/sub-hub-worker` is button schema only; do not
+`.dev.vars.example` at the repository root is the button token prompt; do not
 copy it. Override the Worker
 name with `CLOUDFLARE_WORKER_NAME` or `--worker-name`; do not edit the
 committed name unless you intend that default for every clone.
@@ -292,9 +298,9 @@ boundary, variable setup, and what not to commit.
 
 Connect the repo as one Worker (Workers Builds, root
 `crates/sub-hub-worker`). That publish includes the Web Console. The
-repository-root `package.json` `build` / `deploy` scripts call the same
-helpers when the clone root is the whole repository (the Deploy-to-Cloudflare
-button at the start of this section). The build
+repository-root `wrangler.toml` and `package.json` `build` / `deploy`
+scripts are the button contract when the clone root is the whole
+repository (the Deploy-to-Cloudflare button at the top of this file). The build
 image has Node but not Rust; use `sh scripts/install-workers-toolchain.sh`
 as the Build command and `sh scripts/workers-builds-deploy.sh` as the
 Deploy command. Those scripts install Rust 1.97.1,
