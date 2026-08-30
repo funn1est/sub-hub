@@ -1,5 +1,7 @@
 # Sub Hub
 
+English | [中文](README.zh-CN.md)
+
 Sub Hub is a work-in-progress subscription-conversion backend implemented in
 Rust, plus a static Web Console that operates a self-hosted Conversion Service.
 It accepts selected VLESS, Shadowsocks, Trojan, VMess, Hysteria2, and
