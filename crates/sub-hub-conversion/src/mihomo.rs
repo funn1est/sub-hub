@@ -478,24 +478,7 @@ impl<'a> From<&'a ProxyNode> for MihomoProxy<'a> {
 
 impl<'a> MihomoVlessProxy<'a> {
     fn from_node(node: &'a ProxyNode, vless: &'a crate::node::vless::VlessNode) -> Self {
-        let (network, ws_opts, grpc_opts) = match vless.transport() {
-            VlessTransport::Tcp => ("tcp", None, None),
-            VlessTransport::WebSocket { path, host } => (
-                "ws",
-                Some(MihomoWebSocketOptions {
-                    path,
-                    headers: host.as_deref().map(|host| MihomoWebSocketHeaders { host }),
-                }),
-                None,
-            ),
-            VlessTransport::Grpc { service_name, .. } => (
-                "grpc",
-                None,
-                service_name
-                    .as_deref()
-                    .map(|service_name| MihomoGrpcOptions { service_name }),
-            ),
-        };
+        let (network, ws_opts, grpc_opts) = transport_opts(vless.transport());
         let (tls, servername, alpn, client_fingerprint, reality_opts) = match vless.security() {
             VlessSecurity::None => (None, None, None, None, None),
             VlessSecurity::Tls(options) => (
@@ -612,24 +595,7 @@ pub(crate) struct MihomoVmessProxy<'a> {
 
 impl<'a> MihomoVmessProxy<'a> {
     fn from_node(node: &'a ProxyNode, vmess: &'a crate::node::vmess::VmessNode) -> Self {
-        let (network, ws_opts, grpc_opts) = match vmess.transport() {
-            VlessTransport::Tcp => ("tcp", None, None),
-            VlessTransport::WebSocket { path, host } => (
-                "ws",
-                Some(MihomoWebSocketOptions {
-                    path,
-                    headers: host.as_deref().map(|host| MihomoWebSocketHeaders { host }),
-                }),
-                None,
-            ),
-            VlessTransport::Grpc { service_name, .. } => (
-                "grpc",
-                None,
-                service_name
-                    .as_deref()
-                    .map(|service_name| MihomoGrpcOptions { service_name }),
-            ),
-        };
+        let (network, ws_opts, grpc_opts) = transport_opts(vmess.transport());
         let (tls, servername, alpn, client_fingerprint) = match vmess.security() {
             VmessSecurity::None => (None, None, None, None),
             VmessSecurity::Tls(options) => (
@@ -661,24 +627,7 @@ impl<'a> MihomoVmessProxy<'a> {
 
 impl<'a> MihomoTrojanProxy<'a> {
     fn from_node(node: &'a ProxyNode, trojan: &'a crate::node::trojan::TrojanNode) -> Self {
-        let (network, ws_opts, grpc_opts) = match trojan.transport() {
-            VlessTransport::Tcp => ("tcp", None, None),
-            VlessTransport::WebSocket { path, host } => (
-                "ws",
-                Some(MihomoWebSocketOptions {
-                    path,
-                    headers: host.as_deref().map(|host| MihomoWebSocketHeaders { host }),
-                }),
-                None,
-            ),
-            VlessTransport::Grpc { service_name, .. } => (
-                "grpc",
-                None,
-                service_name
-                    .as_deref()
-                    .map(|service_name| MihomoGrpcOptions { service_name }),
-            ),
-        };
+        let (network, ws_opts, grpc_opts) = transport_opts(trojan.transport());
         let tls = trojan.security().tls_options();
         let reality_opts = match trojan.security() {
             TrojanSecurity::Tls(_) => None,
@@ -728,6 +677,33 @@ impl<'a> MihomoShadowsocksProxy<'a> {
             plugin,
             plugin_opts,
         }
+    }
+}
+
+fn transport_opts(
+    transport: &VlessTransport,
+) -> (
+    &'static str,
+    Option<MihomoWebSocketOptions<'_>>,
+    Option<MihomoGrpcOptions<'_>>,
+) {
+    match transport {
+        VlessTransport::Tcp => ("tcp", None, None),
+        VlessTransport::WebSocket { path, host } => (
+            "ws",
+            Some(MihomoWebSocketOptions {
+                path,
+                headers: host.as_deref().map(|host| MihomoWebSocketHeaders { host }),
+            }),
+            None,
+        ),
+        VlessTransport::Grpc { service_name, .. } => (
+            "grpc",
+            None,
+            service_name
+                .as_deref()
+                .map(|service_name| MihomoGrpcOptions { service_name }),
+        ),
     }
 }
 
