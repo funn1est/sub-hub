@@ -14,19 +14,14 @@ function getSystemTheme(): ResolvedTheme {
 }
 
 function disableTransitionsTemporarily() {
-  const style = document.createElement("style")
-  style.appendChild(
-    document.createTextNode(
-      "*,*::before,*::after{-webkit-transition:none!important;transition:none!important}",
-    ),
-  )
-  document.head.appendChild(style)
+  const root = document.documentElement
+  root.classList.add("theme-switching")
 
   return () => {
     window.getComputedStyle(document.body)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        style.remove()
+        root.classList.remove("theme-switching")
       })
     })
   }
