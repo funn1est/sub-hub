@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  fallbackDownloadName,
+  parseOmittedRulesHeader,
+  parseSkippedHeader,
+} from "./service-contract.ts"
+import {
   classifyFetchFailure,
   classifyPreviewBody,
   classifyVersionBody,
-  fallbackDownloadName,
   filenameFromDisposition,
   isLoopbackHost,
-  parseOmittedRulesHeader,
-  parseSkippedHeader,
   PREVIEW_VIEW_LIMIT_BYTES,
   readSubGetHeaders,
   runPreview,

@@ -13,15 +13,6 @@ import {
   type Target,
 } from "./service-contract.ts"
 
-export {
-  VERSION_BODY,
-  fallbackDownloadName,
-  parseOmittedRulesHeader,
-  parseSkippedHeader,
-  type OmittedRules,
-  type SkipCounts,
-} from "./service-contract.ts"
-
 export function parseSkippedFromHeaders(
   headers: readonly { name: string; value: string }[]
 ): SkipCounts | null {
