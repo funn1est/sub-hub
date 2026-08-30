@@ -1,5 +1,7 @@
 use std::fmt;
 
+use subtle::ConstantTimeEq;
+
 const MIN_TOKEN_BYTES: usize = 1;
 const MAX_TOKEN_BYTES: usize = 128;
 /// Maximum number of unique deployer tokens in one binding.
@@ -161,12 +163,7 @@ fn is_unreserved(byte: u8) -> bool {
 }
 
 fn constant_time_eq(expected: &[u8], provided: &[u8]) -> bool {
-    let mut diff = expected.len() ^ provided.len();
-    for (index, expected_byte) in expected.iter().copied().enumerate() {
-        let provided_byte = provided.get(index).copied().unwrap_or(0);
-        diff |= usize::from(expected_byte ^ provided_byte);
-    }
-    diff == 0
+    bool::from(expected.ct_eq(provided))
 }
 
 #[cfg(test)]

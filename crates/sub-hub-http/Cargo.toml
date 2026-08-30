@@ -10,6 +10,7 @@ publish = false
 futures.workspace = true
 http.workspace = true
 sub-hub-conversion = { path = "../sub-hub-conversion" }
+subtle.workspace = true
 url.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
