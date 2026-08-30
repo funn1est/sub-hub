@@ -19,24 +19,30 @@ subscription and config URLs must not point at that host.
 
 ## Access token
 
-`SUB_HUB_ACCESS_TOKEN` is a Cloudflare **secret** (never a `[vars]` value or a
-committed `.dev.vars` file). The Deploy-to-Cloudflare prompt reads
-repository-root `.dev.vars.example`; the copy in this directory stays empty
-and in sync. Do not copy either file to `.dev.vars`. The blob is a comma- or
-newline-separated list of at most eight equivalent tokens. Each token is 1–128 bytes from
+`SUB_HUB_ACCESS_TOKEN` is an optional Cloudflare **Secret** under the
+**Settings** tab section **Runtime variables and secrets**. Add it with
+**+ Add variable** → **Add environment variable**: **Key**
+`SUB_HUB_ACCESS_TOKEN`, check **Secret**. After save, **Value** is
+**Value encrypted**. It is never a Wrangler `[vars]` value, never an
+unchecked **Secret** row, and never a committed `.dev.vars` file. The
+Deploy-to-Cloudflare button does **not** collect this secret. Do not add
+a `.dev.vars.example` prompt; that value would not become a Runtime
+secret. Workers Builds **Build** variables also do not reach the isolate. The blob is a comma- or newline-separated list of
+at most eight equivalent tokens. Each token is 1–128 bytes from
 `A–Z a–z 0–9 - . _ ~`. Any configured token authorizes `GET`/`HEAD /sub/<token>`.
 `GET /sub` then returns `401 Unauthorized!`. `GET /version` stays public.
-If the secret is **unset**, Worker `GET /sub` stays anonymous. That is
-host behavior, not a packaging leftover. Native still refuses a
-non-loopback bind with an empty token list. `pnpm run deploy` generates a
-token when `wrangler secret list` shows the name absent; Dashboard Git /
-Workers Builds does **not** put the secret — set it after the first
-successful build.
+If the secret is **unset**, Worker `GET /sub` stays anonymous and
+`GET /sub/<token>` returns `404` `Not Found`. That is host behavior, not a
+packaging leftover. Native still refuses a non-loopback bind with an empty
+token list. `pnpm run deploy` generates a token when `wrangler secret list`
+shows the name absent; Dashboard Git / Workers Builds does **not** put the
+secret — set it after the first successful build if you want `/sub/<token>`.
 
-Cloudflare cannot show the value after save. Keep the full list in a password
-manager or an uncommitted file. The Dashboard field can only **replace** that
-blob; it is not a viewer. Do not create a `SUB_HUB_ACCESS_TOKEN` **var** — a var
-shadows the secret.
+After save, **Value** is **Value encrypted**. Keep the full list in a
+password manager or an uncommitted file. The Dashboard field can only
+**replace** that blob; it is not a viewer. Do not add
+`SUB_HUB_ACCESS_TOKEN` with **Secret** unchecked — that row is visible in
+the Dashboard and shadows the **Secret**.
 
 `pnpm run deploy` will:
 
@@ -89,9 +95,9 @@ pnpm run deploy
 `pnpm run deploy` is layout `all`: it builds `apps/console`, ensures the
 access-token secret, and publishes **one** Worker (Wasm + Console assets).
 Open the printed `*.workers.dev` URL: that is the Console. Same-origin
-`/version` fills the Conversion Service origin. Paste the token into the
-page. Save any generated token immediately; Cloudflare cannot show it
-again.
+`/version` fills the Conversion Service origin. If deploy printed a token,
+paste it into the page and save it immediately; Cloudflare cannot show it
+again. If the secret is unset, `GET /sub` stays anonymous.
 
 Three layouts:
 
@@ -194,8 +200,8 @@ refuses to run.
 | Deploy command | `sh scripts/workers-builds-deploy.sh` (all). Conversion only: `sh scripts/workers-builds-deploy.sh worker` |
 | Non-production deploy | `sh scripts/workers-builds-deploy.sh preview` (add `worker` for Conversion only) |
 
-Set these **Build** variables (not runtime vars) if the image is older
-than the pins in the repository-root `mise.toml`. Do not add
+Set these **Build** variables (not Runtime variables and secrets) if the
+image is older than the pins in the repository-root `mise.toml`. Do not add
 `.node-version` or `.nvmrc`.
 
 | Variable | Value |
@@ -203,19 +209,22 @@ than the pins in the repository-root `mise.toml`. Do not add
 | `NODE_VERSION` | `24.19.0` |
 | `PNPM_VERSION` | `11.22.0` |
 
-After the first successful build, set the runtime
-`SUB_HUB_ACCESS_TOKEN` **secret** on the Worker. The deploy helper uses
-`--keep-vars` so later pushes keep that secret. Console-only Git is a
-separate Worker whose root is `apps/console`. A local `pnpm run deploy`
+After the first successful build, open **Settings** → **Runtime variables
+and secrets**, click **+ Add variable**, and add `SUB_HUB_ACCESS_TOKEN`
+with **Secret** checked (no Workers Builds rebuild). Optional rows with
+**Secret** unchecked: `SUB_HUB_SELF_HOSTS` (extra DNS aliases) and
+`SUB_HUB_CORS_ORIGINS` (separate Console origin only). The deploy helper
+uses `--keep-vars` so later pushes keep that **Secret**. Console-only Git
+is a second Worker whose root is `apps/console`. A local `pnpm run deploy`
 remains the simpler publish.
 
-The repository-root `wrangler.toml`, `.dev.vars.example`, and
-`package.json` `build` / `deploy` scripts are the Deploy-to-Cloudflare
-contract when the clone root is the whole repository. Layout `all`
-publish uses that root `wrangler.toml` so the wizard can rename the
-Worker. Cloudflare requires that Git URL to be public. Do not change the
-Dashboard **Root directory** in the table above to `.` unless you also
-change the script paths.
+The repository-root `wrangler.toml` and `package.json` `build` / `deploy`
+scripts are the Deploy-to-Cloudflare contract when the clone root is the
+whole repository. Layout `all` publish uses that root `wrangler.toml` so
+the wizard can rename the Worker. Cloudflare requires that Git URL to be
+public. Do not change the Dashboard **Root directory** in the table above
+to `.` unless you also change the script paths. Do not add a
+`.dev.vars.example` or `package.json` `cloudflare.bindings` token prompt.
 
 ## Maintainer preview gate
 

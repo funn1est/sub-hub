@@ -1,5 +1,0 @@
-# Deploy-to-Cloudflare button schema. When prompted, set SUB_HUB_ACCESS_TOKEN
-# to a token you choose (A–Z a–z 0–9 - . _ ~, 1–128 characters). Do not copy
-# this file to `.dev.vars` and do not put a real token here. Cloudflare
-# cannot show the value after save.
-SUB_HUB_ACCESS_TOKEN=

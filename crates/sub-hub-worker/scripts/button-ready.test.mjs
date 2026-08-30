@@ -32,11 +32,7 @@ test("repository-root package.json pre-populates C1 Workers Builds commands", ()
   assert.equal(pkg.scripts.release, "node scripts/cut-native-release.mjs");
   assert.equal(pkg.dependencies, undefined);
   assert.equal(pkg.devDependencies, undefined);
-  const description = pkg.cloudflare?.bindings?.SUB_HUB_ACCESS_TOKEN?.description;
-  assert.equal(typeof description, "string");
-  assert.match(description, /secret/i);
-  assert.match(description, /1–128|1-128/);
-  assert.doesNotMatch(description, /\.dev\.vars\.example/);
+  assert.equal(pkg.cloudflare, undefined);
 });
 
 test("repository-root wrangler.toml is the Deploy-to-Cloudflare contract", () => {
@@ -75,13 +71,9 @@ test("crate gitignore keeps .dev.vars and worker-build output off origin", () =>
   assert.match(ignore, /^build\/$/m);
 });
 
-test("access-token example is button schema, not a secret put", () => {
-  const rootExample = readUtf8(path.join(repoRoot, ".dev.vars.example"));
-  const crateExample = readUtf8(path.join(workerRoot, ".dev.vars.example"));
-  assert.match(rootExample, /^SUB_HUB_ACCESS_TOKEN=$/m);
-  assert.match(crateExample, /^SUB_HUB_ACCESS_TOKEN=$/m);
-  assert.doesNotMatch(rootExample, /^SUB_HUB_ACCESS_TOKEN=./m);
-  assert.doesNotMatch(crateExample, /^SUB_HUB_ACCESS_TOKEN=./m);
+test("button contract does not ship a token prompt", () => {
+  assert.equal(fs.existsSync(path.join(repoRoot, ".dev.vars.example")), false);
+  assert.equal(fs.existsSync(path.join(workerRoot, ".dev.vars.example")), false);
   const ensure = readUtf8(path.join(here, "ensure-access-token.mjs"));
   const buildsDeploy = readUtf8(path.join(here, "workers-builds-deploy.sh"));
   const localDeploy = readUtf8(path.join(here, "deploy-cloudflare.mjs"));

@@ -1,8 +1,9 @@
 #!/bin/sh
 # Publish the Conversion Worker from a Workers Builds image.
 # Requires scripts/install-workers-toolchain.sh in the Build command.
-# Does not touch SUB_HUB_ACCESS_TOKEN; the Deploy-to-Cloudflare prompt or
-# a Dashboard secret supplies it.
+# Does not touch SUB_HUB_ACCESS_TOKEN; after the first successful build,
+# add it under Settings → Runtime variables and secrets (+ Add variable,
+# Secret checked) if you want /sub/<token>.
 #
 #   sh scripts/workers-builds-deploy.sh
 #   sh scripts/workers-builds-deploy.sh preview

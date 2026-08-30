@@ -4,12 +4,13 @@ English | [中文](README.zh-CN.md)
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/funn1est/sub-hub)
 
-Click the button. When Cloudflare asks, set `SUB_HUB_ACCESS_TOKEN` to a
-token you choose (letters, numbers, and `-` `.` `_` `~`, 1–128 characters).
-After the deploy finishes, open the Worker URL and paste that same token
-into the Console. This is your own Worker (Conversion plus Console), not a
-project-hosted instance. Other publish paths are in
-[Cloudflare Worker](#cloudflare-worker).
+Click the button. After deploy, `GET /sub` stays anonymous. For a public
+Worker, open **Settings**, then **Runtime variables and secrets**, click
+**+ Add variable**, and add `SUB_HUB_ACCESS_TOKEN` with **Secret**
+checked so conversion requires `GET /sub/<token>`. Paste that same token
+into the Console. The button does not collect this secret. Details:
+[Runtime variables and secrets](#runtime-variables-and-secrets). Other
+publish paths are in [Cloudflare Worker](#cloudflare-worker).
 
 Sub Hub is a work-in-progress subscription-conversion backend implemented in
 Rust, plus a static Web Console that operates a self-hosted Conversion Service.
@@ -225,11 +226,12 @@ sending a real subscription URL to a non-loopback listener.
 The Worker lives in [`crates/sub-hub-worker`](crates/sub-hub-worker). Deploy
 your own copy; this repository does not operate a public instance. The
 usual path is the Deploy-to-Cloudflare button at the top of this file:
-click it, set `SUB_HUB_ACCESS_TOKEN` to a token you choose, then open the
-Worker URL. The button clones this repository into your GitHub or GitLab
-account and publishes Conversion plus Console on one origin. Cloudflare
-requires that Git URL to be **public**. Do not copy `.dev.vars.example` to
-`.dev.vars`. If that secret is unset, Worker `GET /sub` stays anonymous.
+click it, wait for the first successful build, then open the Worker URL.
+`GET /sub` stays anonymous until you add a **Secret** as in
+[Runtime variables and secrets](#runtime-variables-and-secrets). The
+button clones this repository into your GitHub or GitLab account and
+publishes Conversion plus Console on one origin. Cloudflare requires that
+Git URL to be **public**. Do not add a `.dev.vars` file with real values.
 Native non-loopback still refuses to start without tokens. `GET /version`
 stays public either way. The button is not a project-hosted instance.
 
@@ -250,21 +252,22 @@ pnpm run deploy
 `pnpm run deploy` is the `all` layout: one Worker, Console assets on
 that same origin. That fits Cloudflare Workers Free (compressed script
 under 3 MB gzip; static assets are a separate, free quota). Open the
-printed `*.workers.dev` URL; paste the access token into the page.
+printed `*.workers.dev` URL. If **Value** shows **Value encrypted** for
+`SUB_HUB_ACCESS_TOKEN`, paste that same access token into the page.
 
 Conversion only: `pnpm run deploy:worker`. Console only:
 `pnpm run deploy:console` (then set `SUB_HUB_CORS_ORIGINS` on Conversion
 with `--cors-origin`). Do not commit an `account_id`, API tokens, a local
-`name` rename, or a `.dev.vars` file with real values.
-`.dev.vars.example` at the repository root is the button token prompt; do not
-copy it. Override the Worker
-name with `CLOUDFLARE_WORKER_NAME` or `--worker-name`; do not edit the
-committed name unless you intend that default for every clone.
+`name` rename, or a `.dev.vars` file with real values. Do not add a
+`.dev.vars.example` button prompt; that file would collect a value that
+never becomes a Runtime secret. Override the Worker name with
+`CLOUDFLARE_WORKER_NAME` or `--worker-name`; do not edit the committed
+name unless you intend that default for every clone.
 
 `pnpm run deploy` leaves an existing `SUB_HUB_ACCESS_TOKEN` secret, puts a list
 you pass with `--tokens-file`, or generates one token and prints it once. Keep
-that value in a password manager; Cloudflare cannot show it again. Do not write
-tokens into the committed `wrangler.toml`. Clients use
+that value in a password manager; after save, **Value** is **Value
+encrypted**. Do not write tokens into the committed `wrangler.toml`. Clients use
 `GET /sub/<token>?target=clash&url=...`. `GET /version` stays public.
 Same-origin Console does not need `SUB_HUB_CORS_ORIGINS`. Extra DNS aliases
 (custom domain plus `*.workers.dev`) can be listed in `SUB_HUB_SELF_HOSTS`;
@@ -294,6 +297,47 @@ restricts outbound HTTPS resources to port 443. See the
 [Worker deployment notes](crates/sub-hub-worker/README.md) for the runtime
 boundary, variable setup, and what not to commit.
 
+### Runtime variables and secrets
+
+The Worker isolate reads only the **Settings** tab section **Runtime
+variables and secrets**. Values under Workers Builds **Build variables
+and secrets** (`NODE_VERSION`, `PNPM_VERSION`) never reach `GET /sub`.
+The Deploy-to-Cloudflare button does **not** collect a token. After the
+first successful build, you can add bindings here. Unset
+`SUB_HUB_ACCESS_TOKEN` leaves `GET /sub` anonymous; setting it is the way
+to require `GET /sub/<token>`.
+
+1. Open the Worker **Settings** tab.
+2. Under **Runtime variables and secrets**, click **+ Add variable**.
+3. In **Add environment variable**, set **Key** to `SUB_HUB_ACCESS_TOKEN`,
+   set **Value** to the token you choose, check **Secret**, then click
+   **Add 1 variables** (the count updates).
+4. After save, the row shows **Type** **Secret**, **Name**
+   `SUB_HUB_ACCESS_TOKEN`, and **Value** **Value encrypted**.
+
+| **Name** | **Secret** | When to set |
+| --- | --- | --- |
+| `SUB_HUB_ACCESS_TOKEN` | checked | Optional. Set it so a public Worker requires `GET /sub/<token>`. Unset: `GET /sub` stays anonymous and `GET /sub/<token>` returns `404` `Not Found`. Wrong token: `401` `Unauthorized!`. Empty or malformed present binding: `500`. |
+| `SUB_HUB_SELF_HOSTS` | unchecked | Only when this Worker has extra DNS aliases (custom domain plus `*.workers.dev`). Hostnames only. A single hostname does not need it. |
+| `SUB_HUB_CORS_ORIGINS` | unchecked | Only when the Web Console is a different origin. Same-origin Console (layout `all`) does not need it. |
+
+Do not add `SUB_HUB_ACCESS_TOKEN` with **Secret** unchecked. That row is
+visible in the Dashboard and shadows a **Secret** of the same **Name**.
+Delete that row.
+
+This change does **not** need a Workers Builds rebuild. The form action is
+**Add 1 variables**, not a rebuild. `wrangler secret put` does the same.
+Later git deploys use `--keep-vars` and keep the **Secret**.
+
+After save, **Value** is **Value encrypted**. Dashboard and Wrangler can
+only replace the blob. Keep the list in a password manager. This
+repository does not log binding values. Workers Logs keeps
+`invocation_logs = false` so Fetch invocation messages (method + URL) are
+not stored. The token still appears in the Subscription URL path
+(`GET /sub/<token>`) that you copy into a client, and the Web Console
+stores it in `localStorage`. That is the access-token wire form, not a
+Dashboard leak.
+
 ### Cloudflare Git
 
 Connect the repo as one Worker (Workers Builds, root
@@ -309,14 +353,16 @@ and run `wrangler deploy --keep-vars`. The Worker name in the dashboard
 must match `wrangler.toml` (`sub-hub`).
 
 Workers Builds does not run `mise`. Set `NODE_VERSION` and `PNPM_VERSION`
-on the project to the pins in the repository-root `mise.toml` if the image
-is older. Do not add `.node-version` or `.nvmrc`. After the first
-successful build, set the `SUB_HUB_ACCESS_TOKEN` **secret** (not a var).
-Workers Builds does not put that secret; an unset secret leaves `GET /sub`
-anonymous. Do not use `pnpm run deploy` on Workers Builds (`CI=true` makes it
-refuse). Conversion-only Git uses `sh scripts/workers-builds-deploy.sh worker`.
-Console-only Git is a second Worker with root `apps/console`. A local
-`pnpm run deploy` remains the simpler publish.
+under **Build variables and secrets** (not **Runtime variables and
+secrets**) to the pins in the repository-root
+`mise.toml` if the image is older. Do not add `.node-version` or `.nvmrc`.
+After the first successful build, add rows as in
+[Runtime variables and secrets](#runtime-variables-and-secrets). Workers
+Builds does not put `SUB_HUB_ACCESS_TOKEN`. Do not use `pnpm run deploy`
+on Workers Builds (`CI=true` makes it refuse). Conversion-only Git uses
+`sh scripts/workers-builds-deploy.sh worker`. Console-only Git is a second
+Worker with root `apps/console`. A local `pnpm run deploy` remains the
+simpler publish.
 
 ## Web Console
 

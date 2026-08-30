@@ -56,7 +56,7 @@ export const messages = {
       "Absolute http(s) origin, for example http://127.0.0.1:25500",
     accessToken: "Access token",
     accessTokenHint:
-      "Empty uses /sub. A value becomes /sub/<token>. Never placed in the Console address bar.",
+      "Optional. On the Conversion Service, Settings → Runtime variables and secrets → + Add variable. Key SUB_HUB_ACCESS_TOKEN, check Secret. Empty stays on anonymous /sub. Never placed in the Console address bar.",
     showToken: "Show token",
     hideToken: "Hide token",
     versionChecking: "Checking /version…",
@@ -149,7 +149,7 @@ export const messages = {
     serviceOriginHint: "绝对 http(s) origin，例如 http://127.0.0.1:25500",
     accessToken: "Access token",
     accessTokenHint:
-      "留空使用 /sub。填写后成为 /sub/<token>。不会进入 Console 地址栏。",
+      "可选。在 Conversion Service 的 设置 → Runtime variables and secrets 点 + 添加变量。左侧 密钥 填 SUB_HUB_ACCESS_TOKEN，勾选 密钥。留空则匿名 /sub。不会进入 Console 地址栏。",
     showToken: "显示 token",
     hideToken: "隐藏 token",
     versionChecking: "正在检查 /version…",

@@ -19,12 +19,20 @@ subscription URLs or tokens, and how to reproduce.
   reverse proxy in front of Native for TLS, rate limits, and log redaction.
   The Worker Wrangler config enables Workers Logs with invocation logs off:
   Fetch invocation messages include the request URL.
-- When `SUB_HUB_ACCESS_TOKEN` is set, conversion is only on
-  `GET`/`HEAD /sub/<token>`. `GET /version` stays public. Keep the token list
-  in a password manager; Cloudflare cannot show a secret after save.
-  If the Worker secret is unset, `GET /sub` stays anonymous. Native still
+- `SUB_HUB_ACCESS_TOKEN` is optional. When unset, Worker `GET /sub` stays
+  anonymous. When set, conversion is only on `GET`/`HEAD /sub/<token>`.
+  `GET /version` stays public. On the Worker, open **Settings** →
+  **Runtime variables and secrets**, click **+ Add variable**, and add it
+  in **Add environment variable** with **Secret** checked. After save,
+  **Value** is **Value encrypted**. An unchecked **Secret** row of the
+  same **Name** is visible in the Dashboard and shadows the **Secret**.
+  Workers Builds **Build** variables do not reach the isolate. The
+  Deploy-to-Cloudflare button does not collect this secret. Keep the token
+  list in a password manager. Native still
   refuses to start a non-loopback bind with an empty token list. The Worker
-  does not refuse to boot without a token.
+  does not refuse to boot without a token. The token still appears in
+  Subscription URLs you copy (`GET /sub/<token>`) and in Console
+  `localStorage`; that is the access-token wire form.
 - Remote fetches go through a bounded SSRF broker (HTTPS only, DNS hostnames,
   self-host deny, size and time limits). Native additionally refuses loopback,
   RFC1918, link-local, ULA, and CGNAT answers after DNS; Fake-IP `198.18.0.0/15`

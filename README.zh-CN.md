@@ -4,11 +4,12 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/funn1est/sub-hub)
 
-点击该按钮。Cloudflare 提示时，把 `SUB_HUB_ACCESS_TOKEN` 设成你自己选的
-token（字母、数字和 `-` `.` `_` `~`，1–128 个字符）。部署完成后打开
-Worker URL，把同一个 token 贴进 Console。这是你自己的 Worker（Conversion
-与 Console），不是项目托管的实例。其他发布路径见
-[Cloudflare Worker](#cloudflare-worker)。
+点击该按钮。部署完成后 `GET /sub` 保持匿名。若 Worker 对外可访问，打开
+**设置**，在 **Runtime variables and secrets** 点 **+ 添加变量**，把
+`SUB_HUB_ACCESS_TOKEN` 勾选 **密钥** 加上，让转换走 `GET /sub/<token>`，
+更安全；再把同一个 token 贴进 Console。按钮不会收集这条 secret。细节见
+[Runtime variables and secrets](#runtime-variables-and-secrets)。其他
+发布路径见 [Cloudflare Worker](#cloudflare-worker)。
 
 Sub Hub 是用 Rust 实现的、仍在演进的订阅转换后端，外加用来操作自托管
 Conversion Service 的静态 Web Console。它接受选定的 VLESS、Shadowsocks、
@@ -206,13 +207,13 @@ Native 二进制有意不终止 TLS，也不提供部署级限流。网络部署
 
 Worker 在 [`crates/sub-hub-worker`](crates/sub-hub-worker)。部署你自己的
 副本；本仓库不运营公共实例。通常用本文件顶部的 Deploy-to-Cloudflare
-按钮：点一下，把 `SUB_HUB_ACCESS_TOKEN` 设成你自己选的 token，然后打开
-Worker URL。该按钮把本仓库克隆到你的 GitHub 或 GitLab 账号，并在同一
-origin 发布 Conversion 与 Console。Cloudflare 要求该 Git URL 为
-**public**。不要把 `.dev.vars.example` 复制成 `.dev.vars`。该 secret
-未设置时，Worker 的 `GET /sub` 保持匿名。Native 非回环仍会在没有 token
-时拒绝启动。`GET /version` 无论哪种情况都公开。该按钮不是项目托管的
-实例。
+按钮：点一下，等第一次构建成功，然后打开 Worker URL。在按
+[Runtime variables and secrets](#runtime-variables-and-secrets) 添加
+**密钥** 之前，`GET /sub` 保持匿名。该按钮把本仓库克隆到你的
+GitHub 或 GitLab 账号，并在同一 origin 发布 Conversion 与 Console。
+Cloudflare 要求该 Git URL 为 **public**。不要添加带真实值的
+`.dev.vars`。Native 非回环仍会在没有 token 时拒绝启动。`GET /version`
+无论哪种情况都公开。该按钮不是项目托管的实例。
 
 从已有机器发布时，需要一个 Cloudflare 账号、带
 `wasm32-unknown-unknown` 的 Rust 1.97.1、Node.js 24.19.0 或更新，以及
@@ -230,20 +231,21 @@ pnpm run deploy
 
 `pnpm run deploy` 是 `all` layout：一个 Worker，Console 资源在同一
 origin。这符合 Cloudflare Workers Free（压缩脚本小于 3 MB gzip；静态
-资源是单独的免费额度）。打开打印出的 `*.workers.dev` URL，把 access
+资源是单独的免费额度）。打开打印出的 `*.workers.dev` URL。若
+`SUB_HUB_ACCESS_TOKEN` 的 **值** 显示 **值已加密**，把同一个 access
 token 贴进页面。
 
 仅 Conversion：`pnpm run deploy:worker`。仅 Console：
 `pnpm run deploy:console`（然后在 Conversion 上用 `--cors-origin` 设置
 `SUB_HUB_CORS_ORIGINS`）。不要提交 `account_id`、API token、本地
-`name` 改名，或带真实值的 `.dev.vars`。仓库根的 `.dev.vars.example`
-是按钮的 token 提示；不要复制它。用
+`name` 改名，或带真实值的 `.dev.vars`。不要添加 `.dev.vars.example`
+按钮提示；那个文件收集到的值不会成为 Runtime secret。用
 `CLOUDFLARE_WORKER_NAME` 或 `--worker-name` 覆盖 Worker 名；除非你打算
 让每个克隆都用那个默认名，否则不要改已提交的 name。
 
 `pnpm run deploy` 会保留已有的 `SUB_HUB_ACCESS_TOKEN` secret，或写入你用
 `--tokens-file` 传入的列表，或生成一个 token 并只打印一次。把该值放进
-密码管理器；Cloudflare 保存后无法再显示。不要把 token 写进已提交的
+密码管理器；保存后 **值** 为 **值已加密**。不要把 token 写进已提交的
 `wrangler.toml`。客户端使用 `GET /sub/<token>?target=clash&url=...`。
 `GET /version` 保持公开。同 origin Console 不需要 `SUB_HUB_CORS_ORIGINS`。
 额外 DNS 别名（自定义域名加上 `*.workers.dev`）可以列入
@@ -272,6 +274,43 @@ CI 不持有 Cloudflare 凭据，也不部署。Worker 把出站 HTTPS 资源限
 443 端口。运行时边界、变量设置和不可提交项见
 [Worker 部署说明](crates/sub-hub-worker/README.md)（英文）。
 
+### Runtime variables and secrets
+
+Worker isolate 只读取 **设置** 里的 **Runtime variables and secrets**。
+Workers Builds 的 **Build variables and secrets**（`NODE_VERSION`、
+`PNPM_VERSION`）到不了 `GET /sub`。Deploy-to-Cloudflare 按钮**不会**收集
+token。第一次构建成功后，可以在这里添加绑定。未设置
+`SUB_HUB_ACCESS_TOKEN` 时 `GET /sub` 保持匿名；设置后才要求
+`GET /sub/<token>`。
+
+1. 打开 Worker 的 **设置**。
+2. 在 **Runtime variables and secrets** 点 **+ 添加变量**。
+3. 在 **添加环境变量** 里：左侧 **密钥** 填 `SUB_HUB_ACCESS_TOKEN`，**值**
+   填你选的 token，勾选右侧 **密钥**，然后点 **添加 1 个变量**（数字随条数
+   变化）。
+4. 保存后该行 **类型** 为 **密钥**，**名称** 为 `SUB_HUB_ACCESS_TOKEN`，
+   **值** 为 **值已加密**。
+
+| **名称** | **密钥**（勾选） | 何时设置 |
+| --- | --- | --- |
+| `SUB_HUB_ACCESS_TOKEN` | 勾选 | 可选。对外可访问的 Worker 设置后，转换必须走 `GET /sub/<token>`。未设置：`GET /sub` 保持匿名，`GET /sub/<token>` 返回 `404` `Not Found`。token 不对：`401` `Unauthorized!`。已出现但为空或格式不合法：`500`。 |
+| `SUB_HUB_SELF_HOSTS` | 不勾选 | 仅当这个 Worker 还有额外 DNS 别名（自定义域名加上 `*.workers.dev`）。只填主机名。只有一个主机名时不需要。 |
+| `SUB_HUB_CORS_ORIGINS` | 不勾选 | 仅当 Web Console 是另一个 origin。同 origin Console（layout `all`）不需要。 |
+
+不要在未勾选 **密钥** 的情况下添加 `SUB_HUB_ACCESS_TOKEN`。那一行会在
+Dashboard 里可见，并盖住同 **名称** 的 **密钥**。删掉那一行。
+
+这次改动 **不用**再跑 Workers Builds。表单按钮是 **添加 1 个变量**，不是
+重新构建。`wrangler secret put` 效果相同。之后的 git 发布带
+`--keep-vars`，会保留这条 **密钥**。
+
+保存后 **值** 显示 **值已加密**。Dashboard 和 Wrangler 只能整份替换。把
+列表放进密码管理器。本仓库不记录 binding 的值。Workers Logs 关闭
+`invocation_logs`，因此不会存 Fetch 调用消息（method + URL）。token
+仍会出现在你复制给客户端的 Subscription URL 路径（`GET /sub/<token>`）
+里，Web Console 也会把它存在 `localStorage`。那是 access token 的
+wire form，不是 Dashboard 泄露。
+
 ### Cloudflare Git
 
 把仓库接成一个 Worker（Workers Builds，根目录
@@ -284,15 +323,16 @@ Build 命令用 `sh scripts/install-workers-toolchain.sh`，Deploy 命令用
 `wrangler deploy --keep-vars`。Dashboard 里的 Worker 名必须与
 `wrangler.toml` 一致（`sub-hub`）。
 
-Workers Builds 不跑 `mise`。若镜像较旧，把项目上的 `NODE_VERSION` 和
-`PNPM_VERSION` 设成仓库根 `mise.toml` 里的钉。不要添加 `.node-version`
-或 `.nvmrc`。第一次构建成功后，把 `SUB_HUB_ACCESS_TOKEN` 设为
-**secret**（不是 var）。Workers Builds 不会写入该 secret；未设置时
-`GET /sub` 保持匿名。不要在 Workers Builds 上用 `pnpm run deploy`
-（`CI=true` 会拒绝）。仅 Conversion 的 Git 使用
-`sh scripts/workers-builds-deploy.sh worker`。仅 Console 的 Git 是第二个
-Worker，根目录为 `apps/console`。本机 `pnpm run deploy` 仍是更简单的
-发布方式。
+Workers Builds 不跑 `mise`。若镜像较旧，把 `NODE_VERSION` 和
+`PNPM_VERSION` 设进 **Build variables and secrets**（不要写进
+**Runtime variables and secrets**），钉与仓库根
+`mise.toml` 一致。不要添加 `.node-version` 或 `.nvmrc`。第一次构建成功后，
+按 [Runtime variables and secrets](#runtime-variables-and-secrets) 添加。
+Workers Builds 不会写入 `SUB_HUB_ACCESS_TOKEN`。不要在
+Workers Builds 上用 `pnpm run deploy`（`CI=true` 会拒绝）。仅
+Conversion 的 Git 使用 `sh scripts/workers-builds-deploy.sh worker`。仅
+Console 的 Git 是第二个 Worker，根目录为 `apps/console`。本机
+`pnpm run deploy` 仍是更简单的发布方式。
 
 ## Web Console
 

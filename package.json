@@ -10,12 +10,5 @@
     "build": "sh crates/sub-hub-worker/scripts/install-workers-toolchain.sh",
     "deploy": "sh crates/sub-hub-worker/scripts/workers-builds-deploy.sh",
     "release": "node scripts/cut-native-release.mjs"
-  },
-  "cloudflare": {
-    "bindings": {
-      "SUB_HUB_ACCESS_TOKEN": {
-        "description": "Choose a token for `GET /sub/<token>` (letters, numbers, and `-` `.` `_` `~`, 1–128 characters). Cloudflare saves it as a **secret** and cannot show it again."
-      }
-    }
   }
 }

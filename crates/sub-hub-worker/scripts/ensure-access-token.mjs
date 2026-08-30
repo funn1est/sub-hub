@@ -215,7 +215,7 @@ export function secretsFileJson(blob) {
 
 function printGeneratedBanner(token) {
   process.stdout.write(`================================================================
-SUB_HUB ACCESS TOKEN — shown once. Cloudflare cannot show it again.
+SUB_HUB ACCESS TOKEN — shown once. After save, Value is Value encrypted.
 Save this value in a password manager or an uncommitted tokens file.
 Subscription path: /sub/<token>
 
@@ -223,7 +223,7 @@ Subscription path: /sub/<token>
 
 To add or revoke later, edit that file (full list) and run
   pnpm run deploy -- --tokens-file <path>
-Dashboard → Variables and Secrets can only replace the whole blob;
+Settings → Runtime variables and secrets can only replace the whole blob;
 it cannot show the live list.
 ================================================================
 `);

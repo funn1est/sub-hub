@@ -6,11 +6,11 @@ same license.
 
 This repository does not operate a public instance. Do not send a real
 subscription URL to a shared converter, and do not commit `account_id`, API
-tokens, `.dev.vars` values, or an access-token list.
-Repository-root `.dev.vars.example` is the Deploy-to-Cloudflare token
-prompt; `crates/sub-hub-worker/.dev.vars.example` stays an empty copy.
-Do not copy either file to `.dev.vars`. Root `wrangler.toml` is the
-button contract (layout `all`); do not add KV, D1, R2, or Secrets Store.
+tokens, `.dev.vars` values, or an access-token list. Do not add a
+`.dev.vars.example` or `package.json` `cloudflare.bindings` token prompt;
+those collect a value that never becomes a Runtime secret. Root
+`wrangler.toml` is the button contract (layout `all`); do not add KV, D1,
+R2, or Secrets Store.
 
 ## Development gates
 

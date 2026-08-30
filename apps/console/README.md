@@ -45,7 +45,9 @@ VITE_DEFAULT_SERVICE_ORIGIN=http://127.0.0.1:25500 pnpm run dev
 ```
 
 Origin only, never a token. The access token is typed in the page and stored
-only in `localStorage`. Loopback Native has no token unless you set
+only in `localStorage`. It is optional: empty uses anonymous `/sub`. A
+public Conversion Service is safer with `SUB_HUB_ACCESS_TOKEN` set and the
+same value pasted here. Loopback Native has no token unless you set
 `SUB_HUB_ACCESS_TOKEN`.
 
 Same-origin Native (no Vite, no CORS, no hot reload) after a Console build:
