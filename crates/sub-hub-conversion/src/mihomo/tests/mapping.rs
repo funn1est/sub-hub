@@ -77,11 +77,11 @@ fn shadowsocks_empty_query_fragment_is_the_proxy_name() {
 #[test]
 fn shadowsocks_obfs_local_http_projects_plugin_opts() {
     let actual = rendered_yaml(
-        b"ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dbing.com#Obfs",
+        b"ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dobfs.example#Obfs",
     );
     assert_eq!(actual["proxies"][0]["plugin"], "obfs");
     assert_eq!(actual["proxies"][0]["plugin-opts"]["mode"], "http");
-    assert_eq!(actual["proxies"][0]["plugin-opts"]["host"], "bing.com");
+    assert_eq!(actual["proxies"][0]["plugin-opts"]["host"], "obfs.example");
 }
 
 #[test]

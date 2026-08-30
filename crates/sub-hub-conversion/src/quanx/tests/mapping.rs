@@ -53,7 +53,7 @@ fn vmess_exact_ciphers_and_auto_grpc_skip() {
 fn trojan_exact_combos_and_grpc_skip() {
     let source = concat!(
         "trojan://password@EXAMPLE.COM:443#TcpTls\n",
-        "trojan://password@example.com:443?security=reality&sni=apple.com&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#Reality\n",
+        "trojan://password@example.com:443?security=reality&sni=sni.example&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b#Reality\n",
         "trojan://password@example.com:443?type=ws&path=%2Fpath&host=example.com#Wss\n",
         "trojan://password@example.com:443?type=grpc&serviceName=svc#Grpc\n",
     );

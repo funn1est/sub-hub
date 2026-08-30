@@ -99,7 +99,10 @@ skipped, but source/container/config errors remain fatal and a request with no
 valid nodes fails. When any node is skipped, `GET`/`HEAD` `/sub` adds
 `x-subconverter-skipped` (and `x-subconverter-result: partial` unless the
 response is already `lossy`). All remote resources pass through the shared bounded SSRF
-broker.
+broker. The built-in PROXY/AUTO probe host (`BUILTIN_AUTO_PROBE_URL`,
+`https://www.gstatic.com/generate_204`) and the ACL4SSR Classic local-path
+rewrite to `raw.githubusercontent.com` are deliberate product constants, not
+test fixtures.
 
 ## Run the native backend
 

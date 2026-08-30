@@ -112,7 +112,7 @@ fn tuic_is_skipped_on_every_combo() {
 #[test]
 fn reality_vision_websocket_tls_and_shadowsocks_project_supported_fields() {
     let source = concat!(
-        "vless://00000000-0000-4000-8000-000000000006@example.com:443?security=reality&flow=xtls-rprx-vision&sni=douyin.com&fp=safari&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sid=0a1b#Reality\n",
+        "vless://00000000-0000-4000-8000-000000000006@example.com:443?security=reality&flow=xtls-rprx-vision&sni=reality.example&fp=safari&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sid=0a1b#Reality\n",
         "vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443?type=ws&path=%2Fws&host=cdn.example&security=tls&sni=edge.example&alpn=h2&fp=firefox#WS\n",
         "ss://aes-128-gcm:p%40ss%3Aword@example.com:8388#Classic\n",
     );
@@ -121,7 +121,7 @@ fn reality_vision_websocket_tls_and_shadowsocks_project_supported_fields() {
     assert!(text.contains("flow=xtls-rprx-vision"));
     assert!(text.contains("public-key=\""));
     assert!(text.contains("short-id=0a1b"));
-    assert!(text.contains("sni=douyin.com"));
+    assert!(text.contains("sni=reality.example"));
     assert!(text.contains("tls-profile=safari"));
     assert!(text.contains("transport=ws"));
     assert!(text.contains("path=/ws"));

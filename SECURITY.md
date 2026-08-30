@@ -29,7 +29,9 @@ subscription URLs or tokens, and how to reproduce.
   self-host deny, size and time limits). Native additionally refuses loopback,
   RFC1918, link-local, ULA, and CGNAT answers after DNS; Fake-IP `198.18.0.0/15`
   is not in that set. The Worker additionally restricts outbound destinations
-  to port 443.
+  to port 443. The Worker relies on Cloudflare
+  `global_fetch_strictly_public` for post-DNS destination policy and does not
+  replicate Native's IP checks.
 - Individual unsupported nodes are skipped. The config body stays a valid
   client document. Counts are advertised on `x-subconverter-skipped`; that
   header never contains URIs, credentials, or node names.

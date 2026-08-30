@@ -6,7 +6,7 @@ use crate::subscription_prepare::{render_acl4ssr_target, render_remote_builtin};
 #[test]
 fn simple_obfs_is_capability_skipped() {
     let source = concat!(
-        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dbing.com#Obfs\n",
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dobfs.example#Obfs\n",
         "ss://aes-128-gcm:password@example.com:8388#Classic\n",
     );
     let output =

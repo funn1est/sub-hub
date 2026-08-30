@@ -262,7 +262,7 @@ fn shadowsocks_empty_query_is_absent_query() {
 #[test]
 fn shadowsocks_obfs_local_http_is_accepted() {
     let node = parse_share_uri(
-        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dbing.com",
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dobfs.example",
     )
     .expect("obfs-local http");
     let NodeProtocol::Shadowsocks(ss) = node.protocol else {
@@ -270,7 +270,7 @@ fn shadowsocks_obfs_local_http_is_accepted() {
     };
     let obfs = ss.obfs().expect("obfs");
     assert_eq!(obfs.mode(), ShadowsocksObfsMode::Http);
-    assert_eq!(obfs.host(), Some("bing.com"));
+    assert_eq!(obfs.host(), Some("obfs.example"));
 }
 
 #[test]
