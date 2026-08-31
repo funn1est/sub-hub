@@ -122,7 +122,7 @@ fn unsupported_rejection_output_redacts_attacker_controlled_values() {
             NodeRejection::Unsupported(UnsupportedCapability::Flow),
         ),
         (
-            format!("vless://{uuid}@canary-host.example:443?udp=CANARY_QUERY_VALUE#CANARY_REMARK"),
+            format!("vless://{uuid}@canary-host.example:443?udp=false#CANARY_REMARK"),
             NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption),
         ),
         (

@@ -117,6 +117,7 @@ fn hysteria2_pin_is_normalized_64_hex() {
 fn hysteria2_insecure_and_closed_keys() {
     parse_share_uri("hysteria2://letmein@example.com/?insecure=0").expect("verify");
     parse_share_uri("hysteria2://letmein@example.com/?insecure=false").expect("verify false");
+    parse_share_uri("hysteria2://letmein@example.com/?allowInsecure=0").expect("v2rayN alias");
 
     let rejected = [
         (

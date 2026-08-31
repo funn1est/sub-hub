@@ -203,6 +203,12 @@ fn collect_fields(object: &serde_json::Map<String, Value>) -> Result<Fields, Nod
                 fields.fingerprint = Some(parse_fingerprint(&fingerprint)?);
             }
             "insecure" => parse_insecure(&json_string(value)?)?,
+            "skipCertVerify" | "skip-cert-verify" | "allowInsecure" => {
+                parse_insecure(&json_flag_token(value)?)?;
+            }
+            "mux" => parse_mux_off(&json_flag_token(value)?)?,
+            "udp" => parse_udp_enable(&json_flag_token(value)?)?,
+            "spx" => {}
             "vcn" | "pcs" => {
                 if !json_string(value)?.is_empty() {
                     return Err(NodeRejection::Unsupported(
@@ -228,29 +234,41 @@ fn collect_fields(object: &serde_json::Map<String, Value>) -> Result<Fields, Nod
 fn is_known_leftover(key: &str) -> bool {
     matches!(
         key,
-        "mux"
-            | "skipCertVerify"
-            | "skip-cert-verify"
-            | "allowInsecure"
-            | "security"
-            | "encryption"
-            | "peer"
-            | "pbk"
-            | "sid"
-            | "spx"
-            | "pqv"
-            | "ech"
-            | "udp"
-            | "packetEncoding"
+        "security" | "encryption" | "peer" | "pbk" | "sid" | "pqv" | "ech" | "packetEncoding"
     )
 }
 
 fn parse_insecure(value: &str) -> Result<(), NodeRejection> {
     match value {
-        "" | "0" => Ok(()),
-        "1" => Err(NodeRejection::Unsupported(
+        "" | "0" | "false" => Ok(()),
+        "1" | "true" => Err(NodeRejection::Unsupported(
             UnsupportedCapability::ProtocolOption,
         )),
+        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
+    }
+}
+
+fn parse_mux_off(value: &str) -> Result<(), NodeRejection> {
+    parse_insecure(value)
+}
+
+fn parse_udp_enable(value: &str) -> Result<(), NodeRejection> {
+    match value {
+        "1" | "true" => Ok(()),
+        "0" | "false" => Err(NodeRejection::Unsupported(
+            UnsupportedCapability::ProtocolOption,
+        )),
+        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
+    }
+}
+
+fn json_flag_token(value: &Value) -> Result<String, NodeRejection> {
+    match value {
+        Value::String(value) => Ok(value.clone()),
+        Value::Bool(false) => Ok("0".into()),
+        Value::Bool(true) => Ok("1".into()),
+        Value::Number(number) if number.as_u64() == Some(0) => Ok("0".into()),
+        Value::Number(number) if number.as_u64() == Some(1) => Ok("1".into()),
         _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
     }
 }

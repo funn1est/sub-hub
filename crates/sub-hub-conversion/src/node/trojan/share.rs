@@ -60,23 +60,12 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
                 require_compatible(context.security_uses_tls())?;
                 peer = Some(value);
             }
-            "allowInsecure" | "insecure" => parse_insecure_flag(&value)?,
             _ if apply_shared_stream_query_pair(&mut base, &context, key, value)? => {}
             _ => return Err(unsupported_parameter(key)),
         }
     }
 
     Ok(Parameters { base, peer })
-}
-
-fn parse_insecure_flag(value: &str) -> Result<(), NodeRejection> {
-    match value {
-        "0" | "false" => Ok(()),
-        "1" | "true" => Err(NodeRejection::Unsupported(
-            UnsupportedCapability::ProtocolOption,
-        )),
-        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
-    }
 }
 
 fn parse_security_kind(value: &str) -> Result<VlessSecurityKind, NodeRejection> {
@@ -91,9 +80,10 @@ fn parse_security_kind(value: &str) -> Result<VlessSecurityKind, NodeRejection> 
 fn unsupported_parameter(key: &str) -> NodeRejection {
     let capability = match key {
         "authority" | "service-name" | "seed" => UnsupportedCapability::TransportOption,
-        "flow" | "encryption" | "mux" | "ss" | "plugin" | "udp" | "packetEncoding"
-        | "packet-encoding" | "ech" | "spx" | "pqv" | "request" | "response" | "ed" | "eh"
-        | "echConfig" | "echForceQuery" => UnsupportedCapability::ProtocolOption,
+        "flow" | "encryption" | "ss" | "plugin" | "packetEncoding" | "packet-encoding" | "ech"
+        | "pqv" | "request" | "response" | "ed" | "eh" | "echConfig" | "echForceQuery" => {
+            UnsupportedCapability::ProtocolOption
+        }
         _ => UnsupportedCapability::UnknownParameter,
     };
     NodeRejection::Unsupported(capability)

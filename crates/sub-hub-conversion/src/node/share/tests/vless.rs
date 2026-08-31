@@ -652,8 +652,10 @@ fn vless_vision_and_deferred_capabilities_are_closed() {
     }
 
     let deferred_parameters = [
-        "allowInsecure=",
-        "udp=true",
+        "allowInsecure=1",
+        "insecure=true",
+        "udp=false",
+        "mux=1",
         "packetEncoding=xudp",
         "packet-encoding=xudp",
         "headerType=http",
@@ -662,7 +664,6 @@ fn vless_vision_and_deferred_capabilities_are_closed() {
         "response=canary",
         "ed=2048",
         "eh=Sec-WebSocket-Protocol",
-        "spx=%2F",
         "pqv=canary",
         "ech=canary",
         "echConfig=canary",
@@ -732,6 +733,72 @@ fn vless_header_type_none_is_omitted_tcp_header() {
 }
 
 #[test]
+fn vless_spiderx_is_omitted_reality_path() {
+    let uuid = "01234567-89ab-cdef-0123-456789abcdef";
+    let pbk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let base = format!("vless://{uuid}@example.com:443");
+    let query = format!(
+        "encryption=none&flow=xtls-rprx-vision&security=reality&sni=cdn.example&fp=chrome&pbk={pbk}&sid=0a1b&type=tcp"
+    );
+    let omitted =
+        parse_share_uri(&format!("{base}?{query}")).expect("Reality Vision without spiderX");
+    for uri in [
+        format!("{base}?{query}&spx=%2F"),
+        format!("{base}?{query}&spiderx=%2F"),
+        format!("{base}?{query}&spiderX=%2F"),
+        format!("{base}?{query}&spx="),
+    ] {
+        let parsed = parse_share_uri(&uri).expect("spiderX is a no-op");
+        assert_eq!(parsed, omitted, "fixture: {uri}");
+    }
+
+    let without_query = parse_share_uri(&base).expect("VLESS without query");
+    assert_eq!(
+        parse_share_uri(&format!("{base}?spx=%2F")).expect("spx alone is a no-op"),
+        without_query
+    );
+}
+
+#[test]
+fn vless_default_client_flags_are_omitted() {
+    let uuid = "01234567-89ab-cdef-0123-456789abcdef";
+    let base = format!("vless://{uuid}@example.com:443");
+    let omitted = parse_share_uri(&base).expect("bare VLESS");
+    for uri in [
+        format!("{base}?allowInsecure=0"),
+        format!("{base}?allowInsecure=false"),
+        format!("{base}?insecure=0"),
+        format!("{base}?insecure=false"),
+        format!("{base}?udp=true"),
+        format!("{base}?udp=1"),
+        format!("{base}?mux=0"),
+        format!("{base}?mux=false"),
+        format!(
+            "{base}?security=tls&sni=cdn.example&fp=chrome&allowInsecure=0&insecure=0&udp=true"
+        ),
+    ] {
+        let parsed = parse_share_uri(&uri).expect("default client flags are a no-op");
+        if uri.contains("security=tls") {
+            let NodeProtocol::Vless(vless) = parsed.protocol else {
+                panic!("expected VLESS")
+            };
+            assert!(matches!(vless.security(), VlessSecurity::Tls(_)));
+        } else {
+            assert_eq!(parsed, omitted, "fixture: {uri}");
+        }
+    }
+
+    assert_eq!(
+        rejection(&format!("{base}?allowInsecure=")),
+        NodeRejection::Invalid(InvalidNodeReason::ParameterValue)
+    );
+    assert_eq!(
+        rejection(&format!("{base}?udp=")),
+        NodeRejection::Invalid(InvalidNodeReason::ParameterValue)
+    );
+}
+
+#[test]
 fn vless_semantic_rejection_follows_query_declaration_order() {
     let base = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443";
     let rejected = [
@@ -752,11 +819,11 @@ fn vless_semantic_rejection_follows_query_declaration_order() {
             NodeRejection::Unsupported(UnsupportedCapability::Encryption),
         ),
         (
-            format!("{base}?udp=true&type=kcp"),
+            format!("{base}?ech=canary&type=kcp"),
             NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption),
         ),
         (
-            format!("{base}?type=kcp&udp=true"),
+            format!("{base}?type=kcp&ech=canary"),
             NodeRejection::Unsupported(UnsupportedCapability::Transport),
         ),
     ];
@@ -773,7 +840,7 @@ fn vless_parameter_semantics_precede_global_compatibility() {
 
     assert_eq!(
         rejection(&format!(
-            "{base}?type=ws&security=reality&fp=chrome&pbk={pbk}&udp=true"
+            "{base}?type=ws&security=reality&fp=chrome&pbk={pbk}&ech=canary"
         )),
         NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption)
     );

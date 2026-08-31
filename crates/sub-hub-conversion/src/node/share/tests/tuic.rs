@@ -48,6 +48,10 @@ fn tuic_insecure_flags_and_closed_keys() {
     ))
     .expect("verify");
     parse_share_uri(&format!(
+        "tuic://{UUID}:pass@example.com:443/?allowInsecure=0"
+    ))
+    .expect("v2rayN alias");
+    parse_share_uri(&format!(
         "tuic://{UUID}:pass@example.com:443/?disable_sni=false"
     ))
     .expect("sni on");
@@ -98,8 +102,8 @@ fn tuic_insecure_flags_and_closed_keys() {
             NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption),
         ),
         (
-            format!("tuic://{UUID}:pass@example.com:443/?allowInsecure=0"),
-            NodeRejection::Unsupported(UnsupportedCapability::UnknownParameter),
+            format!("tuic://{UUID}:pass@example.com:443/?allowInsecure=1"),
+            NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption),
         ),
         (
             format!("tuic://{UUID}:pass@example.com:443/?peer=edge.example"),

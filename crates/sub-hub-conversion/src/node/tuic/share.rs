@@ -81,7 +81,9 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
             "udp_relay_mode" => {
                 parameters.udp_relay = parse_udp_relay(pair.value.as_ref())?;
             }
-            "allow_insecure" | "disable_sni" => parse_refused_flag(pair.value.as_ref())?,
+            "allow_insecure" | "allowInsecure" | "disable_sni" => {
+                parse_refused_flag(pair.value.as_ref())?;
+            }
             "udp_over_stream" => {
                 return Err(NodeRejection::Unsupported(
                     UnsupportedCapability::ProtocolOption,

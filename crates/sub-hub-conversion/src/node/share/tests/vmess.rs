@@ -39,6 +39,25 @@ fn vmess_json_v2_defaults_to_tcp_auto_and_no_tls() {
 }
 
 #[test]
+fn vmess_default_client_flags_are_omitted() {
+    let omitted = parse_share_uri(&uri(&format!(
+        r#"{{"add":"example.com","port":443,"id":"{ID}"}}"#
+    )))
+    .expect("plain VMess");
+    for json in [
+        format!(r#"{{"add":"example.com","port":443,"id":"{ID}","insecure":"0"}}"#),
+        format!(r#"{{"add":"example.com","port":443,"id":"{ID}","allowInsecure":"0"}}"#),
+        format!(r#"{{"add":"example.com","port":443,"id":"{ID}","skipCertVerify":false}}"#),
+        format!(r#"{{"add":"example.com","port":443,"id":"{ID}","mux":0}}"#),
+        format!(r#"{{"add":"example.com","port":443,"id":"{ID}","udp":true}}"#),
+        format!(r#"{{"add":"example.com","port":443,"id":"{ID}","spx":"/"}}"#),
+    ] {
+        let parsed = parse_share_uri(&uri(&json)).expect("default client flags are a no-op");
+        assert_eq!(parsed, omitted, "fixture: {json}");
+    }
+}
+
+#[test]
 fn vmess_omitted_name_and_empty_ps_are_missing() {
     let omitted = parse_share_uri(&uri(&format!(
         r#"{{"add":"example.com","port":443,"id":"{ID}"}}"#
@@ -154,7 +173,7 @@ fn vmess_refuses_legacy_reality_and_unknown_keys() {
             uri(&format!(
                 r#"{{"add":"example.com","port":443,"id":"{ID}","insecure":"true"}}"#
             )),
-            NodeRejection::Invalid(InvalidNodeReason::ParameterValue),
+            NodeRejection::Unsupported(UnsupportedCapability::ProtocolOption),
         ),
         (
             uri(&format!(

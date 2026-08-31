@@ -196,6 +196,10 @@ pub(crate) fn apply_shared_stream_query_pair(
             require_compatible(context.security_is(VlessSecurityKind::Reality))?;
             parameters.short_id = Some(short_id);
         }
+        "spx" | "spiderx" | "spiderX" => {}
+        "allowInsecure" | "insecure" => parse_insecure_off_flag(&value)?,
+        "udp" => parse_udp_enable_flag(&value)?,
+        "mux" => parse_mux_off_flag(&value)?,
         _ => return Ok(false),
     }
     Ok(true)
@@ -247,10 +251,8 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
 fn unsupported_parameter(key: &str) -> NodeRejection {
     let capability = match key {
         "authority" | "service-name" => UnsupportedCapability::TransportOption,
-        "allowInsecure" | "udp" | "packetEncoding" | "packet-encoding" | "seed" | "request"
-        | "response" | "ed" | "eh" | "spx" | "pqv" | "ech" | "echConfig" | "echForceQuery" => {
-            UnsupportedCapability::ProtocolOption
-        }
+        "packetEncoding" | "packet-encoding" | "seed" | "request" | "response" | "ed" | "eh"
+        | "pqv" | "ech" | "echConfig" | "echForceQuery" => UnsupportedCapability::ProtocolOption,
         _ => UnsupportedCapability::UnknownParameter,
     };
     NodeRejection::Unsupported(capability)
@@ -305,6 +307,30 @@ pub(crate) fn require_nonempty(value: &str) -> Result<(), NodeRejection> {
     } else {
         Ok(())
     }
+}
+
+pub(crate) fn parse_insecure_off_flag(value: &str) -> Result<(), NodeRejection> {
+    match value {
+        "0" | "false" => Ok(()),
+        "1" | "true" => Err(NodeRejection::Unsupported(
+            UnsupportedCapability::ProtocolOption,
+        )),
+        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
+    }
+}
+
+pub(crate) fn parse_udp_enable_flag(value: &str) -> Result<(), NodeRejection> {
+    match value {
+        "1" | "true" => Ok(()),
+        "0" | "false" => Err(NodeRejection::Unsupported(
+            UnsupportedCapability::ProtocolOption,
+        )),
+        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
+    }
+}
+
+fn parse_mux_off_flag(value: &str) -> Result<(), NodeRejection> {
+    parse_insecure_off_flag(value)
 }
 
 pub(crate) fn require_compatible(is_compatible: bool) -> Result<(), NodeRejection> {

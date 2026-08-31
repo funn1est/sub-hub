@@ -159,7 +159,7 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
                 obfs_password = Some(vless::nonempty_owned(pair.value.clone())?);
             }
             "sni" => sni = Some(vless::nonempty_owned(pair.value.clone())?),
-            "insecure" => parse_insecure_flag(pair.value.as_ref())?,
+            "insecure" | "allowInsecure" => parse_insecure_flag(pair.value.as_ref())?,
             "pinSHA256" => pin_sha256 = Some(parse_pin_sha256(pair.value.as_ref())?),
             "ech" => {
                 return Err(NodeRejection::Unsupported(

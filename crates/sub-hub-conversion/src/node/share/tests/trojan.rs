@@ -123,6 +123,8 @@ fn trojan_allow_insecure_is_closed() {
     parse_share_uri("trojan://password@example.com:443?allowInsecure=false")
         .expect("explicit verify");
     parse_share_uri("trojan://password@example.com:443?insecure=0").expect("legacy verify");
+    parse_share_uri("trojan://password@example.com:443?udp=true&mux=0")
+        .expect("default client flags");
 
     assert_eq!(
         rejection("trojan://password@example.com:443?allowInsecure=1"),
@@ -222,6 +224,21 @@ fn trojan_header_type_none_is_omitted_tcp_header() {
     let none = parse_share_uri("trojan://password@example.com:443?headerType=none")
         .expect("headerType=none is a no-op");
     assert_eq!(none, omitted);
+}
+
+#[test]
+fn trojan_spiderx_is_omitted_reality_path() {
+    let omitted = parse_share_uri("trojan://password@example.com:443")
+        .expect("default Trojan without spiderX");
+    for uri in [
+        "trojan://password@example.com:443?spx=%2F",
+        "trojan://password@example.com:443?spiderx=%2F",
+        "trojan://password@example.com:443?spiderX=%2F",
+        "trojan://password@example.com:443?spx=",
+    ] {
+        let parsed = parse_share_uri(uri).expect("spiderX is a no-op");
+        assert_eq!(parsed, omitted, "fixture: {uri}");
+    }
 }
 
 #[test]

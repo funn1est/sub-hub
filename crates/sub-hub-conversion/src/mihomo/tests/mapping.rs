@@ -3,6 +3,46 @@ use crate::OutputTarget;
 use crate::subscription_prepare::render_remote_builtin;
 
 #[test]
+fn vless_reality_with_spiderx_is_kept() {
+    const UUID: &str = "01234567-89ab-cdef-0123-456789abcdef";
+    const PBK: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let source = format!(
+        concat!(
+            "vless://{UUID}@example.com:443",
+            "?security=reality&fp=chrome&pbk={PBK}&sid=0a1b&spx=%2F#WithSpx\n",
+            "vless://{UUID}@example.com:443",
+            "?security=reality&fp=chrome&pbk={PBK}&sid=0a1b&spiderx=%2F#WithSpiderx\n",
+            "vless://{UUID}@example.com:443",
+            "?security=reality&fp=chrome&pbk={PBK}&sid=0a1b#Plain\n",
+        ),
+        UUID = UUID,
+        PBK = PBK
+    );
+    let output =
+        render_remote_builtin(OutputTarget::Mihomo, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("name: WithSpx\n"));
+    assert!(text.contains("name: WithSpiderx\n"));
+    assert!(text.contains("name: Plain\n"));
+    assert_eq!(output.skip_counts().parse, 0);
+    assert_eq!(output.skip_counts().capability, 0);
+}
+
+#[test]
+fn vless_tls_default_client_flags_are_kept() {
+    let source = concat!(
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443",
+        "?security=tls&sni=cdn.example&fp=chrome&allowInsecure=0&insecure=0&udp=true#TlsFlags\n",
+    );
+    let output =
+        render_remote_builtin(OutputTarget::Mihomo, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("name: TlsFlags\n"));
+    assert!(text.contains("udp: true\n"));
+    assert_eq!(output.skip_counts().parse, 0);
+}
+
+#[test]
 fn vless_websocket_tls_projects_every_supported_capability() {
     let actual = rendered_yaml(
         b"vless://01234567-89ab-cdef-0123-456789abcdef@EXAMPLE.COM:443?type=ws&path=%2Fws&host=cdn.example&security=tls&sni=edge.example&alpn=h2%2Chttp%2F1.1&fp=firefox#WS",

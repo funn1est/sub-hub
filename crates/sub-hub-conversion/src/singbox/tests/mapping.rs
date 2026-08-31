@@ -4,6 +4,45 @@ use crate::prepare_subscription_v1;
 use crate::subscription_prepare::{render_acl4ssr_target, render_remote_builtin};
 
 #[test]
+fn vless_reality_with_spiderx_is_kept() {
+    const UUID: &str = "01234567-89ab-cdef-0123-456789abcdef";
+    const PBK: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let source = format!(
+        concat!(
+            "vless://{UUID}@example.com:443",
+            "?security=reality&fp=chrome&pbk={PBK}&sid=0a1b&spx=%2F#WithSpx\n",
+            "vless://{UUID}@example.com:443",
+            "?security=reality&fp=chrome&pbk={PBK}&sid=0a1b&spiderx=%2F#WithSpiderx\n",
+            "vless://{UUID}@example.com:443",
+            "?security=reality&fp=chrome&pbk={PBK}&sid=0a1b#Plain\n",
+        ),
+        UUID = UUID,
+        PBK = PBK
+    );
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("\"tag\": \"WithSpx\""));
+    assert!(text.contains("\"tag\": \"WithSpiderx\""));
+    assert!(text.contains("\"tag\": \"Plain\""));
+    assert_eq!(output.skip_counts().parse, 0);
+    assert_eq!(output.skip_counts().capability, 0);
+}
+
+#[test]
+fn vless_tls_default_client_flags_are_kept() {
+    let source = concat!(
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443",
+        "?security=tls&sni=cdn.example&fp=chrome&allowInsecure=0&insecure=0&udp=true#TlsFlags\n",
+    );
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("\"tag\": \"TlsFlags\""));
+    assert_eq!(output.skip_counts().parse, 0);
+}
+
+#[test]
 fn grpc_and_vision_without_reality_are_kept() {
     let source = concat!(
         "vless://00000000-0000-4000-8000-000000000003@[2001:db8::1]:9443?type=grpc&serviceName=svc%2Fprod&security=reality&sni=reality.example&fp=safari&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sid=0a1b#Reality\n",
