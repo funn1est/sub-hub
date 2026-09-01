@@ -4,6 +4,39 @@ use crate::prepare_subscription_v1;
 use crate::subscription_prepare::{render_acl4ssr_target, render_remote_builtin};
 
 #[test]
+fn unexpanded_host_tag_replaces_dots_and_profile_includes_dns() {
+    let output = prepare_subscription_v1(&[SubscriptionSourceV1::UnexpandedHttps(
+        "https://upstream.example/subscription",
+    )])
+    .expect("valid")
+    .render_builtin_v1(OutputTarget::Quanx)
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("[dns]\nserver=223.5.5.5\nserver=119.29.29.29\n"));
+    assert!(text.contains(
+        "https://upstream.example/subscription, tag=upstream-example, update-interval=86400, as-policy=static"
+    ));
+    assert!(text.contains("static = PROXY, AUTO, upstream-example, direct"));
+    assert!(text.contains("url-latency-benchmark = AUTO, upstream-example,"));
+    assert!(!text.contains("tag=upstream.example"));
+}
+
+#[test]
+fn unexpanded_hyphenated_hosts_stay_unique_on_quanx() {
+    let output = prepare_subscription_v1(&[
+        SubscriptionSourceV1::UnexpandedHttps("https://foo.bar.example/a"),
+        SubscriptionSourceV1::UnexpandedHttps("https://foo-bar.example/b"),
+    ])
+    .expect("valid")
+    .render_builtin_v1(OutputTarget::Quanx)
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("tag=foo-bar-example,"));
+    assert!(text.contains("tag=foo-bar-example-2,"));
+    assert!(text.contains("static = PROXY, AUTO, foo-bar-example, foo-bar-example-2, direct"));
+}
+
+#[test]
 fn grpc_and_vision_without_reality_are_skipped() {
     let source = concat!(
         "vless://00000000-0000-4000-8000-000000000003@[2001:db8::1]:9443?type=grpc&serviceName=svc%2Fprod&security=reality&sni=reality.example&fp=safari&pbk=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&sid=0a1b#Reality\n",

@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::{
     node::trojan::TrojanSecurity,
     node::vless::{VlessFlow, VlessSecurity, VlessTransport},
@@ -27,8 +29,9 @@ pub(crate) fn render_quanx_from_policy_v1(
 
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let unique_urls = unique_health_urls(policy);
-    let remotes = render_server_remote(policy)?;
-    let groups = render_groups(policy, &valid, &unique_urls)?;
+    let remote_tags = quanx_unexpanded_tags(policy, &valid)?;
+    let remotes = render_server_remote(policy, &remote_tags)?;
+    let groups = render_groups(policy, &valid, &unique_urls, &remote_tags)?;
     let servers = expand_servers(servers, policy, &valid, &unique_urls)?;
     let (rules, omitted_url_regex) = render_rules(policy.rules())?;
 
@@ -43,6 +46,8 @@ pub(crate) fn render_quanx_from_policy_v1(
         leading.push('\n');
         leading.push('\n');
     }
+    leading.push_str(QUANX_DNS);
+    leading.push('\n');
     let mut sections: Vec<(&str, &[String])> = Vec::new();
     if !remotes.is_empty() {
         sections.push(("[server_remote]", remotes.as_slice()));
@@ -68,6 +73,10 @@ struct ServerRecord {
 }
 
 const QUANX_RESERVED_NODE_TAGS: [&str; 3] = ["direct", "reject", "proxy"];
+
+/// Official sample's uncommented resolvers. Quantumult X rejects a profile
+/// that omits the `[dns]` module entirely.
+const QUANX_DNS: &str = "[dns]\nserver=223.5.5.5\nserver=119.29.29.29\n";
 
 fn quanx_group_tag(name: &str) -> Option<&str> {
     is_safe_field(name).then_some(name)
@@ -406,31 +415,86 @@ fn encode_alpn_hex(protocols: &[String]) -> Option<String> {
     Some(encode_hex(&bytes))
 }
 
-fn render_server_remote(policy: &CompiledPolicyV1) -> Result<Vec<String>, AdapterRenderError> {
+fn render_server_remote(
+    policy: &CompiledPolicyV1,
+    remote_tags: &[String],
+) -> Result<Vec<String>, AdapterRenderError> {
+    let remotes = policy.unexpanded_subscriptions();
+    if remotes.len() != remote_tags.len() {
+        return Err(AdapterRenderError::Internal);
+    }
     let mut lines = Vec::new();
-    for sub in policy.unexpanded_subscriptions() {
-        if !is_safe_field(sub.url()) || quanx_group_tag(sub.name()).is_none() {
+    for (sub, tag) in remotes.iter().zip(remote_tags) {
+        if !is_safe_field(sub.url()) || !is_safe_field(tag) {
             return Err(AdapterRenderError::Internal);
         }
         lines.push(format!(
-            "{}, tag={}, update-interval=86400, as-policy=static",
-            sub.url(),
-            sub.name()
+            "{}, tag={tag}, update-interval=86400, as-policy=static",
+            sub.url()
         ));
     }
     Ok(lines)
+}
+
+/// Quantumult X policy/server tags reject `.`. Unexpanded names are DNS hosts,
+/// so the adapter spells each `.` as `-` and suffixes on collision with a
+/// reserved, group, node, or earlier remote tag.
+fn quanx_unexpanded_tags(
+    policy: &CompiledPolicyV1,
+    node_tags: &[&str],
+) -> Result<Vec<String>, AdapterRenderError> {
+    let mut used = BTreeSet::new();
+    for reserved in QUANX_RESERVED_NODE_TAGS {
+        used.insert(reserved.to_ascii_lowercase());
+    }
+    for group in policy.groups() {
+        used.insert(group.name().to_ascii_lowercase());
+    }
+    for tag in node_tags {
+        used.insert(tag.to_ascii_lowercase());
+    }
+    let mut tags = Vec::new();
+    for sub in policy.unexpanded_subscriptions() {
+        if quanx_group_tag(sub.name()).is_none() {
+            return Err(AdapterRenderError::Internal);
+        }
+        let base = sub.name().replace('.', "-");
+        if base.is_empty() || !is_safe_field(&base) {
+            return Err(AdapterRenderError::Internal);
+        }
+        tags.push(occupy_tag(base, &mut used));
+    }
+    Ok(tags)
+}
+
+fn occupy_tag(base: String, used: &mut BTreeSet<String>) -> String {
+    if occupy_if_free(&base, used) {
+        return base;
+    }
+    for index in 2_u32..=99_999 {
+        let candidate = format!("{base}-{index}");
+        if occupy_if_free(&candidate, used) {
+            return candidate;
+        }
+    }
+    base
+}
+
+fn occupy_if_free(name: &str, used: &mut BTreeSet<String>) -> bool {
+    let key = name.to_ascii_lowercase();
+    if used.contains(&key) {
+        return false;
+    }
+    used.insert(key);
+    true
 }
 
 fn render_groups(
     policy: &CompiledPolicyV1,
     valid_nodes: &[&str],
     unique_urls: &[&str],
+    remote_tags: &[String],
 ) -> Result<Vec<String>, AdapterRenderError> {
-    let unexpanded_names = policy
-        .unexpanded_subscriptions()
-        .iter()
-        .map(crate::policy::UnexpandedSubscriptionV1::name)
-        .collect::<Vec<_>>();
     let mut lines = Vec::new();
     for group in policy.groups() {
         let name = quanx_group_tag(group.name()).ok_or(AdapterRenderError::Internal)?;
@@ -453,7 +517,7 @@ fn render_groups(
             match item {
                 WalkedGroupItem::Token(token) => members.push(token),
                 WalkedGroupItem::Unexpanded => {
-                    members.extend(unexpanded_names.iter().map(|name| (*name).to_owned()));
+                    members.extend(remote_tags.iter().cloned());
                 }
             }
         }

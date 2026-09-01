@@ -79,13 +79,15 @@ Online `.list`（Clash `DOMAIN-SUFFIX` 不是 QX `HOST-SUFFIX`；没有
 `[filter_remote]`）。显式 `expand=true` 仍经 Unique-flight 内联远程。
 Web Console 开关默认打开并写入 `expand=true`。省略 `expand` 时
 `singbox` 仍会内联。未展开的 HTTPS 订阅用 URL 的 host 命名
-（`panel.example.com`）；同一 host 再次出现才加 `-2`、`-3`。share URI
-始终内联，不占这个名字。可选的 `filename` 是下载名词干（1–64 字节，不含
+（`panel.example.com`）；同一 host 再次出现才加 `-2`、`-3`。`quanx` 会把该
+名字里的 `.` 写成 `-`（`panel-example-com`），因为 Quantumult X 的策略/节点
+tag 不能含 `.`。share URI 始终内联，不占这个名字。可选的 `filename` 是下载名词干（1–64 字节，不含
 路径字符），服务按 target 补扩展名；省略则仍是 `sub-hub-egern.yaml` 等默认名。
 `URL-REGEX` 只发给 Loon 和 Surge，其他 target 省略。
 Surge 跳过全部 VLESS 节点（手册没有 `vless` 类型）。经 `policy-path=`
 点名的通用 share-URI 或 Clash YAML 远程可能在客户端失败；Sub Hub 不增加
-第二次转换 hop。Quantumult X 跳过 gRPC、无 Reality 的 VLESS Vision、
+第二次转换 hop。Quantumult X 输出始终带 `[dns]` 模块（官方 sample 里未注释
+的解析器）；缺少该模块时客户端会直接拒绝配置。Quantumult X 跳过 gRPC、无 Reality 的 VLESS Vision、
 `auto`/`zero` VMess，以及全部 Hysteria2 和 TUIC 节点，并省略
 process-name 规则。sing-box 省略 GeoIP CN，把 fallback 映射为 `urltest`、
 load-balance 映射为 `selector`，并跳过 Hysteria2 gecko 与 `pinSHA256`。

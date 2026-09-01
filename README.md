@@ -86,16 +86,19 @@ parser. `quanx` still inlines ACL4SSR Online `.list` files (Clash
 `expand=true` inlines remotes through Unique-flight as before. The Web
 Console switch defaults on and writes `expand=true`. `singbox` still inlines
 when `expand` is omitted. Unexpanded HTTPS remotes are named from the URL
-host (`panel.example.com`); a repeated host gets `-2`, `-3`. Direct share
-URIs stay inlined and never take that name. Optional `filename` is a
+host (`panel.example.com`); a repeated host gets `-2`, `-3`. `quanx` spells
+`.` in that tag as `-` (`panel-example-com`) because Quantumult X rejects
+`.` in policy and server tags. Direct share URIs stay inlined and never take
+that name. Optional `filename` is a
 download-name stem (1–64 bytes, no path characters); the service appends the
 per-target extension. Omit it for `sub-hub-egern.yaml` and the other
 defaults.
 `URL-REGEX` is emitted for Loon and Surge and omitted on the other targets.
 Surge skips every VLESS node (the Manual has no `vless` type). Generic
 share-URI or Clash YAML remotes named via `policy-path=` may fail on the
-client; Sub Hub does not add a second conversion hop. Quantumult X
-skips gRPC, VLESS Vision without Reality, `auto`/`zero` VMess, and every
+client; Sub Hub does not add a second conversion hop. Quantumult X always
+emits a `[dns]` module (the uncommented resolvers from the official sample);
+the client rejects a profile without that module. Quantumult X skips gRPC, VLESS Vision without Reality, `auto`/`zero` VMess, and every
 Hysteria2 and TUIC node, and omits process-name rules. sing-box omits GeoIP CN,
 maps fallback to `urltest` and load-balance to `selector`, and skips Hysteria2
 gecko and `pinSHA256`. Loon skips gRPC, unpaired Vision/Reality, Trojan Reality,
