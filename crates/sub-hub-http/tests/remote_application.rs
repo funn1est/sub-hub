@@ -198,9 +198,11 @@ fn omitted_expand_emits_a_quanx_server_remote_without_fetching_the_subscription(
     assert!(text.contains("[mitm]"));
     assert!(text.contains("[dns]\nserver=223.5.5.5\nserver=119.29.29.29\n"));
     assert!(text.contains(
-        "https://upstream.example/subscription, tag=upstream-example, update-interval=86400, as-policy=static"
+        "https://upstream.example/subscription, tag=upstream-example, update-interval=86400"
     ));
-    assert!(text.contains("static = PROXY, AUTO, upstream-example, direct"));
+    assert!(!text.contains("as-policy="));
+    assert!(text.contains("static = PROXY, AUTO, direct, resource-tag-regex=^upstream-example$"));
+    assert!(!text.contains("static = PROXY, AUTO, upstream-example"));
     assert!(text.contains("url-latency-benchmark = AUTO, resource-tag-regex=^upstream-example$, check-interval=300, alive-checking=true, tolerance=0"));
     assert!(!text.contains("url-latency-benchmark = AUTO, upstream-example"));
     assert!(!text.contains("tag=upstream.example"));
@@ -263,10 +265,14 @@ fn omitted_expand_keeps_quanx_direct_nodes_next_to_server_remote() {
     assert!(text.contains("tag=Alpha"));
     assert!(text.contains("[server_remote]"));
     assert!(text.contains("https://upstream.example/subscription"));
-    assert!(text.contains("static = PROXY, AUTO, Alpha, upstream-example, direct"));
+    assert!(
+        text.contains("static = PROXY, AUTO, Alpha, direct, resource-tag-regex=^upstream-example$")
+    );
+    assert!(!text.contains("static = PROXY, AUTO, Alpha, upstream-example"));
     assert!(text.contains(
-        "url-latency-benchmark = AUTO, resource-tag-regex=^upstream-example$, server-tag-regex=^Alpha$, check-interval=300, alive-checking=true, tolerance=0"
+        "url-latency-benchmark = AUTO, Alpha, resource-tag-regex=^upstream-example$, check-interval=300, alive-checking=true, tolerance=0"
     ));
+    assert!(!text.contains("server-tag-regex="));
 }
 
 #[test]

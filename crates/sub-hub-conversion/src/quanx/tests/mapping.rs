@@ -37,9 +37,11 @@ fn unexpanded_host_tag_replaces_dots_and_profile_includes_dns() {
     assert_official_modules(text);
     assert!(text.contains("[dns]\nserver=223.5.5.5\nserver=119.29.29.29\n"));
     assert!(text.contains(
-        "https://upstream.example/subscription, tag=upstream-example, update-interval=86400, as-policy=static"
+        "https://upstream.example/subscription, tag=upstream-example, update-interval=86400"
     ));
-    assert!(text.contains("static = PROXY, AUTO, upstream-example, direct"));
+    assert!(!text.contains("as-policy="));
+    assert!(text.contains("static = PROXY, AUTO, direct, resource-tag-regex=^upstream-example$"));
+    assert!(!text.contains("static = PROXY, AUTO, upstream-example"));
     assert!(text.contains(
         "url-latency-benchmark = AUTO, resource-tag-regex=^upstream-example$, check-interval=300, alive-checking=true, tolerance=0"
     ));
@@ -59,8 +61,10 @@ fn unexpanded_hyphenated_hosts_stay_unique_on_quanx() {
     let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("tag=foo-bar-example,"));
     assert!(text.contains("tag=foo-bar-example-2,"));
-    assert!(text.contains("static = PROXY, AUTO, foo-bar-example, foo-bar-example-2, direct"));
-    assert!(text.contains("resource-tag-regex=^(?:foo-bar-example|foo-bar-example-2)$"));
+    assert!(text.contains(
+        "static = PROXY, AUTO, direct, resource-tag-regex=^(?:foo-bar-example|foo-bar-example-2)$"
+    ));
+    assert!(!text.contains("static = PROXY, AUTO, foo-bar-example"));
     assert!(!text.contains("static = AUTO, foo-bar-example"));
 }
 
@@ -77,12 +81,15 @@ fn unexpanded_remote_stays_out_of_url_latency_benchmark_when_nodes_exist() {
     .expect("ok");
     let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert_official_modules(text);
-    assert!(text.contains("static = PROXY, AUTO, Alpha, upstream-example, direct"));
+    assert!(
+        text.contains("static = PROXY, AUTO, Alpha, direct, resource-tag-regex=^upstream-example$")
+    );
+    assert!(!text.contains("static = PROXY, AUTO, Alpha, upstream-example"));
     assert!(text.contains(
-        "url-latency-benchmark = AUTO, resource-tag-regex=^upstream-example$, server-tag-regex=^Alpha$, check-interval=300, alive-checking=true, tolerance=0"
+        "url-latency-benchmark = AUTO, Alpha, resource-tag-regex=^upstream-example$, check-interval=300, alive-checking=true, tolerance=0"
     ));
+    assert!(!text.contains("server-tag-regex="));
     assert!(!text.contains("url-latency-benchmark = AUTO, Alpha, upstream-example"));
-    assert!(!text.contains("url-latency-benchmark = AUTO, Alpha, check-interval"));
 }
 
 #[test]
@@ -279,7 +286,8 @@ fn unexpanded_acl4ssr_url_test_uses_resource_tag_regex() {
         "enable_rule_generator=true\n",
         "overwrite_original_rules=true\n",
         "custom_proxy_group=自动选择`url-test`.*`https://www.gstatic.com/generate_204`300,,50\n",
-        "custom_proxy_group=PROXY`select`[]自动选择`[]DIRECT\n",
+        "custom_proxy_group=PROXY`select`[]自动选择`[]DIRECT`.*\n",
+        "custom_proxy_group=Nodes`select`.*\n",
         "ruleset=PROXY,[]FINAL\n",
     );
     let output = prepare_subscription_v1(&[SubscriptionSourceV1::UnexpandedHttps(
@@ -291,9 +299,14 @@ fn unexpanded_acl4ssr_url_test_uses_resource_tag_regex() {
     .render_unexpanded_v1(OutputTarget::Quanx)
     .expect("ok");
     let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(!text.contains("as-policy="));
     assert!(text.contains(
         "url-latency-benchmark = 自动选择, resource-tag-regex=^subs-example$, check-interval=300, alive-checking=true, tolerance=50"
     ));
     assert!(!text.contains("url-latency-benchmark = 自动选择, subs-example"));
-    assert!(text.contains("static = PROXY, 自动选择, direct"));
+    assert!(text.contains("static = PROXY, 自动选择, direct, resource-tag-regex=^subs-example$"));
+    assert!(!text.contains("static = PROXY, 自动选择, direct, subs-example"));
+    assert!(text.contains("static = Nodes, resource-tag-regex=^subs-example$"));
+    assert!(!text.contains("static = Nodes, subs-example"));
+    assert!(!text.contains("static = Nodes, reject"));
 }

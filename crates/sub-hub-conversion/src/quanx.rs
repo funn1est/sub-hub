@@ -438,10 +438,10 @@ fn render_server_remote(
         if !is_safe_field(sub.url()) || !is_safe_field(tag) {
             return Err(AdapterRenderError::Internal);
         }
-        lines.push(format!(
-            "{}, tag={tag}, update-interval=86400, as-policy=static",
-            sub.url()
-        ));
+        // Official Sample-01: a node list, not as-policy. as-policy wraps the
+        // resource into one policy, so [policy] static groups cannot collect
+        // those servers with resource-tag-regex.
+        lines.push(format!("{}, tag={tag}, update-interval=86400", sub.url()));
     }
     Ok(lines)
 }
@@ -529,12 +529,6 @@ fn render_groups(
                 WalkedGroupItem::Token(token) => members.push(token),
                 WalkedGroupItem::Unexpanded => {
                     unexpanded_in_group = true;
-                    // `as-policy=static` is a policy. Only `static` groups may
-                    // list that tag. url-latency-benchmark pulls the remote's
-                    // servers via resource-tag-regex instead.
-                    if matches!(group.strategy(), GroupStrategyV1::Select) {
-                        members.extend(remote_tags.iter().cloned());
-                    }
                 }
             }
         }
@@ -543,14 +537,9 @@ fn render_groups(
             lines.push(format!("static = {name}, reject"));
             continue;
         }
+        let remotes = include_remotes.then_some(remote_tags);
         let line = match group.strategy() {
-            GroupStrategyV1::Select => {
-                if members.is_empty() {
-                    format!("static = {name}, reject")
-                } else {
-                    format!("static = {name}, {}", members.join(", "))
-                }
-            }
+            GroupStrategyV1::Select => automatic_group_line("static", name, &members, remotes, "")?,
             GroupStrategyV1::UrlTest {
                 interval,
                 tolerance,
@@ -559,26 +548,18 @@ fn render_groups(
                 "url-latency-benchmark",
                 name,
                 &members,
-                include_remotes.then_some(remote_tags),
+                remotes,
                 &format!(
                     "check-interval={interval}, alive-checking=true, tolerance={}",
                     tolerance.unwrap_or(0)
                 ),
             )?,
-            GroupStrategyV1::Fallback { .. } => automatic_group_line(
-                "available",
-                name,
-                &members,
-                include_remotes.then_some(remote_tags),
-                "",
-            )?,
-            GroupStrategyV1::LoadBalance { .. } => automatic_group_line(
-                "dest-hash",
-                name,
-                &members,
-                include_remotes.then_some(remote_tags),
-                "",
-            )?,
+            GroupStrategyV1::Fallback { .. } => {
+                automatic_group_line("available", name, &members, remotes, "")?
+            }
+            GroupStrategyV1::LoadBalance { .. } => {
+                automatic_group_line("dest-hash", name, &members, remotes, "")?
+            }
         };
         lines.push(line);
     }
@@ -593,17 +574,12 @@ fn automatic_group_line(
     params: &str,
 ) -> Result<String, AdapterRenderError> {
     let mut fields = vec![format!("{kind} = {name}")];
-    match remote_tags {
-        Some(tags) if !tags.is_empty() => {
-            fields.push(format!("resource-tag-regex={}", regex_alternation(tags)?));
-            if !server_tokens.is_empty() {
-                fields.push(format!(
-                    "server-tag-regex={}",
-                    regex_alternation(server_tokens)?
-                ));
-            }
-        }
-        _ => fields.extend(server_tokens.iter().cloned()),
+    fields.extend(server_tokens.iter().cloned());
+    if let Some(tags) = remote_tags.filter(|tags| !tags.is_empty()) {
+        // Official sample: resource-tag-regex unions servers from that
+        // resource. Combined with server-tag-regex it is an AND, which
+        // would drop both local nodes and remote servers.
+        fields.push(format!("resource-tag-regex={}", regex_alternation(tags)?));
     }
     if !params.is_empty() {
         fields.push(params.to_owned());
