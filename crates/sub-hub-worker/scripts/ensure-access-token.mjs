@@ -16,7 +16,6 @@ const ENSURE_FLAGS = new Set([
   "--tokens-file",
   "--from-env",
   "--replace",
-  "--print-only",
   "--dry-run",
 ]);
 const VALUE_FLAGS = new Set(["--tokens-file"]);
@@ -66,7 +65,6 @@ export function splitArgv(argv) {
     deploy: false,
     preview: false,
     replace: false,
-    printOnly: false,
     dryRun: false,
     fromEnv: false,
     tokensFile: undefined,
@@ -89,10 +87,6 @@ export function splitArgv(argv) {
     }
     if (arg === "--replace") {
       flags.replace = true;
-      continue;
-    }
-    if (arg === "--print-only") {
-      flags.printOnly = true;
       continue;
     }
     if (arg === "--dry-run") {
@@ -135,19 +129,6 @@ export function decide({ ci, listResult, flags }) {
     return "refuse-ci";
   }
 
-  if (flags.printOnly) {
-    if (
-      flags.deploy ||
-      flags.preview ||
-      flags.replace ||
-      flags.dryRun ||
-      flags.tokensFile ||
-      flags.fromEnv
-    ) {
-      return "abort-usage";
-    }
-    return "print-only";
-  }
   if (flags.replace && !flags.deploy) {
     return "abort-usage";
   }
@@ -348,8 +329,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     fail(error instanceof Error ? error.message : "invalid access token list");
   }
 
-  const needsList =
-    operatorBlob === undefined && !flags.printOnly;
+  const needsList = operatorBlob === undefined;
   const listResult = needsList ? listSecrets(targeting) : null;
   let action;
   try {
@@ -371,11 +351,6 @@ export function main(argv = process.argv.slice(2), env = process.env) {
       "could not determine whether SUB_HUB_ACCESS_TOKEN exists; aborting without generating a token. Pass --tokens-file to set an explicit list.",
     );
   }
-  if (action === "print-only") {
-    printGeneratedBanner(generateToken());
-    return;
-  }
-
   const mode = flags.preview ? "preview" : flags.deploy ? "deploy" : null;
   if (flags.dryRun) {
     process.stdout.write(`${action}\n`);

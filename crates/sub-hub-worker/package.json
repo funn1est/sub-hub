@@ -6,13 +6,12 @@
   "scripts": {
     "build": "worker-build --release",
     "dev": "node scripts/deploy-cloudflare.mjs --dev",
-    "ensure-access-token": "node scripts/ensure-access-token.mjs",
     "deploy": "node scripts/deploy-cloudflare.mjs",
     "deploy:worker": "node scripts/deploy-cloudflare.mjs --layout worker",
     "deploy:console": "node scripts/deploy-cloudflare.mjs --layout console",
     "preview": "node scripts/deploy-cloudflare.mjs --preview",
     "test:ensure": "node --test scripts/ensure-access-token.test.mjs scripts/deploy-cloudflare.test.mjs scripts/install-workers-toolchain.test.mjs scripts/button-ready.test.mjs",
-    "test:host": "node --test --test-isolation=none tests/miniflare.test.mjs && node --test scripts/ensure-access-token.test.mjs scripts/deploy-cloudflare.test.mjs scripts/install-workers-toolchain.test.mjs scripts/button-ready.test.mjs"
+    "test:host": "node --test --test-isolation=none tests/miniflare.test.mjs && pnpm run test:ensure"
   },
   "devDependencies": {
     "miniflare": "5.20260811.0-alpha",
