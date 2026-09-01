@@ -189,11 +189,20 @@ fn omitted_expand_emits_a_quanx_server_remote_without_fetching_the_subscription(
 
     assert_eq!(response.status(), StatusCode::OK);
     assert!(text.contains("[server_remote]"));
+    assert!(text.contains("[server_local]"));
+    assert!(text.contains("[filter_remote]"));
+    assert!(text.contains("[rewrite_remote]"));
+    assert!(text.contains("[rewrite_local]"));
+    assert!(text.contains("[task_local]"));
+    assert!(text.contains("[http_backend]"));
+    assert!(text.contains("[mitm]"));
     assert!(text.contains("[dns]\nserver=223.5.5.5\nserver=119.29.29.29\n"));
     assert!(text.contains(
         "https://upstream.example/subscription, tag=upstream-example, update-interval=86400, as-policy=static"
     ));
     assert!(text.contains("static = PROXY, AUTO, upstream-example, direct"));
+    assert!(text.contains("url-latency-benchmark = AUTO, resource-tag-regex=^upstream-example$, check-interval=300, alive-checking=true, tolerance=0"));
+    assert!(!text.contains("url-latency-benchmark = AUTO, upstream-example"));
     assert!(!text.contains("tag=upstream.example"));
     assert!(!text.contains("enabled="));
     assert!(!text.contains("uuid"));
@@ -255,6 +264,9 @@ fn omitted_expand_keeps_quanx_direct_nodes_next_to_server_remote() {
     assert!(text.contains("[server_remote]"));
     assert!(text.contains("https://upstream.example/subscription"));
     assert!(text.contains("static = PROXY, AUTO, Alpha, upstream-example, direct"));
+    assert!(text.contains(
+        "url-latency-benchmark = AUTO, resource-tag-regex=^upstream-example$, server-tag-regex=^Alpha$, check-interval=300, alive-checking=true, tolerance=0"
+    ));
 }
 
 #[test]
@@ -274,7 +286,8 @@ fn expand_true_still_fetches_a_quanx_subscription() {
     assert_eq!(response.status(), StatusCode::OK);
     assert!(text.contains("[server_local]"));
     assert!(text.contains("tag=Alpha"));
-    assert!(!text.contains("[server_remote]"));
+    assert!(text.contains("[server_remote]\n\n[filter_remote]"));
+    assert!(!text.contains("https://upstream.example/subscription"));
 }
 
 #[test]

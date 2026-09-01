@@ -36,28 +36,39 @@ pub(crate) fn render_quanx_from_policy_v1(
     let (rules, omitted_url_regex) = render_rules(policy.rules())?;
 
     let mut leading = String::new();
+    leading.push_str("[general]\n");
     if let Some(url) = unique_urls.first() {
         if !is_safe_field(url) {
             return Err(AdapterRenderError::Internal);
         }
-        leading.push_str("[general]\n");
         leading.push_str("server_check_url=");
         leading.push_str(url);
         leading.push('\n');
-        leading.push('\n');
     }
+    leading.push('\n');
     leading.push_str(QUANX_DNS);
     leading.push('\n');
-    let mut sections: Vec<(&str, &[String])> = Vec::new();
-    if !remotes.is_empty() {
-        sections.push(("[server_remote]", remotes.as_slice()));
-    }
-    if !servers.is_empty() {
-        sections.push(("[server_local]", servers.as_slice()));
-    }
-    sections.push(("[policy]", groups.as_slice()));
-    sections.push(("[filter_local]", rules.as_slice()));
-    bounded_text_sections(&leading, &sections, limit_bytes, &kept, omitted_url_regex)
+    // Official sample order. Quantumult X reports a missing-module parse
+    // error for any absent heading, including empty `[server_remote]`.
+    let empty: &[String] = &[];
+    bounded_text_sections(
+        &leading,
+        &[
+            ("[policy]", groups.as_slice()),
+            ("[server_remote]", remotes.as_slice()),
+            ("[filter_remote]", empty),
+            ("[rewrite_remote]", empty),
+            ("[server_local]", servers.as_slice()),
+            ("[filter_local]", rules.as_slice()),
+            ("[rewrite_local]", empty),
+            ("[task_local]", empty),
+            ("[http_backend]", empty),
+            ("[mitm]", empty),
+        ],
+        limit_bytes,
+        &kept,
+        omitted_url_regex,
+    )
 }
 
 fn encode_node(node: &ProxyNode) -> Result<ServerRecord, NodeKeep> {
@@ -74,8 +85,7 @@ struct ServerRecord {
 
 const QUANX_RESERVED_NODE_TAGS: [&str; 3] = ["direct", "reject", "proxy"];
 
-/// Official sample's uncommented resolvers. Quantumult X rejects a profile
-/// that omits the `[dns]` module entirely.
+/// Official sample's uncommented resolvers.
 const QUANX_DNS: &str = "[dns]\nserver=223.5.5.5\nserver=119.29.29.29\n";
 
 fn quanx_group_tag(name: &str) -> Option<&str> {
@@ -513,35 +523,122 @@ fn render_groups(
             },
         )?;
         let mut members = Vec::new();
+        let mut unexpanded_in_group = false;
         for item in walked.items {
             match item {
                 WalkedGroupItem::Token(token) => members.push(token),
                 WalkedGroupItem::Unexpanded => {
-                    members.extend(remote_tags.iter().cloned());
+                    unexpanded_in_group = true;
+                    // `as-policy=static` is a policy. Only `static` groups may
+                    // list that tag. url-latency-benchmark pulls the remote's
+                    // servers via resource-tag-regex instead.
+                    if matches!(group.strategy(), GroupStrategyV1::Select) {
+                        members.extend(remote_tags.iter().cloned());
+                    }
                 }
             }
         }
-        if members.is_empty() {
+        let include_remotes = unexpanded_in_group && !remote_tags.is_empty();
+        if members.is_empty() && !include_remotes {
             lines.push(format!("static = {name}, reject"));
             continue;
         }
-        let joined = members.join(", ");
         let line = match group.strategy() {
-            GroupStrategyV1::Select => format!("static = {name}, {joined}"),
+            GroupStrategyV1::Select => {
+                if members.is_empty() {
+                    format!("static = {name}, reject")
+                } else {
+                    format!("static = {name}, {}", members.join(", "))
+                }
+            }
             GroupStrategyV1::UrlTest {
                 interval,
                 tolerance,
                 ..
-            } => format!(
-                "url-latency-benchmark = {name}, {joined}, check-interval={interval}, alive-checking=true, tolerance={}",
-                tolerance.unwrap_or(0)
-            ),
-            GroupStrategyV1::Fallback { .. } => format!("available = {name}, {joined}"),
-            GroupStrategyV1::LoadBalance { .. } => format!("dest-hash = {name}, {joined}"),
+            } => automatic_group_line(
+                "url-latency-benchmark",
+                name,
+                &members,
+                include_remotes.then_some(remote_tags),
+                &format!(
+                    "check-interval={interval}, alive-checking=true, tolerance={}",
+                    tolerance.unwrap_or(0)
+                ),
+            )?,
+            GroupStrategyV1::Fallback { .. } => automatic_group_line(
+                "available",
+                name,
+                &members,
+                include_remotes.then_some(remote_tags),
+                "",
+            )?,
+            GroupStrategyV1::LoadBalance { .. } => automatic_group_line(
+                "dest-hash",
+                name,
+                &members,
+                include_remotes.then_some(remote_tags),
+                "",
+            )?,
         };
         lines.push(line);
     }
     Ok(lines)
+}
+
+fn automatic_group_line(
+    kind: &str,
+    name: &str,
+    server_tokens: &[String],
+    remote_tags: Option<&[String]>,
+    params: &str,
+) -> Result<String, AdapterRenderError> {
+    let mut fields = vec![format!("{kind} = {name}")];
+    match remote_tags {
+        Some(tags) if !tags.is_empty() => {
+            fields.push(format!("resource-tag-regex={}", regex_alternation(tags)?));
+            if !server_tokens.is_empty() {
+                fields.push(format!(
+                    "server-tag-regex={}",
+                    regex_alternation(server_tokens)?
+                ));
+            }
+        }
+        _ => fields.extend(server_tokens.iter().cloned()),
+    }
+    if !params.is_empty() {
+        fields.push(params.to_owned());
+    }
+    Ok(fields.join(", "))
+}
+
+fn regex_alternation(tags: &[String]) -> Result<String, AdapterRenderError> {
+    let escaped = tags
+        .iter()
+        .map(|tag| regex_literal(tag))
+        .collect::<Vec<_>>();
+    let pattern = if escaped.len() == 1 {
+        format!("^{}$", escaped[0])
+    } else {
+        format!("^(?:{})$", escaped.join("|"))
+    };
+    if !is_safe_field(&pattern) {
+        return Err(AdapterRenderError::Internal);
+    }
+    Ok(pattern)
+}
+
+fn regex_literal(value: &str) -> String {
+    let mut escaped = String::new();
+    for character in value.chars() {
+        if matches!(
+            character,
+            '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
 }
 
 fn automatic_url(strategy: &GroupStrategyV1) -> Option<&str> {

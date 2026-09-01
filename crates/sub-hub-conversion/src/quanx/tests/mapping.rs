@@ -3,6 +3,28 @@ use crate::SubscriptionSourceV1;
 use crate::prepare_subscription_v1;
 use crate::subscription_prepare::{render_acl4ssr_target, render_remote_builtin};
 
+fn assert_official_modules(text: &str) {
+    for heading in [
+        "[general]",
+        "[dns]",
+        "[policy]",
+        "[server_remote]",
+        "[filter_remote]",
+        "[rewrite_remote]",
+        "[server_local]",
+        "[filter_local]",
+        "[rewrite_local]",
+        "[task_local]",
+        "[http_backend]",
+        "[mitm]",
+    ] {
+        assert!(
+            text.contains(heading),
+            "Quantumult X profile must include {heading}"
+        );
+    }
+}
+
 #[test]
 fn unexpanded_host_tag_replaces_dots_and_profile_includes_dns() {
     let output = prepare_subscription_v1(&[SubscriptionSourceV1::UnexpandedHttps(
@@ -12,12 +34,16 @@ fn unexpanded_host_tag_replaces_dots_and_profile_includes_dns() {
     .render_builtin_v1(OutputTarget::Quanx)
     .expect("ok");
     let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert_official_modules(text);
     assert!(text.contains("[dns]\nserver=223.5.5.5\nserver=119.29.29.29\n"));
     assert!(text.contains(
         "https://upstream.example/subscription, tag=upstream-example, update-interval=86400, as-policy=static"
     ));
     assert!(text.contains("static = PROXY, AUTO, upstream-example, direct"));
-    assert!(text.contains("url-latency-benchmark = AUTO, upstream-example,"));
+    assert!(text.contains(
+        "url-latency-benchmark = AUTO, resource-tag-regex=^upstream-example$, check-interval=300, alive-checking=true, tolerance=0"
+    ));
+    assert!(!text.contains("url-latency-benchmark = AUTO, upstream-example"));
     assert!(!text.contains("tag=upstream.example"));
 }
 
@@ -34,6 +60,29 @@ fn unexpanded_hyphenated_hosts_stay_unique_on_quanx() {
     assert!(text.contains("tag=foo-bar-example,"));
     assert!(text.contains("tag=foo-bar-example-2,"));
     assert!(text.contains("static = PROXY, AUTO, foo-bar-example, foo-bar-example-2, direct"));
+    assert!(text.contains("resource-tag-regex=^(?:foo-bar-example|foo-bar-example-2)$"));
+    assert!(!text.contains("static = AUTO, foo-bar-example"));
+}
+
+#[test]
+fn unexpanded_remote_stays_out_of_url_latency_benchmark_when_nodes_exist() {
+    let output = prepare_subscription_v1(&[
+        SubscriptionSourceV1::Direct(
+            "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha",
+        ),
+        SubscriptionSourceV1::UnexpandedHttps("https://upstream.example/subscription"),
+    ])
+    .expect("valid")
+    .render_builtin_v1(OutputTarget::Quanx)
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert_official_modules(text);
+    assert!(text.contains("static = PROXY, AUTO, Alpha, upstream-example, direct"));
+    assert!(text.contains(
+        "url-latency-benchmark = AUTO, resource-tag-regex=^upstream-example$, server-tag-regex=^Alpha$, check-interval=300, alive-checking=true, tolerance=0"
+    ));
+    assert!(!text.contains("url-latency-benchmark = AUTO, Alpha, upstream-example"));
+    assert!(!text.contains("url-latency-benchmark = AUTO, Alpha, check-interval"));
 }
 
 #[test]
@@ -221,4 +270,30 @@ fn empty_members_become_reject() {
     .expect("ok");
     let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
     assert!(text.contains("static = Empty, reject"));
+}
+
+#[test]
+fn unexpanded_acl4ssr_url_test_uses_resource_tag_regex() {
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "overwrite_original_rules=true\n",
+        "custom_proxy_group=自动选择`url-test`.*`https://www.gstatic.com/generate_204`300,,50\n",
+        "custom_proxy_group=PROXY`select`[]自动选择`[]DIRECT\n",
+        "ruleset=PROXY,[]FINAL\n",
+    );
+    let output = prepare_subscription_v1(&[SubscriptionSourceV1::UnexpandedHttps(
+        "https://subs.example/subscription",
+    )])
+    .expect("valid")
+    .prepare_acl4ssr_config_v1(config.as_bytes())
+    .expect("acl4ssr")
+    .render_unexpanded_v1(OutputTarget::Quanx)
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains(
+        "url-latency-benchmark = 自动选择, resource-tag-regex=^subs-example$, check-interval=300, alive-checking=true, tolerance=50"
+    ));
+    assert!(!text.contains("url-latency-benchmark = 自动选择, subs-example"));
+    assert!(text.contains("static = PROXY, 自动选择, direct"));
 }

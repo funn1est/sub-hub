@@ -23,9 +23,6 @@ Native 服务与 Cloudflare Worker 共用同一套宿主中立的 HTTP 与 conve
 漏洞报告与部署方假设见 [Security](SECURITY.md)。本地门禁与当前公开
 HTTP 面见 [Contributing](CONTRIBUTING.md)。这两份仍是英文原文。
 
-Work-in-progress 指 HTTP 面是封闭的，不是自托管还没做完。本仓库不运营
-公共实例。
-
 ## 运行
 
 ```sh
@@ -56,62 +53,27 @@ curl --get http://127.0.0.1:25500/sub \
 
 `/sub` 要求 `target` 精确为 `clash` 或 `mihomo`（Mihomo YAML）、`quanx`
 （Quantumult X）、`singbox`（sing-box JSON）、`loon`（Loon）、`egern`
-（Egern YAML）或 `surge`（Surge）。Surfboard 导入 `surge`。Stash、Clash
-Verge Rev、FlClash、Clash Meta for Android 和 OpenClash 导入 `clash`
-（或 `mihomo`）。Karing 和 Hiddify 导入 `clash` 或 `singbox`。Quantumult X、
-Loon 和 Egern 使用各自的 token。不要添加 `stash`、`surfboard` 或
-`shadowrocket`。`url` 接受一条或多条按 `|` 分隔的有序输入：受支持的
-share URI（VLESS、Shadowsocks、Trojan、v2rayN JSON v2 VMess、Hysteria2
-`hysteria2://` / `hy2://`、TUIC v5 `tuic://uuid:password@host:port`），
-或原始/Base64 内容含这些 URI 的 HTTPS 订阅 URL。GET/HEAD 的
-request-target 超过 8 KiB 返回 414。远程、解码和节点预算仍失败关闭，
-正文为 `Resource limit exceeded!`。可选的 HTTPS `config` 选择一份严格
-ACL4SSR INI 及其远程 Rule Set。缺省或空的 `config=` 使用默认 PROXY/AUTO
-策略；那不是远程 Rule frontend。省略 `expand` 或设 `expand=false` 时，
-在能点名远程引用的 target 上把 HTTPS 订阅和 Online Rule Set 留给客户端：
-`clash`/`mihomo`（`proxy-providers` / `rule-providers`）、`egern`
-（`external` / `rule_set`）、`loon`（`[Remote Proxy]` / `[Remote Rule]`）、
-`surge`（`policy-path=` / `RULE-SET`），以及 `quanx` 订阅
-（`[server_remote]`）。Quantumult X 远程资源默认是 QX snippet；Loon 对
-通用 Clash YAML 或 Base64 share-URI 容器可能需要客户端
-`resource-parser`。Sub Hub 不发出该 parser。`quanx` 仍会内联 ACL4SSR
-Online `.list`（Clash `DOMAIN-SUFFIX` 不是 QX `HOST-SUFFIX`；没有
-`[filter_remote]`）。显式 `expand=true` 仍经 Unique-flight 内联远程。
-Web Console 开关默认打开并写入 `expand=true`。省略 `expand` 时
-`singbox` 仍会内联。未展开的 HTTPS 订阅用 URL 的 host 命名
-（`panel.example.com`）；同一 host 再次出现才加 `-2`、`-3`。`quanx` 会把该
-名字里的 `.` 写成 `-`（`panel-example-com`），因为 Quantumult X 的策略/节点
-tag 不能含 `.`。share URI 始终内联，不占这个名字。可选的 `filename` 是下载名词干（1–64 字节，不含
-路径字符），服务按 target 补扩展名；省略则仍是 `sub-hub-egern.yaml` 等默认名。
-`URL-REGEX` 只发给 Loon 和 Surge，其他 target 省略。
-Surge 跳过全部 VLESS 节点（手册没有 `vless` 类型）。经 `policy-path=`
-点名的通用 share-URI 或 Clash YAML 远程可能在客户端失败；Sub Hub 不增加
-第二次转换 hop。Quantumult X 输出始终带 `[dns]` 模块（官方 sample 里未注释
-的解析器）；缺少该模块时客户端会直接拒绝配置。Quantumult X 跳过 gRPC、无 Reality 的 VLESS Vision、
-`auto`/`zero` VMess，以及全部 Hysteria2 和 TUIC 节点，并省略
-process-name 规则。sing-box 省略 GeoIP CN，把 fallback 映射为 `urltest`、
-load-balance 映射为 `selector`，并跳过 Hysteria2 gecko 与 `pinSHA256`。
-Loon 跳过 gRPC、不成对的 Vision/Reality、Trojan Reality、hop/pins/gecko
-以及全部 TUIC 节点，省略 process-name 规则，并把 load-balance 映射为
-`pcc`。Egern 跳过 Trojan gRPC、明文 VMess gRPC、Hysteria2 gecko 和非默认
-TUIC congestion，省略 process-name 规则，并把 url-test 映射为
-`auto_test`。VLESS WebSocket+Reality 在每个 target 上都是解析拒绝；
-Trojan WebSocket+Reality 在 Egern 上保留。Console 列出 ACL4SSR `master`
-上的 33 份 INI
-（`https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/`）：
-18 份 Online 加 15 份 Classic / 其他。该分支会变动。把生成的 Egern 文件
-导入商店版 Egern 2.20.0 以确认能解析；没有官方 `egern check` CLI。
+（Egern YAML）或 `surge`（Surge）。Clash Meta 客户端通常导入 `clash`。
+Quantumult X、Loon 和 Egern 使用各自的 token。
 
-服务目前不暴露 POST 转换、capabilities 或管理 API。可选的
-`SUB_HUB_ACCESS_TOKEN` 最多容纳八个等价 path token，配置后保护
-`GET`/`HEAD /sub/:token`；`GET /version` 始终公开。不支持或无效的单个
-节点会被跳过，但源/容器/config 错误仍是致命的，没有任何有效节点的请求
-会失败。只要有节点被跳过，`GET`/`HEAD` `/sub` 会加上
-`x-subconverter-skipped`（若响应还不是 `lossy`，再加
-`x-subconverter-result: partial`）。所有远程资源都经过共享的有界 SSRF
-broker。内置 PROXY/AUTO 探测主机（`BUILTIN_AUTO_PROBE_URL`，
-`https://www.gstatic.com/generate_204`）以及 ACL4SSR Classic 本地路径
-改写到 `raw.githubusercontent.com` 是刻意的产品常量，不是测试 fixture。
+`url` 接受一条或多条按 `|` 分隔的有序输入：受支持的 share URI（VLESS、
+Shadowsocks、Trojan、v2rayN JSON v2 VMess、Hysteria2 `hysteria2://` /
+`hy2://`、TUIC v5 `tuic://uuid:password@host:port`），或内容含这些 URI
+的 HTTPS 订阅 URL。GET/HEAD 的 request-target 超过 8 KiB 返回 414。可选
+的 HTTPS `config` 选择一份严格 ACL4SSR INI。缺省或空的 `config=` 使用
+默认 PROXY/AUTO 策略。
+
+省略 `expand` 或设 `expand=false` 时，在能点名远程引用的 target 上把
+HTTPS 订阅留给客户端。`expand=true` 内联远程。Web Console 开关默认打开
+并写入 `expand=true`。省略 `expand` 时 `singbox` 仍会内联。可选的
+`filename` 是下载名词干（1–64 字节），服务按 target 补扩展名。
+
+没有 POST 转换、capabilities 或管理 API。配置 token 后 `GET /version`
+仍公开。不支持或无效的节点会被跳过；源和 config 错误会使请求失败。只要
+有节点被跳过，`GET`/`HEAD` `/sub` 会加上 `x-subconverter-skipped`（若响应
+还不是 `lossy`，再加 `x-subconverter-result: partial`）。远程拉取有界。
+可选的 `SUB_HUB_ACCESS_TOKEN` 最多容纳八个等价 path token，配置后保护
+`GET`/`HEAD /sub/:token`。
 
 ## 运行 Native 后端
 

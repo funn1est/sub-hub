@@ -286,7 +286,8 @@ fn omitted_expand_still_inlines_quanx_rule_sets() {
     let body = std::str::from_utf8(response.body()).expect("Quantumult X output is UTF-8");
     assert!(body.contains("host, example.org, PROXY"));
     assert!(body.contains("geoip, cn, direct"));
-    assert!(!body.contains("[filter_remote]"));
+    assert!(body.contains("[filter_remote]\n\n[rewrite_remote]"));
+    assert!(!body.contains("https://rules.example/list"));
     assert_eq!(
         *requested_urls.lock().expect("test recorder lock"),
         [

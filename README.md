@@ -27,9 +27,6 @@ See [Security](SECURITY.md) for how to report a vulnerability and what a
 deployer should assume. See [Contributing](CONTRIBUTING.md) for local gates
 and the current public surface.
 
-Work-in-progress means the HTTP surface is closed, not that self-host is
-unfinished. This repository does not operate a public instance.
-
 ## Run
 
 ```sh
@@ -60,69 +57,31 @@ The current compatibility surface contains only:
 
 `/sub` requires an exact `target` of `clash` or `mihomo` (Mihomo YAML),
 `quanx` (Quantumult X), `singbox` (sing-box JSON), `loon` (Loon), `egern`
-(Egern YAML), or `surge` (Surge). Surfboard imports `surge`. Stash, Clash
-Verge Rev, FlClash, Clash Meta for Android, and OpenClash import `clash`
-(or `mihomo`). Karing and Hiddify import `clash` or `singbox`. Quantumult X,
-Loon, and Egern stay on their own tokens. Do not add `stash`, `surfboard`,
-or `shadowrocket`. The `url` value accepts one or more ordered inputs separated by
-`|`: supported share URIs (VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess,
-Hysteria2 `hysteria2://` / `hy2://`, TUIC v5
-`tuic://uuid:password@host:port`) or HTTPS subscription URLs whose raw/Base64
-contents contain those URIs. A GET/HEAD request-target over 8 KiB returns 414.
-Remote, decode, and node budgets still fail closed as
-`Resource limit exceeded!`. An optional HTTPS `config` value selects a strict
-ACL4SSR INI configuration and its remote Rule Sets. Absent or empty `config=`
-uses the default PROXY/AUTO policy; that is not a remote Rule frontend.
-Omit `expand` or set `expand=false` to leave HTTPS subscriptions and Online
-Rule Sets as client remote refs on targets that can name them:
-`clash`/`mihomo` (`proxy-providers` / `rule-providers`), `egern`
-(`external` / `rule_set`), `loon` (`[Remote Proxy]` / `[Remote Rule]`),
-`surge` (`policy-path=` / `RULE-SET`), and
-`quanx` subscriptions (`[server_remote]`). Quantumult X remote resources are
-QX snippets by default; Loon may need a client `resource-parser` for a
-generic Clash YAML or Base64 share-URI container. Sub Hub does not emit that
-parser. `quanx` still inlines ACL4SSR Online `.list` files (Clash
-`DOMAIN-SUFFIX` is not QX `HOST-SUFFIX`; no `[filter_remote]`). Explicit
-`expand=true` inlines remotes through Unique-flight as before. The Web
-Console switch defaults on and writes `expand=true`. `singbox` still inlines
-when `expand` is omitted. Unexpanded HTTPS remotes are named from the URL
-host (`panel.example.com`); a repeated host gets `-2`, `-3`. `quanx` spells
-`.` in that tag as `-` (`panel-example-com`) because Quantumult X rejects
-`.` in policy and server tags. Direct share URIs stay inlined and never take
-that name. Optional `filename` is a
-download-name stem (1–64 bytes, no path characters); the service appends the
-per-target extension. Omit it for `sub-hub-egern.yaml` and the other
-defaults.
-`URL-REGEX` is emitted for Loon and Surge and omitted on the other targets.
-Surge skips every VLESS node (the Manual has no `vless` type). Generic
-share-URI or Clash YAML remotes named via `policy-path=` may fail on the
-client; Sub Hub does not add a second conversion hop. Quantumult X always
-emits a `[dns]` module (the uncommented resolvers from the official sample);
-the client rejects a profile without that module. Quantumult X skips gRPC, VLESS Vision without Reality, `auto`/`zero` VMess, and every
-Hysteria2 and TUIC node, and omits process-name rules. sing-box omits GeoIP CN,
-maps fallback to `urltest` and load-balance to `selector`, and skips Hysteria2
-gecko and `pinSHA256`. Loon skips gRPC, unpaired Vision/Reality, Trojan Reality,
-hop/pins/gecko, and every TUIC node, omits process-name rules, and maps
-load-balance to `pcc`. Egern skips Trojan gRPC, cleartext VMess gRPC, Hysteria2
-gecko, and non-default TUIC congestion, omits process-name rules, and maps
-url-test to `auto_test`. VLESS WebSocket+Reality is a parse reject on every
-target; Trojan WebSocket+Reality is kept on Egern. The Console lists 33 INIs from ACL4SSR `master`
-(`https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/`):
-18 Online plus 15 Classic / other. That branch moves. Import a generated Egern file in store Egern 2.20.0 to
-confirm it parses; there is no official `egern check` CLI.
+(Egern YAML), or `surge` (Surge). Clash Meta clients typically import
+`clash`. Quantumult X, Loon, and Egern use their own tokens.
 
-The service does not currently expose POST conversion, capabilities, or an
-administration API. An optional
-`SUB_HUB_ACCESS_TOKEN` may hold up to eight equivalent path tokens and
-protects `GET`/`HEAD /sub/:token` when configured; `GET /version` stays public. Unsupported or invalid individual nodes are
-skipped, but source/container/config errors remain fatal and a request with no
-valid nodes fails. When any node is skipped, `GET`/`HEAD` `/sub` adds
-`x-subconverter-skipped` (and `x-subconverter-result: partial` unless the
-response is already `lossy`). All remote resources pass through the shared bounded SSRF
-broker. The built-in PROXY/AUTO probe host (`BUILTIN_AUTO_PROBE_URL`,
-`https://www.gstatic.com/generate_204`) and the ACL4SSR Classic local-path
-rewrite to `raw.githubusercontent.com` are deliberate product constants, not
-test fixtures.
+`url` accepts one or more ordered inputs separated by `|`: supported share
+URIs (VLESS, Shadowsocks, Trojan, v2rayN JSON v2 VMess, Hysteria2
+`hysteria2://` / `hy2://`, TUIC v5 `tuic://uuid:password@host:port`) or
+HTTPS subscription URLs whose contents contain those URIs. A GET/HEAD
+request-target over 8 KiB returns 414. Optional HTTPS `config` selects a
+strict ACL4SSR INI. Absent or empty `config=` uses the default PROXY/AUTO
+policy.
+
+Omit `expand` or set `expand=false` to leave HTTPS subscriptions as client
+remote refs on targets that can name them. `expand=true` inlines remotes.
+The Web Console switch defaults on and writes `expand=true`. `singbox`
+still inlines when `expand` is omitted. Optional `filename` is a
+download-name stem (1–64 bytes); the service appends the per-target
+extension.
+
+There is no POST conversion, capabilities endpoint, or administration API.
+`GET /version` stays public when tokens are set. Unsupported or invalid
+nodes are skipped; source and config errors fail the request. When any
+node is skipped, `GET`/`HEAD` `/sub` adds `x-subconverter-skipped` (and
+`x-subconverter-result: partial` unless the response is already `lossy`).
+Remote fetches are bounded. An optional `SUB_HUB_ACCESS_TOKEN` may hold
+up to eight equivalent path tokens and protects `GET`/`HEAD /sub/:token`.
 
 ## Run the native backend
 
