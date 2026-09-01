@@ -70,12 +70,17 @@ function makeSession(input: {
   fetch?: (url: string) => FakeResponse | Promise<FakeResponse>
   ports?: WorkshopSessionPorts
   consoleOrigin?: string
+  userAgent?: string
 }) {
   const notices: WorkshopNotice[] = []
   const calls: string[] = []
   const session = createWorkshopSession({
     initialFields: fields(input.fields),
-    env: { pageHttps: false, consoleOrigin: input.consoleOrigin },
+    env: {
+      pageHttps: false,
+      consoleOrigin: input.consoleOrigin,
+      userAgent: input.userAgent,
+    },
     ports: {
       fetchImpl: (url) => {
         calls.push(url)
@@ -90,6 +95,37 @@ function makeSession(input: {
 }
 
 describe("createWorkshopSession", () => {
+  it("shows iOS-only install on iPhone UA and always shows clash", () => {
+    const iphone =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+    const desktop =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+
+    const clashPhone = makeSession({
+      fields: { serviceOrigin: ORIGIN, target: "clash" },
+      userAgent: iphone,
+    })
+    expect(clashPhone.view().assembled.clashInstall).toBe(true)
+
+    const clashDesktop = makeSession({
+      fields: { serviceOrigin: ORIGIN, target: "clash" },
+      userAgent: desktop,
+    })
+    expect(clashDesktop.view().assembled.clashInstall).toBe(true)
+
+    const surgePhone = makeSession({
+      fields: { serviceOrigin: ORIGIN, target: "surge" },
+      userAgent: iphone,
+    })
+    expect(surgePhone.view().assembled.surgeInstall).toBe(true)
+
+    const surgeDesktop = makeSession({
+      fields: { serviceOrigin: ORIGIN, target: "surge" },
+      userAgent: desktop,
+    })
+    expect(surgeDesktop.view().assembled.surgeInstall).toBe(false)
+  })
+
   it("previews the Subscription URL and consumes skip headers", async () => {
     const { session, view } = makeSession({
       fields: { serviceOrigin: ORIGIN },

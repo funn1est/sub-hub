@@ -116,6 +116,9 @@ export const messages = {
     download: "Download",
     clashInstall: "Open in Clash",
     surgeInstall: "Open in Surge",
+    loonInstall: "Open in Loon",
+    egernInstall: "Open in Egern",
+    singboxInstall: "Open in sing-box",
     secretWarning:
       "Preview bodies contain node credentials. They stay in memory only and are not written to localStorage.",
     truncated: "Truncated in view. Download still uses the full fetched body.",
@@ -208,6 +211,9 @@ export const messages = {
     download: "下载",
     clashInstall: "在 Clash 中打开",
     surgeInstall: "在 Surge 中打开",
+    loonInstall: "在 Loon 中打开",
+    egernInstall: "在 Egern 中打开",
+    singboxInstall: "在 sing-box 中打开",
     secretWarning:
       "Preview 正文含有节点凭据。只留在内存中，不会写入 localStorage。",
     truncated: "页内展示已截断。下载仍使用完整 fetch 正文。",

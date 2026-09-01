@@ -339,7 +339,9 @@ Console 的 Git 是第二个 Worker，根目录为 `apps/console`。本机
 Workshop PWA 在 [`apps/console`](apps/console)。它指向你输入的
 Conversion Service origin，在独立字段收集 access token，组装
 `GET /sub` 或 `GET /sub/:token`，预览同一条 Subscription URL，并复制或
-下载结果。它不增加 POST 转换或额外 query 开关。
+下载结果。`clash://install-config` 在所有平台都提供。iPhone / iPad 上
+另外提供 Surge、Loon、Egern、sing-box 的第一方一键导入。它不增加 POST
+转换或额外 query 开关。
 
 ```sh
 cd apps/console

@@ -44,6 +44,8 @@ export type WorkshopSessionEnv = {
   pageHttps: boolean
   /** Console origin to try when Conversion Service origin is empty. */
   consoleOrigin?: string
+  /** Browser UA for iOS-only one-click import. clash:// ignores this. */
+  userAgent?: string
 }
 
 export type WorkshopSessionPorts = {
@@ -133,7 +135,9 @@ export function createWorkshopSession(options: {
     if (view !== null) {
       return view
     }
-    const jobView = evaluateWorkshop(fields)
+    const jobView = evaluateWorkshop(fields, {
+      userAgent: env.userAgent ?? "",
+    })
     const configSelection = configSelectionId(
       configPresetOf(fields.configUrl),
       pickingCustom

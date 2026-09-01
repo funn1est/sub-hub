@@ -15,8 +15,12 @@ import { messages } from "./i18n.ts"
 import { configChoiceGroups } from "./workshop-config.ts"
 import {
   clashInstallUrl,
+  egernInstallUrl,
   evaluateWorkshop,
+  isIosPhoneUserAgent,
+  loonInstallUrl,
   parseServiceOrigin,
+  singboxInstallUrl,
   surgeInstallUrl,
   type WorkshopFields,
 } from "./workshop.ts"
@@ -351,6 +355,63 @@ describe("surgeInstallUrl", () => {
   })
 })
 
+describe("loonInstallUrl", () => {
+  it("uses official import sub, not the community url query", () => {
+    const subscription =
+      "http://127.0.0.1:25500/sub?target=loon&url=vless%3A%2F%2Fx"
+    expect(loonInstallUrl(subscription)).toBe(
+      `loon://import?sub=${encodeURIComponent(subscription)}`
+    )
+  })
+})
+
+describe("egernInstallUrl", () => {
+  it("uses official single-slash profiles/new", () => {
+    const subscription =
+      "http://127.0.0.1:25500/sub?target=egern&url=vless%3A%2F%2Fx"
+    expect(egernInstallUrl(subscription)).toBe(
+      `egern:/profiles/new?url=${encodeURIComponent(subscription)}`
+    )
+    expect(egernInstallUrl(subscription, "alpha")).toBe(
+      `egern:/profiles/new?url=${encodeURIComponent(subscription)}&name=${encodeURIComponent("alpha")}`
+    )
+  })
+})
+
+describe("singboxInstallUrl", () => {
+  it("uses official import-remote-profile with encoded name fragment", () => {
+    const subscription =
+      "http://127.0.0.1:25500/sub?target=singbox&url=vless%3A%2F%2Fx"
+    expect(singboxInstallUrl(subscription, "sub-hub")).toBe(
+      `sing-box://import-remote-profile?url=${encodeURIComponent(subscription)}#${encodeURIComponent("sub-hub")}`
+    )
+  })
+})
+
+const IPHONE_SAFARI =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+const IPAD_SAFARI =
+  "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+const IOS_CHROME =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/128.0.6613.98 Mobile/15E148 Safari/604.1"
+const ANDROID_CHROME =
+  "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+const WINDOWS_CHROME =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+const MAC_SAFARI =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+
+describe("isIosPhoneUserAgent", () => {
+  it("accepts iPhone, iPad, and iOS Chrome, not Android or desktop", () => {
+    expect(isIosPhoneUserAgent(IPHONE_SAFARI)).toBe(true)
+    expect(isIosPhoneUserAgent(IPAD_SAFARI)).toBe(true)
+    expect(isIosPhoneUserAgent(IOS_CHROME)).toBe(true)
+    expect(isIosPhoneUserAgent(ANDROID_CHROME)).toBe(false)
+    expect(isIosPhoneUserAgent(WINDOWS_CHROME)).toBe(false)
+    expect(isIosPhoneUserAgent(MAC_SAFARI)).toBe(false)
+  })
+})
+
 describe("evaluateWorkshop", () => {
   it("diagnoses fields with the same rules assemble uses", () => {
     const ready = evaluateWorkshop(input())
@@ -370,9 +431,6 @@ describe("evaluateWorkshop", () => {
     expect(
       evaluateWorkshop(input({ target: "loon" })).assembled.clashInstall
     ).toBe(false)
-    expect(
-      evaluateWorkshop(input({ target: "surge" })).assembled.surgeInstall
-    ).toBe(true)
     expect(evaluateWorkshop(input()).assembled.surgeInstall).toBe(false)
     expect(
       evaluateWorkshop(input({ serviceOrigin: "not a url" })).originInvalid
@@ -384,6 +442,67 @@ describe("evaluateWorkshop", () => {
     expect(configSelectionId({ kind: "none" }, false)).toBe("none")
     expect(configSelectionId({ kind: "custom" }, false)).toBe("custom")
     expect(configSelectionId({ kind: "none" }, true)).toBe("custom")
+  })
+
+  it("always offers clash:// on clash and mihomo, on every UA", () => {
+    for (const userAgent of [WINDOWS_CHROME, ANDROID_CHROME, IPHONE_SAFARI]) {
+      expect(
+        evaluateWorkshop(input(), { userAgent }).assembled.clashInstall
+      ).toBe(true)
+      expect(
+        evaluateWorkshop(input({ target: "mihomo" }), { userAgent }).assembled
+          .clashInstall
+      ).toBe(true)
+    }
+  })
+
+  it("offers iOS-only schemes only on iPhone and iPad UA", () => {
+    const ios = { userAgent: IPHONE_SAFARI }
+    const android = { userAgent: ANDROID_CHROME }
+    const desktop = { userAgent: WINDOWS_CHROME }
+
+    expect(
+      evaluateWorkshop(input({ target: "surge" }), ios).assembled.surgeInstall
+    ).toBe(true)
+    expect(
+      evaluateWorkshop(input({ target: "surge" }), android).assembled
+        .surgeInstall
+    ).toBe(false)
+    expect(
+      evaluateWorkshop(input({ target: "surge" }), desktop).assembled
+        .surgeInstall
+    ).toBe(false)
+    expect(
+      evaluateWorkshop(input({ target: "surge" }), { userAgent: MAC_SAFARI })
+        .assembled.surgeInstall
+    ).toBe(false)
+
+    expect(
+      evaluateWorkshop(input({ target: "loon" }), ios).assembled.loonInstall
+    ).toBe(true)
+    expect(
+      evaluateWorkshop(input({ target: "loon" }), android).assembled.loonInstall
+    ).toBe(false)
+
+    expect(
+      evaluateWorkshop(input({ target: "egern" }), ios).assembled.egernInstall
+    ).toBe(true)
+    expect(
+      evaluateWorkshop(input({ target: "egern" }), desktop).assembled
+        .egernInstall
+    ).toBe(false)
+
+    expect(
+      evaluateWorkshop(input({ target: "singbox" }), ios).assembled
+        .singboxInstall
+    ).toBe(true)
+    expect(
+      evaluateWorkshop(input({ target: "singbox" }), android).assembled
+        .singboxInstall
+    ).toBe(false)
+    expect(
+      evaluateWorkshop(input({ target: "quanx" }), ios).assembled.singboxInstall
+    ).toBe(false)
   })
 })
 

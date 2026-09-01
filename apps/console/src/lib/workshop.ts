@@ -48,6 +48,37 @@ export function surgeInstallUrl(subscriptionUrl: string): string {
   return `surge:///install-config?url=${encodeURIComponent(subscriptionUrl)}`
 }
 
+export function loonInstallUrl(subscriptionUrl: string): string {
+  return `loon://import?sub=${encodeURIComponent(subscriptionUrl)}`
+}
+
+export function egernInstallUrl(
+  subscriptionUrl: string,
+  name?: string
+): string {
+  const href = `egern:/profiles/new?url=${encodeURIComponent(subscriptionUrl)}`
+  const trimmed = name?.trim() ?? ""
+  return trimmed.length > 0
+    ? `${href}&name=${encodeURIComponent(trimmed)}`
+    : href
+}
+
+export function singboxInstallUrl(
+  subscriptionUrl: string,
+  name = "sub-hub"
+): string {
+  return `sing-box://import-remote-profile?url=${encodeURIComponent(subscriptionUrl)}#${encodeURIComponent(name)}`
+}
+
+/** iPhone / iPad (including CriOS). Macintosh desktop-site iPad is not iOS. */
+export function isIosPhoneUserAgent(userAgent: string): boolean {
+  return /iPhone|iPad/.test(userAgent)
+}
+
+export type WorkshopDisplay = {
+  userAgent: string
+}
+
 export type AssembledTarget = {
   target: Target
   url: string
@@ -62,6 +93,9 @@ export type Assembled = {
   previewable: boolean
   clashInstall: boolean
   surgeInstall: boolean
+  loonInstall: boolean
+  egernInstall: boolean
+  singboxInstall: boolean
   siblings: AssembledTarget[]
 }
 
@@ -146,11 +180,17 @@ const emptyAssembled: Assembled = {
   previewable: false,
   clashInstall: false,
   surgeInstall: false,
+  loonInstall: false,
+  egernInstall: false,
+  singboxInstall: false,
   siblings: [],
 }
 
 /** Field chrome and assemble share one Workshop job diagnosis. */
-export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
+export function evaluateWorkshop(
+  input: WorkshopFields,
+  display: WorkshopDisplay = { userAgent: "" }
+): WorkshopView {
   const origin = parseServiceOrigin(input.serviceOrigin)
   const token = parseAccessToken(input.accessToken)
   const sources = nonemptySources(input.sources)
@@ -177,6 +217,7 @@ export function evaluateWorkshop(input: WorkshopFields): WorkshopView {
           appendInfo: input.appendInfo,
           expand: input.expand,
           filename,
+          iosPhone: isIosPhoneUserAgent(display.userAgent),
         })
       : emptyAssembled
   return {
@@ -199,6 +240,7 @@ function assembledFrom(input: {
   appendInfo: boolean
   expand: boolean
   filename: string
+  iosPhone: boolean
 }): Assembled {
   const siblings = TARGETS.map((target) => {
     const getTarget = encodeSubGetTarget({
@@ -229,7 +271,10 @@ function assembledFrom(input: {
     overLimit: primary.overLimit,
     previewable: !primary.overLimit,
     clashInstall: input.target === "clash" || input.target === "mihomo",
-    surgeInstall: input.target === "surge",
+    surgeInstall: input.iosPhone && input.target === "surge",
+    loonInstall: input.iosPhone && input.target === "loon",
+    egernInstall: input.iosPhone && input.target === "egern",
+    singboxInstall: input.iosPhone && input.target === "singbox",
     siblings,
   }
 }

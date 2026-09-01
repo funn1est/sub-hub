@@ -369,8 +369,10 @@ simpler publish.
 The Workshop PWA lives in [`apps/console`](apps/console). It points at a
 Conversion Service origin you type, collects the access token in its own field,
 assembles `GET /sub` or `GET /sub/:token`, previews that same Subscription URL,
-and copies or downloads the result. It does not add POST conversion or extra
-query switches.
+and copies or downloads the result. `clash://install-config` is offered on
+every platform. On iPhone and iPad it also offers first-party one-click
+import for Surge, Loon, Egern, and sing-box. It does not add POST conversion
+or extra query switches.
 
 ```sh
 cd apps/console

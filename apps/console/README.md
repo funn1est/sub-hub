@@ -15,7 +15,9 @@ Chrome and Workshop copy localize to Chinese and English. The Conversion
 Service does not: HTTP bodies stay English and ignore `Accept-Language`.
 The Workshop target toggle shows which popular clients import that document
 (Stash uses `clash`; Surfboard uses `surge`). It does not add `stash`,
-`surfboard`, or `shadowrocket` tokens.
+`surfboard`, or `shadowrocket` tokens. One-click import: `clash://` is
+always shown for `clash` / `mihomo`. Surge / Loon / Egern / sing-box
+schemes show only on iPhone and iPad UA.
 
 ## Develop
 

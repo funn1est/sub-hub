@@ -71,6 +71,7 @@ export function App() {
         consoleOrigin: import.meta.env.DEV
           ? undefined
           : (parseServiceOrigin(window.location.origin) ?? undefined),
+        userAgent: navigator.userAgent,
       },
       ports: {
         notify: notifyPort.notify,
