@@ -1,11 +1,3 @@
-//! Unique-flight table plan: bind occurrence URLs, yield first-seen identities,
-//! zip bodies back onto declaration sources, and adjudicate a loaded prefix.
-//!
-//! Conversion owns this table. Subscription, Config, and Rule Set bind through
-//! this type. Rule Set occurrences increment the same plan (`push_session_index`).
-//! HTTP fetches the identities this plan yields and returns bodies in
-//! first-seen order; it does not hold the Unique-flight fill plan.
-
 use std::fmt;
 
 use url::Url;

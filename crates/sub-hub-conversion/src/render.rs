@@ -513,10 +513,7 @@ mod tests {
         let empty = CompiledPolicyV1::with_remotes(
             Vec::new(),
             Vec::new(),
-            PolicyReportV1 {
-                empty_groups: 0,
-                ignored_legacy_probe_hints: 0,
-            },
+            PolicyReportV1 { empty_groups: 0 },
             Vec::new(),
             Vec::new(),
         );
@@ -531,10 +528,7 @@ mod tests {
         let with_remote = CompiledPolicyV1::with_remotes(
             Vec::new(),
             Vec::new(),
-            PolicyReportV1 {
-                empty_groups: 0,
-                ignored_legacy_probe_hints: 0,
-            },
+            PolicyReportV1 { empty_groups: 0 },
             unexpanded_from_urls(&["https://sub.example/list".to_owned()], &[]),
             Vec::new(),
         );

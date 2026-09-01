@@ -333,7 +333,6 @@ pub(crate) enum IpVersion {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct PolicyReportV1 {
     pub(crate) empty_groups: u8,
-    pub(crate) ignored_legacy_probe_hints: u8,
 }
 
 /// Names each unexpanded HTTPS source from its canonical DNS host. The first

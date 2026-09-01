@@ -105,13 +105,11 @@ impl RemoteResponse {
     }
 }
 
-/// Host adapters read octets only when this variant is returned.
 pub(crate) enum HttpsHopOutcome {
     Complete(RemoteResponse),
     ReadBody(HttpsHopPending),
 }
 
-/// Successful hop waiting for body octets. Does not name Redirect or Success.
 pub(crate) struct HttpsHopPending {
     status: StatusCode,
     hop: HttpsHopHeaders,
@@ -151,7 +149,6 @@ impl fmt::Debug for HttpsHopPending {
     }
 }
 
-/// Owned hop header values. Hosts snapshot these before reading body octets.
 pub struct HopHeaderBag {
     location: Vec<Vec<u8>>,
     content_encoding: Vec<Vec<u8>>,
@@ -191,8 +188,6 @@ where
         .collect()
 }
 
-/// Interprets one hop's headers. Hosts supply header bags; they do not name Redirect or Success.
-///
 /// # Errors
 ///
 /// Returns [`RemoteFetchError::Failure`] when the hop header contract is violated.
@@ -265,10 +260,7 @@ pub fn append_hop_chunk(
     Ok(())
 }
 
-/// Finishes one outbound hop: interpret a header bag, then body octets only when asked.
-///
-/// Hosts supply [`HopHeaderBag`] and a body reader. They do not name Redirect
-/// or Success. The reader receives [`HttpsHopPending::max_body_bytes`] so a
+/// The reader receives [`HttpsHopPending::max_body_bytes`] so a
 /// missing `Content-Length` can stop streaming; it must not invent a different
 /// cap. [`HttpsHopPending::finish`] is the closed oversize check.
 ///

@@ -72,24 +72,11 @@ pub(super) fn compile_acl4ssr_policy(
     }
     let (compiled_groups, empty_group_count) =
         expand_groups(groups, node_names, !unexpanded.is_empty())?;
-    let ignored_legacy_probe_hint_count = groups
-        .iter()
-        .filter(|group| {
-            group.kind != GroupType::UrlTest
-                && group
-                    .payload
-                    .as_ref()
-                    .and_then(|payload| payload.probe.tolerance)
-                    .is_some()
-        })
-        .count();
     Ok(CompiledPolicyV1::with_remotes(
         compiled_groups,
         rules,
         PolicyReportV1 {
             empty_groups: u8::try_from(empty_group_count)
-                .map_err(|_| Acl4SsrRenderError::Internal)?,
-            ignored_legacy_probe_hints: u8::try_from(ignored_legacy_probe_hint_count)
                 .map_err(|_| Acl4SsrRenderError::Internal)?,
         },
         unexpanded,

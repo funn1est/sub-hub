@@ -157,9 +157,9 @@ pub(crate) const fn https_hop_needs_body(hop: &HttpsHopHeaders) -> bool {
 }
 
 /// Identity headers every host adapter must send on an outbound GET hop.
-pub const OUTBOUND_ACCEPT: http::HeaderValue = http::HeaderValue::from_static("*/*");
-pub const OUTBOUND_ACCEPT_ENCODING: http::HeaderValue = http::HeaderValue::from_static("identity");
-pub const OUTBOUND_CACHE_CONTROL: http::HeaderValue = http::HeaderValue::from_static("no-store");
+const OUTBOUND_ACCEPT: http::HeaderValue = http::HeaderValue::from_static("*/*");
+const OUTBOUND_ACCEPT_ENCODING: http::HeaderValue = http::HeaderValue::from_static("identity");
+const OUTBOUND_CACHE_CONTROL: http::HeaderValue = http::HeaderValue::from_static("no-store");
 
 /// Shared outbound hop request headers. Hosts may add a platform User-Agent.
 #[must_use]
