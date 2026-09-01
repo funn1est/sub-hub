@@ -35,39 +35,14 @@ pub struct NativeConfig {
 }
 
 impl NativeConfig {
-    /// Parses the bind address and self-host aliases used by the native host.
-    ///
-    /// Tokens are always empty here, so a non-loopback bind is rejected.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConfigError`] when the bind address or self-host aliases are invalid, when a
-    /// non-loopback bind has no self-host alias, or when the bind is not loopback.
-    pub fn from_values(
-        bind_address: Option<&str>,
-        self_hosts: Option<&str>,
-    ) -> Result<Self, ConfigError> {
-        let (bind_address, self_hosts) = parse_bind_and_hosts(bind_address, self_hosts)?;
-        let config = Self {
-            bind_address,
-            self_hosts,
-            access_tokens: AccessTokens::empty(),
-            cors_origins: CorsOrigins::empty(),
-            console_root: None,
-        };
-        config.validate()?;
-        Ok(config)
-    }
-
     /// Reads `SUB_HUB_BIND`, `SUB_HUB_SELF_HOSTS`, optional `SUB_HUB_ACCESS_TOKEN`,
     /// optional `SUB_HUB_CORS_ORIGINS`, and optional `SUB_HUB_CONSOLE_ROOT`.
     ///
     /// # Errors
     ///
     /// Returns [`ConfigError`] when a value is not Unicode or does not satisfy
-    /// [`NativeConfig::from_values`] / [`SelfHosts::parse_optional`] /
-    /// [`AccessTokens::parse_optional`] / [`CorsOrigins::parse_optional`] /
-    /// a readable console directory, or when a
+    /// [`SelfHosts::parse_optional`], [`AccessTokens::parse_optional`],
+    /// [`CorsOrigins::parse_optional`], or a readable console directory, or when a
     /// non-loopback bind has an empty token set.
     pub fn from_environment() -> Result<Self, ConfigError> {
         let bind_address = unicode_environment_value("SUB_HUB_BIND")?;
@@ -523,9 +498,33 @@ fn unicode_environment_value(name: &str) -> Result<Option<String>, ConfigError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
-    fn from_environment_refuses_anonymous_non_loopback() {
+    fn from_environment_loopback_defaults() {
+        let config = NativeConfig::from_environment_parts_with_cors(None, None, None, None)
+            .expect("loopback may start without a token");
+        assert_eq!(
+            config.bind_address(),
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25_500)
+        );
+        assert!(config.self_hosts().is_empty());
+        assert!(config.access_tokens().is_empty());
+        assert!(config.cors_origins().is_empty());
+        assert!(config.console_root().is_none());
+    }
+
+    #[test]
+    fn from_environment_non_loopback_needs_hosts_and_tokens() {
+        assert!(
+            NativeConfig::from_environment_parts_with_cors(
+                Some("0.0.0.0:25500"),
+                None,
+                None,
+                None,
+            )
+            .is_err()
+        );
         assert!(
             NativeConfig::from_environment_parts_with_cors(
                 Some("0.0.0.0:25500"),
@@ -535,10 +534,6 @@ mod tests {
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn from_environment_non_loopback_with_tokens_and_self_hosts_is_ok() {
         let config = NativeConfig::from_environment_parts_with_cors(
             Some("0.0.0.0:25500"),
             Some("host.example"),
@@ -551,75 +546,27 @@ mod tests {
     }
 
     #[test]
-    fn from_values_rejects_non_loopback() {
-        assert!(NativeConfig::from_values(Some("0.0.0.0:25500"), Some("host.example")).is_err());
-    }
-
-    #[test]
-    fn from_environment_loopback_unset_stays_anonymous() {
-        let config = NativeConfig::from_environment_parts_with_cors(None, None, None, None)
-            .expect("loopback may start without a token");
-        assert!(config.access_tokens().is_empty());
-    }
-
-    #[test]
-    fn from_environment_present_empty_blob_is_invalid() {
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, None, Some("")).is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, None, Some("   ")).is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, None, Some(",")).is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, Some(""), None).is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, Some("   "), None).is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, Some(","), None).is_err()
-        );
-    }
-
-    #[test]
-    fn from_environment_loopback_unset_cors_stays_empty() {
-        let config = NativeConfig::from_environment_parts_with_cors(None, None, None, None)
-            .expect("loopback may start without cors origins");
-        assert!(config.cors_origins().is_empty());
-    }
-
-    #[test]
-    fn from_environment_present_cors_blob_is_fail_closed() {
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, None, Some("")).is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, None, Some("   ")).is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, None, Some(",")).is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(
-                None,
-                None,
-                None,
-                Some("https://x.example/path"),
-            )
-            .is_err()
-        );
-        assert!(
-            NativeConfig::from_environment_parts_with_cors(
-                None,
-                None,
-                None,
-                Some("http://user@example.com"),
-            )
-            .is_err()
-        );
+    fn from_environment_present_empty_blob_is_fail_closed() {
+        for (access_token, cors_origins) in [
+            (None, Some("")),
+            (None, Some("   ")),
+            (None, Some(",")),
+            (Some(""), None),
+            (Some("   "), None),
+            (Some(","), None),
+            (None, Some("https://x.example/path")),
+            (None, Some("http://user@example.com")),
+        ] {
+            assert!(
+                NativeConfig::from_environment_parts_with_cors(
+                    None,
+                    None,
+                    access_token,
+                    cors_origins,
+                )
+                .is_err()
+            );
+        }
         let ninth = (0..9)
             .map(|index| format!("https://a{index}.example"))
             .collect::<Vec<_>>()
@@ -637,6 +584,49 @@ mod tests {
             .expect("one origin")
             .cors_origins()
             .is_empty()
+        );
+    }
+
+    #[test]
+    fn console_root_unset_is_absent_and_present_non_directory_fails() {
+        let config = NativeConfig::from_environment_parts_with_cors(None, None, None, None)
+            .expect("default");
+        assert!(
+            config
+                .clone()
+                .with_console_root_value(None)
+                .expect("unset")
+                .console_root()
+                .is_none()
+        );
+        assert!(config.clone().with_console_root_value(Some("")).is_err());
+        assert!(config.clone().with_console_root_value(Some("   ")).is_err());
+        assert!(
+            config
+                .clone()
+                .with_console_root_value(Some("/no/such/sub-hub-console-root"))
+                .is_err()
+        );
+
+        let crate_dir = env!("CARGO_MANIFEST_DIR");
+        let cargo_toml = format!("{crate_dir}/Cargo.toml");
+        assert!(
+            config
+                .clone()
+                .with_console_root_value(Some(&cargo_toml))
+                .is_err()
+        );
+
+        let enabled = config
+            .with_console_root_value(Some(crate_dir))
+            .expect("directory");
+        let configured = enabled.console_root().expect("configured");
+        assert!(configured.is_dir());
+        assert_eq!(
+            configured,
+            std::path::Path::new(crate_dir)
+                .canonicalize()
+                .expect("canonical crate dir")
         );
     }
 }
