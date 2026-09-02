@@ -65,7 +65,7 @@ and root `wrangler.toml` stay the Cloudflare button contract; do not
 replace them.
 
 Do not modify the existing root `.gitignore` unless a maintainer asks for that
-change in the same review.
+change in the same review. Agent operating notes are in `AGENTS.md`.
 
 ## Scope
 
