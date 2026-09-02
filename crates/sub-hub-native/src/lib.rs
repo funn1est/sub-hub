@@ -151,7 +151,7 @@ impl fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 /// A secret-safe native HTTP service error.
-pub struct RunError(pub std::io::Error);
+pub struct RunError(#[allow(dead_code)] std::io::Error);
 
 impl fmt::Debug for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -166,6 +166,12 @@ impl fmt::Display for RunError {
 }
 
 impl std::error::Error for RunError {}
+
+impl From<std::io::Error> for RunError {
+    fn from(error: std::io::Error) -> Self {
+        Self(error)
+    }
+}
 
 /// The production single-hop HTTPS adapter used by the host-neutral broker.
 pub struct NativeRemoteAdapter {
@@ -381,15 +387,12 @@ pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
     let application = Application::new(NativeRemoteAdapter::new(), config.self_hosts)
         .with_access_tokens(config.access_tokens)
         .with_cors_origins(config.cors_origins);
-    let listener = tokio::net::TcpListener::bind(config.bind_address)
-        .await
-        .map_err(RunError)?;
+    let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
     axum::serve(
         listener,
         build_router_with_console(application, config.console_root),
     )
-    .await
-    .map_err(RunError)?;
+    .await?;
     Ok(())
 }
 

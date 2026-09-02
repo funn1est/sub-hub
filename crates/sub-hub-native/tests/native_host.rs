@@ -159,7 +159,7 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVisi
 
 #[test]
 fn service_errors_do_not_expose_platform_details() {
-    let error = RunError(std::io::Error::other("secret platform detail"));
+    let error = RunError::from(std::io::Error::other("secret platform detail"));
 
     assert_eq!(error.to_string(), "native HTTP service failed");
     assert_eq!(format!("{error:?}"), "native HTTP service failed");
