@@ -79,15 +79,6 @@ export function parseDeployArgv(argv) {
     if (arg === "--tokens") {
       throw new Error("use --tokens-file or --from-env");
     }
-    if (arg === "--all" || arg === "--worker-only" || arg === "--console-only") {
-      const alias =
-        arg === "--all" ? "all" : arg === "--worker-only" ? "worker" : "console";
-      if (flags.layout !== undefined && flags.layout !== alias) {
-        throw new Error("use only one layout");
-      }
-      flags.layout = alias;
-      continue;
-    }
     if (VALUE_FLAGS.has(arg)) {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("-")) {

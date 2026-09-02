@@ -48,18 +48,18 @@ test("parseDeployArgv accepts token sources and forwards wrangler flags", () => 
 
 test("parseDeployArgv accepts one layout and worker-only CORS", () => {
   assert.equal(parseDeployArgv(["--layout", "worker"]).flags.layout, "worker");
-  assert.equal(parseDeployArgv(["--console-only"]).flags.layout, "console");
+  assert.equal(parseDeployArgv(["--layout", "console"]).flags.layout, "console");
   assert.equal(
-    parseDeployArgv(["--worker-only", "--cors-origin", "https://console.example"])
+    parseDeployArgv(["--layout", "worker", "--cors-origin", "https://console.example"])
       .flags.corsOrigin,
     "https://console.example",
   );
-  assert.throws(() => parseDeployArgv(["--all", "--worker-only"]));
+  assert.throws(() => parseDeployArgv(["--layout", "all", "--layout", "worker"]));
   assert.throws(() => parseDeployArgv(["--layout", "nope"]));
   assert.throws(() =>
-    parseDeployArgv(["--all", "--cors-origin", "https://console.example"]),
+    parseDeployArgv(["--layout", "all", "--cors-origin", "https://console.example"]),
   );
-  assert.throws(() => parseDeployArgv(["--console-only", "--tokens-file", "tokens.txt"]));
+  assert.throws(() => parseDeployArgv(["--layout", "console", "--tokens-file", "tokens.txt"]));
   assert.throws(() => parseDeployArgv(["--tokens", "alpha"]), /tokens-file or --from-env/);
   assert.equal(
     parseDeployArgv(["--layout", "console", "--name", "mine"]).flags.consoleName,

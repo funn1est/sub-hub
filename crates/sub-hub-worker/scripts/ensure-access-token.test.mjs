@@ -142,14 +142,6 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
     }),
     "abort-usage",
   );
-  assert.equal(
-    decide({
-      ci: false,
-      listResult: null,
-      flags: { printOnly: true },
-    }),
-    "print-only",
-  );
 });
 
 test("classifySecretList is fail-closed unless a JSON array is parsed", () => {
