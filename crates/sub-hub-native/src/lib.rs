@@ -50,7 +50,7 @@ impl NativeConfig {
         let access_token = unicode_environment_value("SUB_HUB_ACCESS_TOKEN")?;
         let cors_origins = unicode_environment_value("SUB_HUB_CORS_ORIGINS")?;
         let console_root = unicode_environment_value("SUB_HUB_CONSOLE_ROOT")?;
-        Self::from_environment_parts_with_cors(
+        Self::from_environment_parts(
             bind_address.as_deref(),
             self_hosts.as_deref(),
             access_token.as_deref(),
@@ -64,21 +64,24 @@ impl NativeConfig {
     /// # Errors
     ///
     /// Returns [`ConfigError`] when a present value is not a readable directory.
-    pub fn with_console_root_value(mut self, raw: Option<&str>) -> Result<Self, ConfigError> {
+    fn with_console_root_value(mut self, raw: Option<&str>) -> Result<Self, ConfigError> {
         self.console_root = console::parse_console_root(raw).map_err(|()| ConfigError)?;
         Ok(self)
     }
 
-    fn from_environment_parts_with_cors(
+    fn from_environment_parts(
         bind_address: Option<&str>,
         self_hosts: Option<&str>,
         access_token: Option<&str>,
         cors_origins: Option<&str>,
     ) -> Result<Self, ConfigError> {
-        let (bind_address, self_hosts) = parse_bind_and_hosts(bind_address, self_hosts)?;
+        let bind_address: SocketAddr = bind_address
+            .unwrap_or(DEFAULT_BIND_ADDRESS)
+            .parse()
+            .map_err(|_| ConfigError)?;
         let config = Self {
             bind_address,
-            self_hosts,
+            self_hosts: SelfHosts::parse_optional(self_hosts).map_err(|_| ConfigError)?,
             access_tokens: AccessTokens::parse_optional(access_token).map_err(|_| ConfigError)?,
             cors_origins: CorsOrigins::parse_optional(cors_origins).map_err(|_| ConfigError)?,
             console_root: None,
@@ -381,13 +384,12 @@ pub fn build_router_with_console(
         }))
 }
 
-/// Validates the complete configuration, binds, and serves until the runtime stops the task.
+/// Binds and serves until the runtime stops the task.
 ///
 /// # Errors
 ///
-/// Returns [`RunError`] if configuration validation, binding, or serving fails.
+/// Returns [`RunError`] if binding or serving fails.
 pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
-    config.validate().map_err(RunError::from)?;
     if config.access_tokens.is_empty() {
         eprintln!("sub-hub-native: SUB_HUB_ACCESS_TOKEN is unset; GET /sub is anonymous");
     }
@@ -474,21 +476,6 @@ fn into_axum_response(response: HttpResponse) -> Response<Body> {
     mapped
 }
 
-fn parse_bind_and_hosts(
-    bind_address: Option<&str>,
-    self_hosts: Option<&str>,
-) -> Result<(SocketAddr, SelfHosts), ConfigError> {
-    let bind_address: SocketAddr = bind_address
-        .unwrap_or(DEFAULT_BIND_ADDRESS)
-        .parse()
-        .map_err(|_| ConfigError)?;
-    let self_hosts = SelfHosts::parse_optional(self_hosts).map_err(|_| ConfigError)?;
-    if !bind_address.ip().is_loopback() && self_hosts.is_empty() {
-        return Err(ConfigError);
-    }
-    Ok((bind_address, self_hosts))
-}
-
 fn unicode_environment_value(name: &str) -> Result<Option<String>, ConfigError> {
     std::env::var_os(name)
         .map(|value| value.into_string().map_err(|_| ConfigError))
@@ -502,7 +489,7 @@ mod tests {
 
     #[test]
     fn from_environment_loopback_defaults() {
-        let config = NativeConfig::from_environment_parts_with_cors(None, None, None, None)
+        let config = NativeConfig::from_environment_parts(None, None, None, None)
             .expect("loopback may start without a token");
         assert_eq!(
             config.bind_address(),
@@ -517,16 +504,10 @@ mod tests {
     #[test]
     fn from_environment_non_loopback_needs_hosts_and_tokens() {
         assert!(
-            NativeConfig::from_environment_parts_with_cors(
-                Some("0.0.0.0:25500"),
-                None,
-                None,
-                None,
-            )
-            .is_err()
+            NativeConfig::from_environment_parts(Some("0.0.0.0:25500"), None, None, None,).is_err()
         );
         assert!(
-            NativeConfig::from_environment_parts_with_cors(
+            NativeConfig::from_environment_parts(
                 Some("0.0.0.0:25500"),
                 Some("host.example"),
                 None,
@@ -534,7 +515,7 @@ mod tests {
             )
             .is_err()
         );
-        let config = NativeConfig::from_environment_parts_with_cors(
+        let config = NativeConfig::from_environment_parts(
             Some("0.0.0.0:25500"),
             Some("host.example"),
             Some("deployer-token"),
@@ -554,28 +535,36 @@ mod tests {
             (Some(""), None),
             (Some("   "), None),
             (Some(","), None),
-            (None, Some("https://x.example/path")),
-            (None, Some("http://user@example.com")),
         ] {
             assert!(
-                NativeConfig::from_environment_parts_with_cors(
-                    None,
-                    None,
-                    access_token,
-                    cors_origins,
-                )
-                .is_err()
+                NativeConfig::from_environment_parts(None, None, access_token, cors_origins)
+                    .is_err()
             );
         }
+    }
+
+    #[test]
+    fn from_environment_cors_origin_grammar_and_cap() {
+        assert!(
+            NativeConfig::from_environment_parts(None, None, None, Some("https://x.example/path"),)
+                .is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts(
+                None,
+                None,
+                None,
+                Some("http://user@example.com"),
+            )
+            .is_err()
+        );
         let ninth = (0..9)
             .map(|index| format!("https://a{index}.example"))
             .collect::<Vec<_>>()
             .join(",");
+        assert!(NativeConfig::from_environment_parts(None, None, None, Some(&ninth)).is_err());
         assert!(
-            NativeConfig::from_environment_parts_with_cors(None, None, None, Some(&ninth)).is_err()
-        );
-        assert!(
-            !NativeConfig::from_environment_parts_with_cors(
+            !NativeConfig::from_environment_parts(
                 None,
                 None,
                 None,
@@ -589,8 +578,7 @@ mod tests {
 
     #[test]
     fn console_root_unset_is_absent_and_present_non_directory_fails() {
-        let config = NativeConfig::from_environment_parts_with_cors(None, None, None, None)
-            .expect("default");
+        let config = NativeConfig::from_environment_parts(None, None, None, None).expect("default");
         assert!(
             config
                 .clone()
