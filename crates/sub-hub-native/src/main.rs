@@ -8,7 +8,7 @@ async fn main() -> std::process::ExitCode {
         Ok(config) => match sub_hub_native::serve(config).await {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
-                eprintln!("{}", sub_hub_native::RunError::from(error));
+                eprintln!("{error}");
                 std::process::ExitCode::FAILURE
             }
         },

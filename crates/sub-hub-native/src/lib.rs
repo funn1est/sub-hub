@@ -151,9 +151,7 @@ impl fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 /// A secret-safe native HTTP service error.
-pub enum RunError {
-    Service(std::io::Error),
-}
+pub struct RunError(pub std::io::Error);
 
 impl fmt::Debug for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -163,18 +161,11 @@ impl fmt::Debug for RunError {
 
 impl fmt::Display for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self::Service(_) = self;
         formatter.write_str("native HTTP service failed")
     }
 }
 
 impl std::error::Error for RunError {}
-
-impl From<std::io::Error> for RunError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Service(error)
-    }
-}
 
 /// The production single-hop HTTPS adapter used by the host-neutral broker.
 pub struct NativeRemoteAdapter {
@@ -379,8 +370,8 @@ pub fn build_router_with_console(
 ///
 /// # Errors
 ///
-/// Returns [`std::io::Error`] if binding or serving fails.
-pub async fn serve(config: NativeConfig) -> Result<(), std::io::Error> {
+/// Returns [`RunError`] if binding or serving fails.
+pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
     if config.access_tokens.is_empty() {
         eprintln!("sub-hub-native: SUB_HUB_ACCESS_TOKEN is unset; GET /sub is anonymous");
     }
@@ -390,12 +381,15 @@ pub async fn serve(config: NativeConfig) -> Result<(), std::io::Error> {
     let application = Application::new(NativeRemoteAdapter::new(), config.self_hosts)
         .with_access_tokens(config.access_tokens)
         .with_cors_origins(config.cors_origins);
-    let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
+    let listener = tokio::net::TcpListener::bind(config.bind_address)
+        .await
+        .map_err(RunError)?;
     axum::serve(
         listener,
         build_router_with_console(application, config.console_root),
     )
-    .await?;
+    .await
+    .map_err(RunError)?;
     Ok(())
 }
 
@@ -502,6 +496,15 @@ mod tests {
                 Some("0.0.0.0:25500"),
                 Some("host.example"),
                 None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            NativeConfig::from_environment_parts(
+                Some("0.0.0.0:25500"),
+                None,
+                Some("deployer-token"),
                 None,
             )
             .is_err()
