@@ -32,6 +32,7 @@ impl fmt::Debug for NodeNameV1 {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct NamedSubscriptionSources {
     occurrences: Vec<NamedNodeOccurrence>,
+    #[cfg(test)]
     diagnostics: NodeNameDiagnostics,
     unexpanded_https: Vec<String>,
 }
@@ -41,13 +42,7 @@ impl NamedSubscriptionSources {
         &self.occurrences
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "node-name diagnostics stay at the naming seam for tests"
-        )
-    )]
+    #[cfg(test)]
     pub(crate) const fn diagnostics(&self) -> &NodeNameDiagnostics {
         &self.diagnostics
     }
@@ -79,8 +74,10 @@ pub(crate) enum GroupNameError {
     Duplicate { first_group_index: usize },
 }
 
+#[cfg(test)]
 const NODE_NAME_DIAGNOSTIC_KIND_COUNT: usize = 11;
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NodeNameDiagnosticKind {
     MissingFallback,
@@ -96,6 +93,7 @@ pub(crate) enum NodeNameDiagnosticKind {
     CollisionSuffixed,
 }
 
+#[cfg(test)]
 impl NodeNameDiagnosticKind {
     const fn index(self) -> usize {
         match self {
@@ -114,16 +112,14 @@ impl NodeNameDiagnosticKind {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct NodeNameDiagnostics {
     counts: [u32; NODE_NAME_DIAGNOSTIC_KIND_COUNT],
 }
 
+#[cfg(test)]
 impl NodeNameDiagnostics {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "diagnostics stay behind conversion orchestration")
-    )]
     pub(crate) const fn count(&self, kind: NodeNameDiagnosticKind) -> u32 {
         self.counts[kind.index()]
     }
@@ -149,6 +145,7 @@ pub(crate) fn resolve_node_names_reserving(
     final_group_names: &[&str],
     reserved_extra: &[&str],
 ) -> Result<NamedSubscriptionSources, NodeNameError> {
+    #[cfg(test)]
     let mut diagnostics = NodeNameDiagnostics::default();
     let mut allocator = NameAllocator::new(final_group_names, reserved_extra)?;
     let unexpanded_https = parsed.unexpanded_https;
@@ -159,14 +156,17 @@ pub(crate) fn resolve_node_names_reserving(
             NodeOccurrence::Accepted { origin, node } => {
                 let canonical_base = match &node.name_input {
                     NodeNameInput::Missing => {
+                        #[cfg(test)]
                         diagnostics.increment(NodeNameDiagnosticKind::MissingFallback);
                         fallback_name(&node)
                     }
                     NodeNameInput::Decoded(input) if input.is_empty() => {
+                        #[cfg(test)]
                         diagnostics.increment(NodeNameDiagnosticKind::EmptyFallback);
                         fallback_name(&node)
                     }
                     NodeNameInput::Decoded(input) if input.len() > 1_024 => {
+                        #[cfg(test)]
                         diagnostics.increment(NodeNameDiagnosticKind::OversizedFallback);
                         fallback_name(&node)
                     }
@@ -175,6 +175,7 @@ pub(crate) fn resolve_node_names_reserving(
                             character.general_category() == GeneralCategory::Unassigned
                         }) =>
                     {
+                        #[cfg(test)]
                         diagnostics
                             .increment(NodeNameDiagnosticKind::UnassignedOrNoncharacterFallback);
                         fallback_name(&node)
@@ -182,15 +183,19 @@ pub(crate) fn resolve_node_names_reserving(
                     NodeNameInput::Decoded(input) => {
                         let canonicalized = canonicalize(input);
                         if canonicalized.whitespace_changed {
+                            #[cfg(test)]
                             diagnostics.increment(NodeNameDiagnosticKind::WhitespaceCanonicalized);
                         }
                         if canonicalized.unsafe_codepoints_removed {
+                            #[cfg(test)]
                             diagnostics.increment(NodeNameDiagnosticKind::UnsafeCodepointsRemoved);
                         }
                         if canonicalized.nfc_normalized {
+                            #[cfg(test)]
                             diagnostics.increment(NodeNameDiagnosticKind::NfcNormalized);
                         }
                         if canonicalized.text.is_empty() {
+                            #[cfg(test)]
                             diagnostics
                                 .increment(NodeNameDiagnosticKind::EmptyAfterCleaningFallback);
                             fallback_name(&node)
@@ -199,6 +204,7 @@ pub(crate) fn resolve_node_names_reserving(
                             .graphemes(true)
                             .any(|grapheme| grapheme.len() > 122)
                         {
+                            #[cfg(test)]
                             diagnostics
                                 .increment(NodeNameDiagnosticKind::OversizedSingleGraphemeFallback);
                             fallback_name(&node)
@@ -210,9 +216,11 @@ pub(crate) fn resolve_node_names_reserving(
                 let (name, collision_suffixed, grapheme_truncated) =
                     allocator.allocate(&canonical_base)?;
                 if collision_suffixed {
+                    #[cfg(test)]
                     diagnostics.increment(NodeNameDiagnosticKind::CollisionSuffixed);
                 }
                 if grapheme_truncated {
+                    #[cfg(test)]
                     diagnostics.increment(NodeNameDiagnosticKind::GraphemeTruncated);
                 }
                 Ok(NodeOccurrence::Accepted {
@@ -228,6 +236,7 @@ pub(crate) fn resolve_node_names_reserving(
 
     Ok(NamedSubscriptionSources {
         occurrences,
+        #[cfg(test)]
         diagnostics,
         unexpanded_https,
     })
