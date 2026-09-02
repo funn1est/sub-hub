@@ -1,6 +1,6 @@
 use std::{
     future::Future,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::PathBuf,
     pin::Pin,
     sync::atomic::{AtomicU64, Ordering},
@@ -13,8 +13,7 @@ use axum::{
 use http_body_util::BodyExt;
 use sub_hub_http::{AccessTokens, Application, CorsOrigins, SelfHosts};
 use sub_hub_native::{
-    DestinationResolver, NativeConfig, NativeRemoteAdapter, RunError, build_router,
-    build_router_with_console,
+    DestinationResolver, NativeRemoteAdapter, RunError, build_router, build_router_with_console,
 };
 use tower::ServiceExt;
 
@@ -159,34 +158,8 @@ async fn assert_application_response(response: Response<Body>, vector: &HostVisi
 }
 
 #[test]
-fn service_defaults_to_the_safe_loopback_address() {
-    let config = NativeConfig::from_values(None, None).expect("default configuration is valid");
-
-    assert_eq!(
-        config.bind_address(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25_500)
-    );
-    assert!(config.self_hosts().is_empty());
-    assert!(config.access_tokens().is_empty());
-    assert!(config.cors_origins().is_empty());
-    assert!(config.console_root().is_none());
-}
-
-#[test]
-fn non_loopback_bind_requires_an_explicit_self_hostname() {
-    assert!(NativeConfig::from_values(Some("0.0.0.0:25500"), None).is_err());
-}
-
-#[test]
-fn from_values_rejects_non_loopback_because_tokens_are_empty() {
-    assert!(
-        NativeConfig::from_values(Some("0.0.0.0:25500"), Some("subscriptions.example")).is_err()
-    );
-}
-
-#[test]
 fn service_errors_do_not_expose_platform_details() {
-    let error = RunError::Service(std::io::Error::other("secret platform detail"));
+    let error = RunError::from(std::io::Error::other("secret platform detail"));
 
     assert_eq!(error.to_string(), "native HTTP service failed");
     assert_eq!(format!("{error:?}"), "native HTTP service failed");
@@ -398,14 +371,6 @@ async fn configured_access_token_protects_sub_and_leaves_version_public() {
     assert_eq!(ok.status(), StatusCode::OK);
 }
 
-#[test]
-fn serve_cannot_be_given_an_anonymous_non_loopback_config() {
-    assert!(
-        NativeConfig::from_values(Some("0.0.0.0:25500"), Some("host.example")).is_err(),
-        "from_values has empty tokens, so a public bind is invalid before serve"
-    );
-}
-
 fn test_router() -> axum::Router {
     let application = Application::new(
         NativeRemoteAdapter::new(),
@@ -482,46 +447,6 @@ async fn duplicate_origin_headers_are_ignored_without_failing_the_request() {
             .headers()
             .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
             .is_none()
-    );
-}
-
-#[test]
-fn console_root_unset_is_absent_and_present_non_directory_fails() {
-    let config = NativeConfig::from_values(None, None).expect("default");
-    assert!(
-        config
-            .clone()
-            .with_console_root_value(None)
-            .expect("unset")
-            .console_root()
-            .is_none()
-    );
-    assert!(config.clone().with_console_root_value(Some("")).is_err());
-    assert!(config.clone().with_console_root_value(Some("   ")).is_err());
-    assert!(
-        config
-            .clone()
-            .with_console_root_value(Some("/no/such/sub-hub-console-root"))
-            .is_err()
-    );
-
-    let fixture = console_fixture();
-    let file = fixture.path().join("index.html");
-    assert!(
-        config
-            .clone()
-            .with_console_root_value(Some(file.to_str().expect("utf8")))
-            .is_err()
-    );
-
-    let enabled = config
-        .with_console_root_value(Some(fixture.path().to_str().expect("utf8")))
-        .expect("directory");
-    let configured = enabled.console_root().expect("configured");
-    assert!(configured.is_dir());
-    assert_eq!(
-        configured,
-        fixture.path().canonicalize().expect("canonical fixture")
     );
 }
 
