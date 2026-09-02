@@ -105,7 +105,7 @@ pub(crate) fn render_mihomo_from_policy_v1(
         proxy_groups,
         rules,
     };
-    let comments = comment_prefix(omitted_url_regex, policy.report().empty_groups);
+    let comments = comment_prefix(omitted_url_regex, policy.empty_groups());
     let body_limit = limit_bytes
         .checked_sub(comments.len())
         .ok_or(AdapterRenderError::OutputTooLarge { limit_bytes })?;

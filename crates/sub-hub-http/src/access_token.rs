@@ -22,7 +22,7 @@ impl AccessToken {
     ///
     /// Returns [`AccessTokenError`] when the value is empty, longer than 128 bytes, or contains a
     /// character outside the unreserved URI set `A–Z a–z 0–9 - . _ ~`.
-    pub fn parse(raw: &str) -> Result<Self, AccessTokenError> {
+    fn parse(raw: &str) -> Result<Self, AccessTokenError> {
         if (MIN_TOKEN_BYTES..=MAX_TOKEN_BYTES).contains(&raw.len())
             && raw.bytes().all(is_unreserved)
         {

@@ -56,7 +56,7 @@ impl RemoteRuleSetRefV1 {
 pub(crate) struct CompiledPolicyV1 {
     groups: Vec<CompiledGroupV1>,
     rules: Vec<CompiledRuleV1>,
-    report: PolicyReportV1,
+    empty_groups: u8,
     unexpanded_subscriptions: Vec<UnexpandedSubscriptionV1>,
     remote_rule_sets: Vec<RemoteRuleSetRefV1>,
 }
@@ -65,14 +65,14 @@ impl CompiledPolicyV1 {
     pub(crate) fn with_remotes(
         groups: Vec<CompiledGroupV1>,
         rules: Vec<CompiledRuleV1>,
-        report: PolicyReportV1,
+        empty_groups: u8,
         unexpanded_subscriptions: Vec<UnexpandedSubscriptionV1>,
         remote_rule_sets: Vec<RemoteRuleSetRefV1>,
     ) -> Self {
         Self {
             groups,
             rules,
-            report,
+            empty_groups,
             unexpanded_subscriptions,
             remote_rule_sets,
         }
@@ -86,8 +86,8 @@ impl CompiledPolicyV1 {
         &self.rules
     }
 
-    pub(crate) const fn report(&self) -> PolicyReportV1 {
-        self.report
+    pub(crate) const fn empty_groups(&self) -> u8 {
+        self.empty_groups
     }
 
     pub(crate) fn unexpanded_subscriptions(&self) -> &[UnexpandedSubscriptionV1] {
@@ -105,7 +105,7 @@ impl fmt::Debug for CompiledPolicyV1 {
             .debug_struct("CompiledPolicyV1")
             .field("group_count", &self.groups.len())
             .field("rule_count", &self.rules.len())
-            .field("report", &self.report)
+            .field("empty_groups", &self.empty_groups)
             .field(
                 "unexpanded_subscription_count",
                 &self.unexpanded_subscriptions.len(),
@@ -330,11 +330,6 @@ pub(crate) enum IpVersion {
     V6,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct PolicyReportV1 {
-    pub(crate) empty_groups: u8,
-}
-
 /// Names each unexpanded HTTPS source from its canonical DNS host. The first
 /// occurrence of a host keeps the bare host; later repeats get `-2`, `-3`, …
 /// `reserved` (policy groups plus Direct/Reject) is occupied first so a host
@@ -451,7 +446,7 @@ pub(crate) fn compile_builtin_policy_v1(
             RuleMatcherV1::Match,
             PolicyMemberV1::Group("PROXY".to_owned()),
         )],
-        PolicyReportV1::default(),
+        0,
         unexpanded.to_vec(),
         Vec::new(),
     )

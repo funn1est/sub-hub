@@ -149,6 +149,7 @@ impl fmt::Debug for HttpsHopPending {
     }
 }
 
+/// Owned hop header values. Hosts snapshot these before reading body octets.
 pub struct HopHeaderBag {
     location: Vec<Vec<u8>>,
     content_encoding: Vec<Vec<u8>>,
@@ -188,6 +189,9 @@ where
         .collect()
 }
 
+/// Interprets one hop's headers and returns [`HttpsHopOutcome::ReadBody`] only
+/// when octets are required.
+///
 /// # Errors
 ///
 /// Returns [`RemoteFetchError::Failure`] when the hop header contract is violated.
@@ -260,6 +264,8 @@ pub fn append_hop_chunk(
     Ok(())
 }
 
+/// Finishes one outbound hop: interpret a header bag, then body octets only when asked.
+///
 /// The reader receives [`HttpsHopPending::max_body_bytes`] so a
 /// missing `Content-Length` can stop streaming; it must not invent a different
 /// cap. [`HttpsHopPending::finish`] is the closed oversize check.
