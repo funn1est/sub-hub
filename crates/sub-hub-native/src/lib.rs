@@ -43,7 +43,7 @@ impl NativeConfig {
     /// Returns [`ConfigError`] when a value is not Unicode or does not satisfy
     /// [`SelfHosts::parse_optional`], [`AccessTokens::parse_optional`],
     /// [`CorsOrigins::parse_optional`], or a readable console directory, or when a
-    /// non-loopback bind has an empty token set.
+    /// non-loopback bind has an empty host set or an empty token set.
     pub fn from_environment() -> Result<Self, ConfigError> {
         let bind_address = unicode_environment_value("SUB_HUB_BIND")?;
         let self_hosts = unicode_environment_value("SUB_HUB_SELF_HOSTS")?;
@@ -150,9 +150,8 @@ impl fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-/// A secret-safe native service startup or serving error.
+/// A secret-safe native HTTP service error.
 pub enum RunError {
-    Configuration(ConfigError),
     Service(std::io::Error),
 }
 
@@ -164,20 +163,12 @@ impl fmt::Debug for RunError {
 
 impl fmt::Display for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Configuration(_) => formatter.write_str("invalid native host configuration"),
-            Self::Service(_) => formatter.write_str("native HTTP service failed"),
-        }
+        let Self::Service(_) = self;
+        formatter.write_str("native HTTP service failed")
     }
 }
 
 impl std::error::Error for RunError {}
-
-impl From<ConfigError> for RunError {
-    fn from(error: ConfigError) -> Self {
-        Self::Configuration(error)
-    }
-}
 
 impl From<std::io::Error> for RunError {
     fn from(error: std::io::Error) -> Self {
@@ -388,8 +379,8 @@ pub fn build_router_with_console(
 ///
 /// # Errors
 ///
-/// Returns [`RunError`] if binding or serving fails.
-pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
+/// Returns [`std::io::Error`] if binding or serving fails.
+pub async fn serve(config: NativeConfig) -> Result<(), std::io::Error> {
     if config.access_tokens.is_empty() {
         eprintln!("sub-hub-native: SUB_HUB_ACCESS_TOKEN is unset; GET /sub is anonymous");
     }
