@@ -1,11 +1,3 @@
-//! Unique-flight fill: one Conversion Service GET.
-//!
-//! Application calls [`run`]. HTTP supplies unique fetches and a synchronous
-//! Outbound-accept callback on every fulfill. Unique-flight fill owns unique
-//! capacity and whether that callback runs. HTTP does not name Subscription
-//! versus Config versus Rule Set after fill starts. Fill ends in one
-//! [`UniqueFlightFillFailure`].
-
 use sub_hub_conversion::{
     RenderedConfig, UniqueFlightBodies, UniqueFlightDrive, UniqueFlightFetch,
     UniqueFlightFillFailure, UniqueFlightHostFailure, UniqueFlightSessionV1,

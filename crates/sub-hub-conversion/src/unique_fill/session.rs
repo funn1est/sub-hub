@@ -1,12 +1,3 @@
-//! Conversion Service Unique-flight fill session.
-//!
-//! HTTP drives unique fetches, then [`UniqueFlightFetch::fulfill`]. Rule Set
-//! Outbound accept is a synchronous callback on that same fulfill; unique
-//! capacity lives on this session. The session names No remote config versus
-//! Rule frontend and Keep-pass, owns the decoded-byte tally and unique-remote
-//! cap, and decides Subscription user-info capture; HTTP does not, after
-//! [`UniqueFlightSessionV1::start`].
-
 use std::fmt;
 
 use url::Url;
@@ -77,23 +68,11 @@ pub struct UniqueFlightFetchPlan<'a> {
 }
 
 impl UniqueFlightFetchPlan<'_> {
-    #[must_use]
-    pub fn url_count(&self) -> usize {
-        self.url_indices.len()
-    }
-
     /// First-seen hop URLs for this take, in fetch order. Indices came from this ledger.
     #[must_use]
     pub fn urls(&self) -> impl ExactSizeIterator<Item = &Url> + '_ {
         self.url_indices
             .iter()
-            .map(|&ledger_index| self.ledger.url(ledger_index))
-    }
-
-    #[must_use]
-    pub fn url_at(&self, index: usize) -> Option<&Url> {
-        self.url_indices
-            .get(index)
             .map(|&ledger_index| self.ledger.url(ledger_index))
     }
 }

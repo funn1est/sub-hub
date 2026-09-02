@@ -16,7 +16,7 @@ mod session_budget;
 mod unique_fill;
 mod userinfo;
 
-pub use access_token::{AccessToken, AccessTokenError, AccessTokens};
+pub use access_token::{AccessTokenError, AccessTokens};
 pub use application::Application;
 pub use broker::{
     HopHeaderBag, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, append_hop_chunk,
@@ -24,9 +24,7 @@ pub use broker::{
 };
 pub use cors::{CorsOriginError, CorsOrigins, request_origin};
 pub use inbound_host::canonicalize_inbound_host;
-pub use remote_https::{
-    OUTBOUND_ACCEPT, OUTBOUND_ACCEPT_ENCODING, OUTBOUND_CACHE_CONTROL, outbound_request_headers,
-};
+pub use remote_https::outbound_request_headers;
 pub use request::HttpRequest;
 pub use response::HttpResponse;
 pub use self_hosts::{SelfHostError, SelfHosts};

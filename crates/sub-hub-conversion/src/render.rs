@@ -506,20 +506,12 @@ mod tests {
     #[test]
     fn encode_or_unexpanded_allows_empty_nodes_only_with_remote_refs() {
         use crate::node::ProxyNode;
-        use crate::policy::{CompiledPolicyV1, PolicyReportV1, unexpanded_from_urls};
+        use crate::policy::{CompiledPolicyV1, unexpanded_from_urls};
 
         use super::KeptNodes;
 
-        let empty = CompiledPolicyV1::with_remotes(
-            Vec::new(),
-            Vec::new(),
-            PolicyReportV1 {
-                empty_groups: 0,
-                ignored_legacy_probe_hints: 0,
-            },
-            Vec::new(),
-            Vec::new(),
-        );
+        let empty =
+            CompiledPolicyV1::with_remotes(Vec::new(), Vec::new(), 0, Vec::new(), Vec::new());
         assert_eq!(
             KeptNodes::encode_or_unexpanded(&[] as &[&ProxyNode], &empty, |_| Ok("x")).unwrap_err(),
             AdapterRenderError::NoValidNodes {
@@ -531,10 +523,7 @@ mod tests {
         let with_remote = CompiledPolicyV1::with_remotes(
             Vec::new(),
             Vec::new(),
-            PolicyReportV1 {
-                empty_groups: 0,
-                ignored_legacy_probe_hints: 0,
-            },
+            0,
             unexpanded_from_urls(&["https://sub.example/list".to_owned()], &[]),
             Vec::new(),
         );

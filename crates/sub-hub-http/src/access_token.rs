@@ -11,7 +11,7 @@ pub const MAX_ACCESS_TOKEN_LIST_BYTES: usize = 2048;
 
 /// A single deployer access token used as the `/sub/:token` path segment.
 #[derive(Clone)]
-pub struct AccessToken {
+pub(crate) struct AccessToken {
     value: String,
 }
 
@@ -22,7 +22,7 @@ impl AccessToken {
     ///
     /// Returns [`AccessTokenError`] when the value is empty, longer than 128 bytes, or contains a
     /// character outside the unreserved URI set `A–Z a–z 0–9 - . _ ~`.
-    pub fn parse(raw: &str) -> Result<Self, AccessTokenError> {
+    fn parse(raw: &str) -> Result<Self, AccessTokenError> {
         if (MIN_TOKEN_BYTES..=MAX_TOKEN_BYTES).contains(&raw.len())
             && raw.bytes().all(is_unreserved)
         {
@@ -31,18 +31,6 @@ impl AccessToken {
             })
         } else {
             Err(AccessTokenError)
-        }
-    }
-
-    /// Treats a missing or empty environment value as unset.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AccessTokenError`] when a non-empty value fails [`Self::parse`].
-    pub fn parse_optional(raw: Option<&str>) -> Result<Option<Self>, AccessTokenError> {
-        match raw {
-            None | Some("") => Ok(None),
-            Some(raw) => Self::parse(raw).map(Some),
         }
     }
 
@@ -178,8 +166,6 @@ mod tests {
         assert!(AccessToken::parse("has+plus").is_err());
         assert!(AccessToken::parse(&"a".repeat(129)).is_err());
         assert!(AccessToken::parse("deployer-token_1").is_ok());
-        assert!(AccessToken::parse_optional(None).unwrap().is_none());
-        assert!(AccessToken::parse_optional(Some("")).unwrap().is_none());
     }
 
     #[test]

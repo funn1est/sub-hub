@@ -16,7 +16,7 @@ use crate::{
     MAX_RULE_SET_BYTES, UniqueFlightFillV1,
     policy::{
         CompiledGroupV1, CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion,
-        PolicyMemberV1, PolicyReportV1, RuleMatcherV1,
+        PolicyMemberV1, RuleMatcherV1,
     },
     render::MAX_OUTPUT_BYTES,
     subscription_source::has_bare_carriage_return,
@@ -72,26 +72,10 @@ pub(super) fn compile_acl4ssr_policy(
     }
     let (compiled_groups, empty_group_count) =
         expand_groups(groups, node_names, !unexpanded.is_empty())?;
-    let ignored_legacy_probe_hint_count = groups
-        .iter()
-        .filter(|group| {
-            group.kind != GroupType::UrlTest
-                && group
-                    .payload
-                    .as_ref()
-                    .and_then(|payload| payload.probe.tolerance)
-                    .is_some()
-        })
-        .count();
     Ok(CompiledPolicyV1::with_remotes(
         compiled_groups,
         rules,
-        PolicyReportV1 {
-            empty_groups: u8::try_from(empty_group_count)
-                .map_err(|_| Acl4SsrRenderError::Internal)?,
-            ignored_legacy_probe_hints: u8::try_from(ignored_legacy_probe_hint_count)
-                .map_err(|_| Acl4SsrRenderError::Internal)?,
-        },
+        u8::try_from(empty_group_count).map_err(|_| Acl4SsrRenderError::Internal)?,
         unexpanded,
         remote_rule_sets,
     ))

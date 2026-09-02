@@ -105,13 +105,11 @@ impl RemoteResponse {
     }
 }
 
-/// Host adapters read octets only when this variant is returned.
 pub(crate) enum HttpsHopOutcome {
     Complete(RemoteResponse),
     ReadBody(HttpsHopPending),
 }
 
-/// Successful hop waiting for body octets. Does not name Redirect or Success.
 pub(crate) struct HttpsHopPending {
     status: StatusCode,
     hop: HttpsHopHeaders,
@@ -191,7 +189,8 @@ where
         .collect()
 }
 
-/// Interprets one hop's headers. Hosts supply header bags; they do not name Redirect or Success.
+/// Interprets one hop's headers and returns [`HttpsHopOutcome::ReadBody`] only
+/// when octets are required.
 ///
 /// # Errors
 ///
@@ -267,8 +266,7 @@ pub fn append_hop_chunk(
 
 /// Finishes one outbound hop: interpret a header bag, then body octets only when asked.
 ///
-/// Hosts supply [`HopHeaderBag`] and a body reader. They do not name Redirect
-/// or Success. The reader receives [`HttpsHopPending::max_body_bytes`] so a
+/// The reader receives [`HttpsHopPending::max_body_bytes`] so a
 /// missing `Content-Length` can stop streaming; it must not invent a different
 /// cap. [`HttpsHopPending::finish`] is the closed oversize check.
 ///
