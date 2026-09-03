@@ -89,7 +89,6 @@ pub(super) struct Probe {
 
 pub(super) struct DeclaredUrl {
     pub(super) declared: String,
-    _parsed: Url,
 }
 
 enum UnresolvedDirective {
@@ -416,7 +415,6 @@ fn validate_url(
     }
     Ok(DeclaredUrl {
         declared: declared.to_owned(),
-        _parsed: parsed,
     })
 }
 
