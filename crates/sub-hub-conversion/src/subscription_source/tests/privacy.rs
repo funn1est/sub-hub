@@ -1,4 +1,7 @@
-use super::{NodeOccurrence, NodeOrigin, SubscriptionParseError, parse_subscription_sources};
+use super::{
+    super::{SubscriptionSourceV1, parse_subscription_source_inputs},
+    NodeOccurrence, NodeOrigin, SubscriptionParseError, parse_subscription_sources,
+};
 
 #[test]
 fn source_error_codes_are_closed_and_low_cardinality() {
@@ -72,4 +75,17 @@ fn errors_and_rejections_do_not_retain_source_secrets() {
     ] {
         assert!(!rendered.contains(CANARY));
     }
+}
+
+#[test]
+fn unexpanded_https_debug_does_not_retain_subscription_urls() {
+    const UNEXPANDED: &str = "https://secret-canary.example/private-token";
+    let parsed = parse_subscription_source_inputs(&[SubscriptionSourceV1::UnexpandedHttps(
+        UNEXPANDED,
+    )])
+    .expect("unexpanded https is a valid source");
+    let rendered = format!("{parsed:?}");
+    assert!(!rendered.contains("secret-canary"));
+    assert!(!rendered.contains(UNEXPANDED));
+    assert!(rendered.contains("[REDACTED]"));
 }

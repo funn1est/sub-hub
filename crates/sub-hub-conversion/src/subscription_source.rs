@@ -17,7 +17,7 @@ const MAX_NODE_OCCURRENCES: usize = 10_000;
 
 pub(crate) use error::SubscriptionParseError;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub(crate) struct ParsedSubscriptionSources {
     pub(crate) occurrences: Vec<NodeOccurrence>,
     pub(crate) remote_decoded_bytes: Vec<Option<usize>>,
@@ -27,6 +27,17 @@ pub(crate) struct ParsedSubscriptionSources {
 impl ParsedSubscriptionSources {
     pub(crate) fn parse_skip_count(&self) -> u32 {
         NodeOccurrence::rejected_count(&self.occurrences)
+    }
+}
+
+impl fmt::Debug for ParsedSubscriptionSources {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ParsedSubscriptionSources")
+            .field("occurrences", &self.occurrences.len())
+            .field("remote_decoded_bytes", &self.remote_decoded_bytes)
+            .field("unexpanded_https", &"[REDACTED]")
+            .finish()
     }
 }
 
