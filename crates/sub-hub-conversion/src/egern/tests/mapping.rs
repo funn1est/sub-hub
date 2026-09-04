@@ -199,6 +199,53 @@ fn shadowsocks_projects_classic_password() {
 }
 
 #[test]
+fn simple_obfs_http_and_tls_are_exact() {
+    let source = concat!(
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dobfs.example#ObfsHttp\n",
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dtls%3Bobfs-host%3Dobfs.example#ObfsTls\n",
+        "ss://aes-128-gcm:password@example.com:8388#Classic\n",
+    );
+    let output =
+        render_remote_builtin(OutputTarget::Egern, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains(concat!(
+        "- shadowsocks:\n",
+        "    name: ObfsHttp\n",
+        "    method: aes-128-gcm\n",
+        "    password: password\n",
+        "    server: example.com\n",
+        "    port: 8388\n",
+        "    tfo: false\n",
+        "    udp_relay: true\n",
+        "    obfs: http\n",
+        "    obfs_host: obfs.example\n",
+    )));
+    assert!(text.contains(concat!(
+        "- shadowsocks:\n",
+        "    name: ObfsTls\n",
+        "    method: aes-128-gcm\n",
+        "    password: password\n",
+        "    server: example.com\n",
+        "    port: 8388\n",
+        "    tfo: false\n",
+        "    udp_relay: true\n",
+        "    obfs: tls\n",
+        "    obfs_host: obfs.example\n",
+    )));
+    assert!(text.contains(concat!(
+        "- shadowsocks:\n",
+        "    name: Classic\n",
+        "    method: aes-128-gcm\n",
+        "    password: password\n",
+        "    server: example.com\n",
+        "    port: 8388\n",
+        "    tfo: false\n",
+        "    udp_relay: true\n",
+        "policy_groups:\n",
+    )));
+}
+
+#[test]
 fn reserved_node_tags_are_skipped() {
     let output = prepare_subscription_v1(&[
         SubscriptionSourceV1::Direct(

@@ -72,8 +72,8 @@ The Workshop lists 33 INIs from
 (18 Online plus 15 Classic / other). `master` moves; the Console does
 not pin a commit. The default is no remote
 config (`config=` omitted, PROXY/AUTO). A custom HTTPS URL is the only case
-that shows a URL field. `URL-REGEX` is emitted for Loon and omitted on other
-targets.
+that shows a URL field. `URL-REGEX` is emitted for Loon and Surge and
+omitted on other targets.
 
 ## Build
 

@@ -199,6 +199,49 @@ fn websocket_tls_and_shadowsocks_project_supported_fields() {
 }
 
 #[test]
+fn simple_obfs_http_and_tls_are_exact() {
+    let source = concat!(
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dobfs.example#ObfsHttp\n",
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dtls%3Bobfs-host%3Dobfs.example#ObfsTls\n",
+        "ss://aes-128-gcm:password@example.com:8388#Classic\n",
+    );
+    let output =
+        render_remote_builtin(OutputTarget::Singbox, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains(concat!(
+        "      \"type\": \"shadowsocks\",\n",
+        "      \"tag\": \"ObfsHttp\",\n",
+        "      \"server\": \"example.com\",\n",
+        "      \"server_port\": 8388,\n",
+        "      \"method\": \"aes-128-gcm\",\n",
+        "      \"password\": \"password\",\n",
+        "      \"plugin\": \"obfs-local\",\n",
+        "      \"plugin_opts\": \"obfs=http;obfs-host=obfs.example\"\n",
+        "    }",
+    )));
+    assert!(text.contains(concat!(
+        "      \"type\": \"shadowsocks\",\n",
+        "      \"tag\": \"ObfsTls\",\n",
+        "      \"server\": \"example.com\",\n",
+        "      \"server_port\": 8388,\n",
+        "      \"method\": \"aes-128-gcm\",\n",
+        "      \"password\": \"password\",\n",
+        "      \"plugin\": \"obfs-local\",\n",
+        "      \"plugin_opts\": \"obfs=tls;obfs-host=obfs.example\"\n",
+        "    }",
+    )));
+    assert!(text.contains(concat!(
+        "      \"type\": \"shadowsocks\",\n",
+        "      \"tag\": \"Classic\",\n",
+        "      \"server\": \"example.com\",\n",
+        "      \"server_port\": 8388,\n",
+        "      \"method\": \"aes-128-gcm\",\n",
+        "      \"password\": \"password\"\n",
+        "    }",
+    )));
+}
+
+#[test]
 fn reserved_node_tags_are_skipped_and_empty_members_become_reject() {
     let output = prepare_subscription_v1(&[
         SubscriptionSourceV1::Direct(

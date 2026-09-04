@@ -135,6 +135,26 @@ fn reality_vision_websocket_tls_and_shadowsocks_project_supported_fields() {
 }
 
 #[test]
+fn simple_obfs_http_and_tls_are_exact() {
+    let source = concat!(
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dobfs.example#ObfsHttp\n",
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dtls%3Bobfs-host%3Dobfs.example#ObfsTls\n",
+        "ss://aes-128-gcm:password@example.com:8388#Classic\n",
+    );
+    let output = render_remote_builtin(OutputTarget::Loon, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains(
+        "ObfsHttp = Shadowsocks,example.com,8388,aes-128-gcm,\"password\",fast-open=false,udp=true,obfs-name=http,obfs-host=obfs.example\n"
+    ));
+    assert!(text.contains(
+        "ObfsTls = Shadowsocks,example.com,8388,aes-128-gcm,\"password\",fast-open=false,udp=true,obfs-name=tls,obfs-host=obfs.example\n"
+    ));
+    assert!(text.contains(
+        "Classic = Shadowsocks,example.com,8388,aes-128-gcm,\"password\",fast-open=false,udp=true\n"
+    ));
+}
+
+#[test]
 fn process_name_is_omitted_and_fallback_load_balance_are_normalized() {
     let config = concat!(
         "[custom]\n",

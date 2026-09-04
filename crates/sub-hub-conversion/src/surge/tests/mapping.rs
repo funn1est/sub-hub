@@ -120,10 +120,11 @@ fn hysteria2_salamander_and_gecko_are_exact_and_hop_is_skipped() {
 }
 
 #[test]
-fn default_tuic_is_exact_and_non_default_congestion_is_skipped() {
+fn default_tuic_is_exact_and_non_default_congestion_and_quic_udp_relay_are_skipped() {
     let source = concat!(
         "tuic://01234567-89ab-cdef-0123-456789abcdef:pass@EXAMPLE.COM:443#Plain\n",
         "tuic://01234567-89ab-cdef-0123-456789abcdef:pass@example.com:443?congestion_control=bbr#Bbr\n",
+        "tuic://01234567-89ab-cdef-0123-456789abcdef:pass@example.com:443?udp_relay_mode=quic#Quic\n",
         "ss://aes-128-gcm:password@example.com:8388#Classic\n",
     );
     let output =
@@ -133,7 +134,11 @@ fn default_tuic_is_exact_and_non_default_congestion_is_skipped() {
         "Plain = tuic-v5, example.com, 443, uuid=01234567-89ab-cdef-0123-456789abcdef, password=pass, skip-cert-verify=false"
     ));
     assert!(!text.contains("Bbr ="));
-    assert_eq!(output.skip_counts().capability, 1);
+    assert!(!text.contains("Quic ="));
+    assert!(text.contains(
+        "Classic = ss, example.com, 8388, encrypt-method=aes-128-gcm, password=password"
+    ));
+    assert_eq!(output.skip_counts().capability, 2);
 }
 
 #[test]

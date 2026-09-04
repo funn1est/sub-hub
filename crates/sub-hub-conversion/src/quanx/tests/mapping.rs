@@ -211,6 +211,27 @@ fn websocket_tls_and_shadowsocks_project_supported_fields() {
 }
 
 #[test]
+fn simple_obfs_http_and_tls_are_exact() {
+    let source = concat!(
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dobfs.example#ObfsHttp\n",
+        "ss://aes-128-gcm:password@example.com:8388?plugin=obfs-local%3Bobfs%3Dtls%3Bobfs-host%3Dobfs.example#ObfsTls\n",
+        "ss://aes-128-gcm:password@example.com:8388#Classic\n",
+    );
+    let output =
+        render_remote_builtin(OutputTarget::Quanx, &[source.as_bytes()]).expect("rendered");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains(
+        "shadowsocks=example.com:8388, method=aes-128-gcm, password=password, udp-relay=true, fast-open=false, obfs=http, obfs-host=obfs.example, tag=ObfsHttp\n"
+    ));
+    assert!(text.contains(
+        "shadowsocks=example.com:8388, method=aes-128-gcm, password=password, udp-relay=true, fast-open=false, obfs=tls, obfs-host=obfs.example, tag=ObfsTls\n"
+    ));
+    assert!(text.contains(
+        "shadowsocks=example.com:8388, method=aes-128-gcm, password=password, udp-relay=true, fast-open=false, tag=Classic\n"
+    ));
+}
+
+#[test]
 fn reserved_node_tags_are_skipped() {
     let output = prepare_subscription_v1(&[
         SubscriptionSourceV1::Direct(
