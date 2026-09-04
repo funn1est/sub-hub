@@ -80,10 +80,9 @@ fn errors_and_rejections_do_not_retain_source_secrets() {
 #[test]
 fn unexpanded_https_debug_does_not_retain_subscription_urls() {
     const UNEXPANDED: &str = "https://secret-canary.example/private-token";
-    let parsed = parse_subscription_source_inputs(&[SubscriptionSourceV1::UnexpandedHttps(
-        UNEXPANDED,
-    )])
-    .expect("unexpanded https is a valid source");
+    let parsed =
+        parse_subscription_source_inputs(&[SubscriptionSourceV1::UnexpandedHttps(UNEXPANDED)])
+            .expect("unexpanded https is a valid source");
     let rendered = format!("{parsed:?}");
     assert!(!rendered.contains("secret-canary"));
     assert!(!rendered.contains(UNEXPANDED));
