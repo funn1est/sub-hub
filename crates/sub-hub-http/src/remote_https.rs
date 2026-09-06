@@ -17,7 +17,7 @@ impl std::error::Error for RemoteHttpsError {}
 /// Maximum UTF-8 byte length of a followed-redirect `Location` value.
 const MAX_REDIRECT_LOCATION_BYTES: usize = 8_192;
 /// Maximum octet length of a host-observed `Subscription-UserInfo` value.
-const MAX_SUBSCRIPTION_USER_INFO_BYTES: usize = 256;
+pub(crate) const MAX_SUBSCRIPTION_USER_INFO_BYTES: usize = 256;
 
 /// Statuses the broker follows as a single-hop redirect.
 #[must_use]
@@ -139,7 +139,7 @@ where
 }
 
 /// Header decision for one HTTPS hop. Body octets follow only `Success`.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub(crate) enum HttpsHopHeaders {
     Redirect {
         location: String,
@@ -148,6 +148,31 @@ pub(crate) enum HttpsHopHeaders {
     Success {
         subscription_user_info: Option<Vec<u8>>,
     },
+}
+
+impl fmt::Debug for HttpsHopHeaders {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Redirect { .. } => formatter
+                .debug_struct("Redirect")
+                .field("location", &"[REDACTED]")
+                .finish(),
+            Self::Unsuccessful => formatter.write_str("Unsuccessful"),
+            Self::Success {
+                subscription_user_info,
+            } => formatter
+                .debug_struct("Success")
+                .field(
+                    "subscription_user_info",
+                    &if subscription_user_info.is_some() {
+                        "present"
+                    } else {
+                        "absent"
+                    },
+                )
+                .finish(),
+        }
+    }
 }
 
 /// Body octets are required only for a successful hop.
@@ -382,5 +407,32 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn hop_headers_debug_redacts_location_and_userinfo() {
+        const LOCATION: &str = "https://secret-canary.example/sub";
+        const USERINFO: &[u8] = b"upload=1; download=2; total=3";
+
+        let redirect = HttpsHopHeaders::Redirect {
+            location: LOCATION.to_owned(),
+        };
+        let redirect_debug = format!("{redirect:?}");
+        assert!(redirect_debug.contains("[REDACTED]"));
+        assert!(!redirect_debug.contains(LOCATION));
+        assert!(!redirect_debug.contains("secret-canary"));
+
+        let success = HttpsHopHeaders::Success {
+            subscription_user_info: Some(USERINFO.to_vec()),
+        };
+        let success_debug = format!("{success:?}");
+        assert!(success_debug.contains("present"));
+        assert!(!success_debug.contains("upload"));
+        assert!(!success_debug.contains("download"));
+
+        let absent = HttpsHopHeaders::Success {
+            subscription_user_info: None,
+        };
+        assert!(format!("{absent:?}").contains("absent"));
     }
 }

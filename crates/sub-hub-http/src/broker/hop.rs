@@ -7,14 +7,25 @@ use http::StatusCode;
 
 use super::RemoteFetchError;
 use crate::remote_https::{
-    HttpsHopHeaders, https_hop_needs_body, interpret_https_headers, is_followed_redirect,
+    HttpsHopHeaders, MAX_SUBSCRIPTION_USER_INFO_BYTES, https_hop_needs_body,
+    interpret_https_headers, is_followed_redirect,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) enum HeaderObservation {
     Absent,
     One(Vec<u8>),
     Invalid,
+}
+
+impl fmt::Debug for HeaderObservation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Absent => "absent",
+            Self::One(_) => "present",
+            Self::Invalid => "invalid",
+        })
+    }
 }
 
 pub struct RemoteResponse {
@@ -64,7 +75,7 @@ impl RemoteResponse {
 
     #[must_use]
     pub fn with_subscription_user_info(mut self, value: Vec<u8>) -> Self {
-        self.subscription_user_info = if value.len() <= 256 {
+        self.subscription_user_info = if value.len() <= MAX_SUBSCRIPTION_USER_INFO_BYTES {
             HeaderObservation::One(value)
         } else {
             HeaderObservation::Invalid
@@ -306,7 +317,7 @@ where
 mod tests {
     use http::StatusCode;
 
-    use super::{HttpsHopOutcome, append_hop_chunk, begin_https_hop};
+    use super::{HeaderObservation, HttpsHopOutcome, append_hop_chunk, begin_https_hop};
 
     #[test]
     fn append_hop_chunk_stops_at_the_hop_cap() {
@@ -435,5 +446,15 @@ mod tests {
         ))
         .expect("redirect hop");
         assert!(redirect.body.is_empty());
+    }
+
+    #[test]
+    fn header_observation_debug_does_not_dump_userinfo_bytes() {
+        const USERINFO: &[u8] = b"upload=1; download=2; total=3";
+        let debug = format!("{:?}", HeaderObservation::One(USERINFO.to_vec()));
+        assert_eq!(debug, "present");
+        assert!(!debug.contains("upload"));
+        assert_eq!(format!("{:?}", HeaderObservation::Absent), "absent");
+        assert_eq!(format!("{:?}", HeaderObservation::Invalid), "invalid");
     }
 }

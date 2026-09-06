@@ -31,7 +31,6 @@ pub fn canonicalize_inbound_host(raw_host: &str) -> Option<String> {
     }
 }
 
-/// Whether a already-canonical inbound host can be used as the self-target deny.
 #[must_use]
 pub(crate) fn is_valid_inbound_host(host: &str) -> bool {
     is_canonical_dns_name(host) || host.parse::<std::net::IpAddr>().is_ok()
