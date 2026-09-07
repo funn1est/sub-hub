@@ -22,15 +22,6 @@ invocation_logs = false
 [build]
 command = "cd crates/sub-hub-worker && worker-build --release"
 
-[build.upload]
-dir = "crates/sub-hub-worker/build/worker"
-format = "modules"
-main = "./shim.mjs"
-
-[[build.upload.rules]]
-globs = ["**/*.wasm"]
-type = "CompiledWasm"
-
 [assets]
 directory = "apps/console/dist"
 not_found_handling = "single-page-application"
