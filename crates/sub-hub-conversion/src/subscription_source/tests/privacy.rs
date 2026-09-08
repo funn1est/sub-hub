@@ -1,4 +1,7 @@
-use super::{NodeOccurrence, NodeOrigin, SubscriptionParseError, parse_subscription_sources};
+use super::{
+    NodeOccurrence, NodeOrigin, SubscriptionParseError, SubscriptionSourceV1,
+    parse_subscription_source_inputs, parse_subscription_sources,
+};
 
 #[test]
 fn source_error_codes_are_closed_and_low_cardinality() {
@@ -64,12 +67,17 @@ fn errors_and_rejections_do_not_retain_source_secrets() {
     let accepted = format!(
         "vless://11111111-1111-4111-8111-111111111111@{CANARY}:443?encryption=none#{CANARY}"
     );
-    let parsed =
-        parse_subscription_sources(&[accepted.as_bytes()]).expect("accepted canary fixture");
+    let unexpanded = format!("https://{CANARY}/private-token");
+    let parsed = parse_subscription_source_inputs(&[
+        SubscriptionSourceV1::Remote(accepted.as_bytes()),
+        SubscriptionSourceV1::UnexpandedHttps(&unexpanded),
+    ])
+    .expect("accepted canary fixture");
     for rendered in [
         format!("{parsed:?}"),
         format!("{:?}", parsed.occurrences[0]),
     ] {
         assert!(!rendered.contains(CANARY));
+        assert!(!rendered.contains(&unexpanded));
     }
 }
