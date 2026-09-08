@@ -1,4 +1,7 @@
-use super::{NodeOccurrence, NodeOrigin, SubscriptionParseError, parse_subscription_sources};
+use super::{
+    NodeOccurrence, NodeOrigin, SubscriptionParseError, SubscriptionSourceV1,
+    parse_subscription_source_inputs, parse_subscription_sources,
+};
 
 mod container;
 mod framing;
