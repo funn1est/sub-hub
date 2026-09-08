@@ -69,18 +69,9 @@ test("splitArgv copies targeting flags and keeps ensure flags out of wrangler ar
   assert.ok(!ensureArgv.includes("deployer-token"));
 });
 
-test("decide refuses CI and ambient-less puts without an explicit blob", () => {
+test("decide requires an explicit blob for ambient-less puts", () => {
   assert.equal(
     decide({
-      ci: true,
-      listResult: "absent",
-      flags: {},
-    }),
-    "refuse-ci",
-  );
-  assert.equal(
-    decide({
-      ci: false,
       listResult: null,
       flags: { tokensFile: "tokens.txt" },
     }),
@@ -88,7 +79,6 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
   );
   assert.equal(
     decide({
-      ci: false,
       listResult: "indeterminate",
       flags: { fromEnv: true },
     }),
@@ -96,7 +86,6 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
   );
   assert.equal(
     decide({
-      ci: false,
       listResult: "indeterminate",
       flags: { deploy: true },
     }),
@@ -104,7 +93,6 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
   );
   assert.equal(
     decide({
-      ci: false,
       listResult: "present",
       flags: { deploy: true },
     }),
@@ -112,7 +100,6 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
   );
   assert.equal(
     decide({
-      ci: false,
       listResult: "present",
       flags: { deploy: true, replace: true },
     }),
@@ -120,7 +107,6 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
   );
   assert.equal(
     decide({
-      ci: false,
       listResult: "absent",
       flags: { deploy: true },
     }),
@@ -128,7 +114,6 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
   );
   assert.equal(
     decide({
-      ci: false,
       listResult: "present",
       flags: { replace: true },
     }),
@@ -136,7 +121,6 @@ test("decide refuses CI and ambient-less puts without an explicit blob", () => {
   );
   assert.equal(
     decide({
-      ci: false,
       listResult: null,
       flags: { replace: true, preview: true },
     }),

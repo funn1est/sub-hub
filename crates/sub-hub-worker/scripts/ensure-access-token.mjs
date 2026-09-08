@@ -124,11 +124,7 @@ export function splitArgv(argv) {
   return { flags, targeting, forwarded };
 }
 
-export function decide({ ci, listResult, flags }) {
-  if (ci) {
-    return "refuse-ci";
-  }
-
+export function decide({ listResult, flags }) {
   if (flags.replace && !flags.deploy) {
     return "abort-usage";
   }
@@ -333,7 +329,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   const listResult = needsList ? listSecrets(targeting) : null;
   let action;
   try {
-    action = decide({ ci: false, listResult, flags });
+    action = decide({ listResult, flags });
   } catch (error) {
     fail(error instanceof Error ? error.message : "invalid access token list");
   }

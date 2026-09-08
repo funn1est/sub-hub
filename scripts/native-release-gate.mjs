@@ -8,8 +8,6 @@ import { parseSemver } from "./workspace-version.mjs";
 const USAGE =
   "usage: node scripts/native-release-gate.mjs --event <name> --ref-type <branch|tag> --ref-name <name> --current <X.Y.Z> [--previous <X.Y.Z>] --release-exists <true|false>";
 
-export const ZERO_SHA = "0".repeat(40);
-
 export function parseBool(raw) {
   if (raw === "true") {
     return true;

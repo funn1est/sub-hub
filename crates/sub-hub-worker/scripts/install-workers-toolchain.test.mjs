@@ -55,6 +55,8 @@ test("Workers Builds deploy helper keeps vars, builds Console, and skips token e
   assert.match(script, /dist\/index\.html/);
   assert.match(script, /wrangler\.worker\.toml/);
   assert.match(script, /repo_root\/wrangler\.toml/);
+  assert.match(script, /\[ ! -f "\$repo_root\/wrangler\.toml" \]/);
+  assert.doesNotMatch(script, /worker_root\/wrangler\.toml/);
   assert.match(script, /all\|worker/);
   assert.doesNotMatch(script, /ensure-access-token/);
   assert.doesNotMatch(script, /pnpm run deploy/);
