@@ -464,7 +464,7 @@ mod tests {
             &b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#SecretName"[..],
         ])
         .expect("valid source");
-        let named = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
+        let (named, _) = resolve_node_names(parsed, &["PROXY", "AUTO"]).expect("names");
         let nodes = named
             .occurrences()
             .iter()

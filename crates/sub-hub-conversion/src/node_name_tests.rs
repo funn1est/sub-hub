@@ -3,7 +3,10 @@ use crate::{
         GroupNameError, NamedNodeOccurrence, NamedSubscriptionSources, NodeNameDiagnosticKind,
         NodeNameError, resolve_node_names,
     },
-    subscription_source::parse_subscription_sources,
+    subscription_source::{
+        ParsedSubscriptionSources, SubscriptionSourceV1, parse_subscription_source_inputs,
+        parse_subscription_sources,
+    },
 };
 use std::fmt::Write as _;
 
@@ -29,7 +32,7 @@ fn node_name_v1_golden_vectors_are_byte_stable() {
     );
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("golden source");
 
-    let named = resolve_node_names(parsed, &ACL4SSR_VS16_GROUPS).expect("golden namespace");
+    let named = named_sources(parsed, &ACL4SSR_VS16_GROUPS).expect("golden namespace");
     let actual = accepted_names(&named)
         .into_iter()
         .map(str::as_bytes)
@@ -57,12 +60,12 @@ fn node_name_v1_golden_vectors_are_byte_stable() {
 fn empty_query_fragment_is_the_node_name() {
     let with_empty_query = format!("{SHADOWSOCKS_PREFIX}?#Alpha");
     let fragment_only = format!("{SHADOWSOCKS_PREFIX}#Alpha");
-    let named_empty = resolve_node_names(
+    let named_empty = named_sources(
         parse_subscription_sources(&[with_empty_query.as_bytes()]).expect("empty query source"),
         &[],
     )
     .expect("empty query names");
-    let named_fragment = resolve_node_names(
+    let named_fragment = named_sources(
         parse_subscription_sources(&[fragment_only.as_bytes()]).expect("fragment source"),
         &[],
     )
@@ -77,7 +80,7 @@ fn canonicalizes_unicode_whitespace_at_the_resolver_seam() {
     let source = format!("{VLESS_PREFIX}#%20%20Alpha%C2%A0Beta%20%20");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
 
     let NamedNodeOccurrence::Accepted { node, .. } = &named.occurrences()[0] else {
         panic!("fixture must be accepted")
@@ -104,7 +107,7 @@ fn maps_every_unicode_17_white_space_scalar_to_ascii_space() {
         .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
 
     for (index, name) in accepted_names(&named).into_iter().enumerate() {
         assert_eq!(name, format!("A B{index}"));
@@ -126,7 +129,7 @@ fn invalid_remarks_fall_back_to_protocol_and_canonical_endpoint() {
     let source = format!("{VLESS_PREFIX}\n{SHADOWSOCKS_PREFIX}#\n{ipv6}");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("fallbacks are recoverable");
+    let named = named_sources(parsed, &[]).expect("fallbacks are recoverable");
 
     assert_eq!(
         accepted_names(&named),
@@ -162,7 +165,7 @@ fn exactly_one_thousand_twenty_four_remark_bytes_are_not_oversized() {
     let source = format!("{VLESS_PREFIX}#{remark}");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid name");
+    let named = named_sources(parsed, &[]).expect("valid name");
 
     assert_eq!(accepted_names(&named), ["x".repeat(128)]);
     assert_eq!(
@@ -192,7 +195,7 @@ fn removes_unsafe_codepoints_before_nfc_and_keeps_approved_exceptions() {
     );
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid Unicode source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
 
     assert_eq!(
         accepted_names(&named),
@@ -237,7 +240,7 @@ fn preserves_join_controls_and_all_variation_selector_ranges() {
         .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
 
     assert_eq!(accepted_names(&named), remarks);
     assert_eq!(
@@ -266,7 +269,7 @@ fn emoji_tag_sequences_obey_well_formedness_and_thirty_two_scalar_limit() {
     .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
 
     assert_eq!(
         accepted_names(&named),
@@ -306,7 +309,7 @@ fn emoji_tag_sequence_requires_a_valid_unicode_17_presentation_sequence() {
     .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
 
     assert_eq!(
         accepted_names(&named),
@@ -327,7 +330,7 @@ fn unassigned_noncharacter_and_clean_empty_remarks_use_fallback() {
     );
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source encoding");
 
-    let named = resolve_node_names(parsed, &[]).expect("fallbacks are recoverable");
+    let named = named_sources(parsed, &[]).expect("fallbacks are recoverable");
 
     assert_eq!(
         accepted_names(&named),
@@ -403,11 +406,11 @@ fn validates_the_complete_group_namespace_before_allocating_nodes() {
 
     for (groups, expected) in cases {
         let parsed = parse_subscription_sources(&[b"".as_slice()]).expect("empty source");
-        assert_eq!(resolve_node_names(parsed, groups), Err(expected));
+        assert_eq!(naming_error(parsed, groups), expected);
     }
 
     let parsed = parse_subscription_sources(&[b"".as_slice()]).expect("empty source");
-    assert!(resolve_node_names(parsed, &ACL4SSR_VS16_GROUPS).is_ok());
+    assert!(named_sources(parsed, &ACL4SSR_VS16_GROUPS).is_ok());
 }
 
 #[test]
@@ -417,7 +420,7 @@ fn frozen_symbol_set_is_limited_to_ten_thousand_unique_names() {
         .collect::<Vec<_>>();
     let group_refs = groups.iter().map(String::as_str).collect::<Vec<_>>();
     let parsed = parse_subscription_sources(&[b"".as_slice()]).expect("empty source");
-    assert!(resolve_node_names(parsed, &group_refs).is_ok());
+    assert!(named_sources(parsed, &group_refs).is_ok());
 
     let groups = (0..9_999)
         .map(|index| format!("Group {index}"))
@@ -425,8 +428,8 @@ fn frozen_symbol_set_is_limited_to_ten_thousand_unique_names() {
     let group_refs = groups.iter().map(String::as_str).collect::<Vec<_>>();
     let parsed = parse_subscription_sources(&[b"".as_slice()]).expect("empty source");
     assert_eq!(
-        resolve_node_names(parsed, &group_refs),
-        Err(NodeNameError::TooManySymbols)
+        naming_error(parsed, &group_refs),
+        NodeNameError::TooManySymbols
     );
 }
 
@@ -440,7 +443,7 @@ fn allocator_respects_reserved_group_and_suffix_occupancy_in_origin_order() {
         .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &["Group"]).expect("valid namespace");
+    let named = named_sources(parsed, &["Group"]).expect("valid namespace");
 
     assert_eq!(
         accepted_names(&named),
@@ -465,8 +468,25 @@ fn allocator_respects_reserved_group_and_suffix_occupancy_in_origin_order() {
         .collect::<Vec<_>>()
         .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
-    let named = resolve_node_names(parsed, &[]).expect("valid namespace");
+    let named = named_sources(parsed, &[]).expect("valid namespace");
     assert_eq!(accepted_names(&named), ["X~00001", "X", "X~00002"]);
+}
+
+#[test]
+fn unexpanded_host_tags_occupy_the_allocator_before_node_names() {
+    let node = format!("{VLESS_PREFIX}#panel.example");
+    let remote = "https://panel.example/list";
+    let parsed = parse_subscription_source_inputs(&[
+        SubscriptionSourceV1::Remote(node.as_bytes()),
+        SubscriptionSourceV1::UnexpandedHttps(remote),
+    ])
+    .expect("node plus unexpanded remote");
+
+    let (named, unexpanded) = resolve_node_names(parsed, &[]).expect("occupied namespace");
+
+    assert_eq!(unexpanded[0].name(), "panel.example");
+    assert_eq!(accepted_names(&named), ["panel.example~00001"]);
+    assert!(!format!("{named:?}").contains(remote));
 }
 
 #[test]
@@ -480,7 +500,7 @@ fn canonical_equivalents_collide_and_suffix_counter_crosses_decimal_width() {
         .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
     let allocated = accepted_names(&named);
 
     assert_eq!(&allocated[..2], ["é", "é~00001"]);
@@ -520,7 +540,7 @@ fn truncation_and_single_grapheme_fallback_obey_128_and_122_byte_budgets() {
         .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
     let allocated = accepted_names(&named);
 
     assert_eq!(allocated[0], "a".repeat(128));
@@ -548,7 +568,7 @@ fn truncation_never_splits_a_zwj_emoji_cluster() {
     let source = format!("{VLESS_PREFIX}#{}", percent_encode(&remark));
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid name");
+    let named = named_sources(parsed, &[]).expect("valid name");
 
     assert_eq!(accepted_names(&named), ["a".repeat(120)]);
     assert_eq!(
@@ -564,7 +584,7 @@ fn rejected_occurrences_remain_in_place_and_do_not_occupy_names() {
     let source = format!("{VLESS_PREFIX}#X\nunknown://secret@example.invalid#X\n{VLESS_PREFIX}#X");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("mixed source");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
 
     assert_eq!(named.occurrences().len(), 3);
     assert!(matches!(
@@ -581,7 +601,7 @@ fn accepted_duplicates_from_multiple_sources_are_named_in_declaration_order() {
     let parsed = parse_subscription_sources(&[first.as_bytes(), second.as_bytes()])
         .expect("ordered duplicate sources");
 
-    let named = resolve_node_names(parsed, &[]).expect("valid names");
+    let named = named_sources(parsed, &[]).expect("valid names");
 
     assert_eq!(accepted_names(&named), ["Same", "Same~00001", "Same~00002"]);
 }
@@ -591,14 +611,14 @@ fn naming_debug_output_does_not_retain_raw_names_groups_or_credentials() {
     const CANARY: &str = "naming-secret-canary";
     let source = format!("ss://aes-128-gcm:{CANARY}@example.net:8388#{CANARY}");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("valid source");
-    let named = resolve_node_names(parsed, &[]).expect("valid name");
+    let named = named_sources(parsed, &[]).expect("valid name");
 
     let rendered = format!("{named:?}");
     assert!(!rendered.contains(CANARY));
     assert!(!rendered.contains("password"));
 
     let parsed = parse_subscription_sources(&[b"".as_slice()]).expect("empty source");
-    let error = resolve_node_names(parsed, &[CANARY, CANARY]).expect_err("duplicate group");
+    let error = naming_error(parsed, &[CANARY, CANARY]);
     assert!(!format!("{error:?}").contains(CANARY));
 }
 
@@ -611,7 +631,7 @@ fn ten_thousand_duplicate_occurrences_terminate_with_five_digit_suffixes() {
         .join("\n");
     let parsed = parse_subscription_sources(&[source.as_bytes()]).expect("maximum occurrences");
 
-    let named = resolve_node_names(parsed, &[]).expect("allocator terminates");
+    let named = named_sources(parsed, &[]).expect("allocator terminates");
     let allocated = accepted_names(&named);
 
     assert_eq!(allocated.len(), 10_000);
@@ -648,11 +668,12 @@ mod properties {
             let second_parsed = parse_subscription_sources(&[source.as_bytes()])
                 .expect("bounded percent-encoded source");
 
-            let first = resolve_node_names(first_parsed, &["Group"]);
-            let second = resolve_node_names(second_parsed, &["Group"]);
+            let named = named_sources(first_parsed, &["Group"])
+                .expect("valid fixed namespace");
+            let named_again = named_sources(second_parsed, &["Group"])
+                .expect("valid fixed namespace");
 
-            prop_assert_eq!(&first, &second);
-            let named = first.expect("valid fixed namespace");
+            prop_assert_eq!(&named, &named_again);
             let names = accepted_names(&named);
             prop_assert_eq!(names.len(), 1);
             prop_assert!(!names[0].is_empty());
@@ -671,6 +692,20 @@ fn percent_encode(input: &str) -> String {
         write!(&mut encoded, "%{byte:02X}").expect("writing to a String cannot fail");
     }
     encoded
+}
+
+fn named_sources(
+    parsed: ParsedSubscriptionSources,
+    groups: &[&str],
+) -> Result<NamedSubscriptionSources, NodeNameError> {
+    resolve_node_names(parsed, groups).map(|(named, _)| named)
+}
+
+fn naming_error(parsed: ParsedSubscriptionSources, groups: &[&str]) -> NodeNameError {
+    match resolve_node_names(parsed, groups) {
+        Err(error) => error,
+        Ok(_) => panic!("expected naming error"),
+    }
 }
 
 fn accepted_names(named: &NamedSubscriptionSources) -> Vec<&str> {

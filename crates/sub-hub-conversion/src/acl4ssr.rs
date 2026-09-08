@@ -16,7 +16,7 @@ use policy_compile::{RuleEntry, compile_acl4ssr_policy};
 
 use crate::{
     OutputTarget, UniqueFlightFillV1,
-    node_name::resolve_node_names_reserving,
+    node_name::resolve_node_names,
     render::{ConversionRenderError, MAX_OUTPUT_BYTES, render_named_policy},
     subscription_source::ParsedSubscriptionSources,
     unique_fill::{DecodedBudget, SessionUrlIndex},
@@ -70,15 +70,7 @@ impl PreparedAcl4SsrV1 {
             .iter()
             .map(|group| group.name.as_str())
             .collect::<Vec<_>>();
-        let unexpanded = crate::policy::unexpanded_from_urls(
-            &self.parsed_subscription.unexpanded_https,
-            &group_names,
-        );
-        let reserved: Vec<&str> = unexpanded
-            .iter()
-            .map(crate::policy::UnexpandedSubscriptionV1::name)
-            .collect();
-        let named = resolve_node_names_reserving(self.parsed_subscription, &group_names, &reserved)
+        let (named, unexpanded) = resolve_node_names(self.parsed_subscription, &group_names)
             .map_err(|_| Acl4SsrRenderError::Internal)?;
         let nodes = crate::render::accepted_nodes(&named);
         let node_names = nodes
@@ -449,15 +441,7 @@ fn render(
         .iter()
         .map(|group| group.name.as_str())
         .collect::<Vec<_>>();
-    let unexpanded = crate::policy::unexpanded_from_urls(
-        &prepared.parsed_subscription.unexpanded_https,
-        &group_names,
-    );
-    let reserved: Vec<&str> = unexpanded
-        .iter()
-        .map(crate::policy::UnexpandedSubscriptionV1::name)
-        .collect();
-    let named = resolve_node_names_reserving(prepared.parsed_subscription, &group_names, &reserved)
+    let (named, unexpanded) = resolve_node_names(prepared.parsed_subscription, &group_names)
         .map_err(|_| Acl4SsrRenderError::Internal)?;
     let nodes = crate::render::accepted_nodes(&named);
     let node_names = nodes
