@@ -194,10 +194,17 @@ pnpm run deploy
 ```
 
 `pnpm run deploy` 是 `all` layout：一个 Worker，Console 资源在同一
-origin。这符合 Cloudflare Workers Free（压缩脚本小于 3 MB gzip；静态
-资源是单独的免费额度）。打开打印出的 `*.workers.dev` URL。若
-`SUB_HUB_ACCESS_TOKEN` 的 **值** 显示 **值已加密**，把同一个 access
-token 贴进页面。
+origin。这符合 Cloudflare Workers Free（未压缩 Worker 体积小于 64 MiB，
+Free 与 Paid 相同；静态资源是单独的免费额度）。Cloudflare 计入的是
+`Total Upload`：
+
+```sh
+pnpm exec wrangler deploy --dry-run
+```
+
+`gzip` 仅作参考，不再是限额。`pnpm run deploy` 之后打开打印出的
+`*.workers.dev` URL。若 `SUB_HUB_ACCESS_TOKEN` 的 **值** 显示 **值已加密**，
+把同一个 access token 贴进页面。
 
 仅 Conversion：`pnpm run deploy:worker`。仅 Console：
 `pnpm run deploy:console`（然后在 Conversion 上用 `--cors-origin` 设置

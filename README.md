@@ -212,10 +212,18 @@ pnpm run deploy
 ```
 
 `pnpm run deploy` is the `all` layout: one Worker, Console assets on
-that same origin. That fits Cloudflare Workers Free (compressed script
-under 3 MB gzip; static assets are a separate, free quota). Open the
-printed `*.workers.dev` URL. If **Value** shows **Value encrypted** for
-`SUB_HUB_ACCESS_TOKEN`, paste that same access token into the page.
+that same origin. That fits Cloudflare Workers Free (uncompressed Worker
+size under 64 MiB on Free and Paid; static assets are a separate, free
+quota). Cloudflare counts `Total Upload` from:
+
+```sh
+pnpm exec wrangler deploy --dry-run
+```
+
+The `gzip` value is reference only and is not a limit. After `pnpm run
+deploy`, open the printed `*.workers.dev` URL. If **Value** shows **Value
+encrypted** for `SUB_HUB_ACCESS_TOKEN`, paste that same access token into
+the page.
 
 Conversion only: `pnpm run deploy:worker`. Console only:
 `pnpm run deploy:console` (then set `SUB_HUB_CORS_ORIGINS` on Conversion

@@ -123,17 +123,33 @@ holds real values.
 
 ### Cloudflare Free
 
-Layout `all` fits the [Workers Free](https://developers.cloudflare.com/workers/platform/limits/)
-plan: the compressed Worker script is under the 3 MB gzip limit (this
-repository's Wasm gzip is well under 1 MB); `pnpm run test:host` after
-`worker-build --release` fails if gzip reaches 3 MiB, and CI cannot skip
+Layout `all` fits the [Workers Free](https://developers.cloudflare.com/workers/platform/limits/#worker-size)
+plan: Cloudflare checks only uncompressed Worker size, **64 MiB** on
+Free and Paid. There is no compressed size limit. This repository's Wasm is
+well under that. `pnpm run test:host` after `worker-build --release`
+fails if uncompressed `index_bg.wasm` reaches 64 MiB, and CI cannot skip
 that check. Console files are Workers Static Assets (Free allows 20,000
-files, 25 MiB each) and do **not** count toward that 3 MB. Static asset
+files, 25 MiB each) and do **not** count toward Worker size. Static asset
 requests are [free and
 unlimited](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/).
 `/version` and `/sub` invoke the script (`run_worker_first`) and count
 toward the Free 100,000 requests/day and 10 ms CPU/request. Two Workers
 (console-only + conversion-only) also fit Free (100 Workers/account).
+
+To print the bundle size Cloudflare counts, from this directory (layout
+`all` needs Console `dist/`, same as deploy):
+
+```sh
+pnpm exec wrangler deploy --dry-run
+```
+
+Wrangler prints `Total Upload: … / gzip: …`. `Total Upload` is
+uncompressed size (the 64 MiB limit). `gzip` is reference only.
+`--outdir` is optional: Cloudflare's example uses `bundled/`; omitting
+the flag writes the bundle to a temp directory under `.wrangler/` and
+still prints `Total Upload`. Do not use `pnpm run deploy -- --dry-run`
+for this check: that flag prints the helper's plan and does not run
+Wrangler.
 
 A typical ACL4SSR `/sub` may spend most of its wall time in `fetch`
 (not billed as CPU) and then spend Wasm CPU on Keep-pass. Free is 10 ms

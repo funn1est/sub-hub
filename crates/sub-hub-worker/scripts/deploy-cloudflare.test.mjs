@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import zlib from "node:zlib";
 
 import {
   consoleDeployArgv,
@@ -214,17 +213,17 @@ test("Workers Logs stay on without recording GET URLs", () => {
   }
 });
 
-test("compressed Wasm fits Workers Free 3 MB gzip", () => {
+test("uncompressed Wasm fits Workers 64 MiB", () => {
   const wasm = path.join(here, "..", "build", "index_bg.wasm");
   if (!fs.existsSync(wasm)) {
     if (process.env.CI) {
-      assert.fail("CI must build index_bg.wasm before the gzip gate");
+      assert.fail("CI must build index_bg.wasm before the Worker size gate");
     }
     return;
   }
-  const gzip = zlib.gzipSync(fs.readFileSync(wasm), { level: 9 });
+  const bytes = fs.statSync(wasm).size;
   assert.ok(
-    gzip.length < 3 * 1024 * 1024,
-    `gzip ${gzip.length} bytes must stay under 3 MiB`,
+    bytes < 64 * 1024 * 1024,
+    `uncompressed ${bytes} bytes must stay under 64 MiB`,
   );
 });

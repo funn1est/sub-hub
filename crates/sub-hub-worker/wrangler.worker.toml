@@ -17,12 +17,3 @@ invocation_logs = false
 
 [build]
 command = "worker-build --release"
-
-[build.upload]
-dir = "build/worker"
-format = "modules"
-main = "./shim.mjs"
-
-[[build.upload.rules]]
-globs = ["**/*.wasm"]
-type = "CompiledWasm"
