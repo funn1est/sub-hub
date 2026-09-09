@@ -75,14 +75,13 @@ if [ "$layout" = "worker" ]; then
   wrangler_config="$worker_root/wrangler.worker.toml"
   wrangler_cwd="$worker_root"
 else
-  build_console
-  if [ -f "$repo_root/wrangler.toml" ]; then
-    wrangler_config="$repo_root/wrangler.toml"
-    wrangler_cwd="$repo_root"
-  else
-    wrangler_config="$worker_root/wrangler.toml"
-    wrangler_cwd="$worker_root"
+  if [ ! -f "$repo_root/wrangler.toml" ]; then
+    printf '%s\n' "repository-root wrangler.toml missing; layout all requires the button contract" >&2
+    exit 1
   fi
+  build_console
+  wrangler_config="$repo_root/wrangler.toml"
+  wrangler_cwd="$repo_root"
 fi
 
 cd "$wrangler_cwd"

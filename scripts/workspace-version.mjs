@@ -174,12 +174,10 @@ if (invokedDirectly) {
       const version = readWorkspaceVersion(cargoToml);
       if (flag === "--body") {
         process.stdout.write(versionBody(version));
-      } else if (flag === "--ua") {
-        process.stdout.write(outboundUserAgent(version));
       } else if (flag === undefined) {
         process.stdout.write(version);
       } else {
-        throw new Error("usage: node scripts/workspace-version.mjs [--body|--ua|--stdin]");
+        throw new Error("usage: node scripts/workspace-version.mjs [--body|--stdin]");
       }
     }
   } catch (error) {

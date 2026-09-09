@@ -7,7 +7,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  ZERO_SHA,
   decideNativeRelease,
   parseBool,
   parseGateArgv,
@@ -153,7 +152,6 @@ test("decideNativeRelease publishes a matching tag or dispatch when the release 
 });
 
 test("decideNativeRelease treats a missing previous version as a publish on main", () => {
-  assert.equal(ZERO_SHA.length, 40);
   assert.deepEqual(
     decideNativeRelease({
       eventName: "push",
