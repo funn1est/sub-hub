@@ -2,7 +2,7 @@
 # crates/sub-hub-worker). Default publish is `all` on the Conversion
 # Worker. Do not add account_id.
 name = "sub-hub-console"
-compatibility_date = "2026-08-13"
+compatibility_date = "2026-09-03"
 
 # Errors only. Invocation logs include the request URL.
 [observability]
