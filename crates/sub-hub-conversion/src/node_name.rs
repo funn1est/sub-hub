@@ -9,7 +9,6 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     node::{Host, NodeNameInput, NodeProtocol, ProxyNode, ProxyNodeDraft},
-    policy::{UnexpandedSubscriptionV1, unexpanded_from_urls},
     subscription_source::{NodeOccurrence, ParsedSubscriptionSources},
 };
 
@@ -129,24 +128,9 @@ impl NodeNameDiagnostics {
     }
 }
 
-/// Occupies unexpanded HTTPS host tags, then names nodes.
-///
-/// Named remotes are the second return value for policy compile so subscription
-/// URLs stay off [`NamedSubscriptionSources`].
+/// Allocates display names. `reserved_extra` is occupied before nodes so
+/// unexpanded host tags win collisions.
 pub(crate) fn resolve_node_names(
-    parsed: ParsedSubscriptionSources,
-    final_group_names: &[&str],
-) -> Result<(NamedSubscriptionSources, Vec<UnexpandedSubscriptionV1>), NodeNameError> {
-    let unexpanded = unexpanded_from_urls(&parsed.unexpanded_https, final_group_names);
-    let reserved: Vec<&str> = unexpanded
-        .iter()
-        .map(UnexpandedSubscriptionV1::name)
-        .collect();
-    let named = resolve_node_names_reserving(parsed, final_group_names, &reserved)?;
-    Ok((named, unexpanded))
-}
-
-fn resolve_node_names_reserving(
     parsed: ParsedSubscriptionSources,
     final_group_names: &[&str],
     reserved_extra: &[&str],

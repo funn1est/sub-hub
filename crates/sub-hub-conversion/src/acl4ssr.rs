@@ -16,8 +16,7 @@ use policy_compile::{RuleEntry, compile_acl4ssr_policy};
 
 use crate::{
     OutputTarget, UniqueFlightFillV1,
-    node_name::resolve_node_names,
-    render::{ConversionRenderError, MAX_OUTPUT_BYTES, render_named_policy},
+    render::{ConversionRenderError, MAX_OUTPUT_BYTES, occupy_named_sources, render_named_policy},
     subscription_source::ParsedSubscriptionSources,
     unique_fill::{DecodedBudget, SessionUrlIndex},
 };
@@ -70,9 +69,9 @@ impl PreparedAcl4SsrV1 {
             .iter()
             .map(|group| group.name.as_str())
             .collect::<Vec<_>>();
-        let (named, unexpanded) = resolve_node_names(self.parsed_subscription, &group_names)
+        let occupied = occupy_named_sources(self.parsed_subscription, &group_names)
             .map_err(|_| Acl4SsrRenderError::Internal)?;
-        let nodes = crate::render::accepted_nodes(&named);
+        let nodes = crate::render::accepted_nodes(occupied.named());
         let node_names = nodes
             .iter()
             .map(|node| node.name().as_str())
@@ -132,10 +131,10 @@ impl PreparedAcl4SsrV1 {
             &self.config.groups,
             &node_names,
             rules,
-            unexpanded,
+            occupied.unexpanded(),
             remote_rule_sets,
         )?;
-        match render_named_policy(&named, &policy, target, MAX_OUTPUT_BYTES) {
+        match render_named_policy(occupied.named(), &policy, target, MAX_OUTPUT_BYTES) {
             Ok(document) => Ok(document),
             Err(error) => Err(Acl4SsrRenderError::from(error)),
         }
@@ -441,9 +440,9 @@ fn render(
         .iter()
         .map(|group| group.name.as_str())
         .collect::<Vec<_>>();
-    let (named, unexpanded) = resolve_node_names(prepared.parsed_subscription, &group_names)
+    let occupied = occupy_named_sources(prepared.parsed_subscription, &group_names)
         .map_err(|_| Acl4SsrRenderError::Internal)?;
-    let nodes = crate::render::accepted_nodes(&named);
+    let nodes = crate::render::accepted_nodes(occupied.named());
     let node_names = nodes
         .iter()
         .map(|node| node.name().as_str())
@@ -452,10 +451,10 @@ fn render(
         &prepared.config.groups,
         &node_names,
         rules,
-        unexpanded,
+        occupied.unexpanded(),
         Vec::new(),
     )?;
-    match render_named_policy(&named, &policy, target, MAX_OUTPUT_BYTES) {
+    match render_named_policy(occupied.named(), &policy, target, MAX_OUTPUT_BYTES) {
         Ok(document) => Ok(document),
         Err(error) => Err(Acl4SsrRenderError::from(error)),
     }

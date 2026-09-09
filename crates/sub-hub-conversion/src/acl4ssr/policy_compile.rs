@@ -56,7 +56,7 @@ pub(super) fn compile_acl4ssr_policy(
     groups: &[Group],
     node_names: &[&str],
     rules: Vec<CompiledRuleV1>,
-    unexpanded: Vec<crate::policy::UnexpandedSubscriptionV1>,
+    unexpanded: &[crate::policy::UnexpandedSubscriptionV1],
     remote_rule_sets: Vec<crate::policy::RemoteRuleSetRefV1>,
 ) -> Result<CompiledPolicyV1, Acl4SsrRenderError> {
     let regex_count = groups
@@ -76,7 +76,7 @@ pub(super) fn compile_acl4ssr_policy(
         compiled_groups,
         rules,
         u8::try_from(empty_group_count).map_err(|_| Acl4SsrRenderError::Internal)?,
-        unexpanded,
+        unexpanded.to_vec(),
         remote_rule_sets,
     ))
 }

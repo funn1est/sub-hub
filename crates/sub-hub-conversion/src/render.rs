@@ -23,8 +23,11 @@ use crate::{
     loon::render_loon_from_policy_v1,
     mihomo::render_mihomo_from_policy_v1,
     node::ProxyNode,
-    node_name::{NamedNodeOccurrence, NamedSubscriptionSources, resolve_node_names},
-    policy::{CompiledPolicyV1, CompiledRuleV1, RuleMatcherV1, compile_builtin_policy_v1},
+    node_name::{NamedNodeOccurrence, NamedSubscriptionSources, NodeNameError, resolve_node_names},
+    policy::{
+        CompiledPolicyV1, CompiledRuleV1, RuleMatcherV1, UnexpandedSubscriptionV1,
+        compile_builtin_policy_v1, unexpanded_from_urls,
+    },
     quanx::render_quanx_from_policy_v1,
     singbox::render_singbox_from_policy_v1,
     skip::SkipCountsV1,
@@ -440,6 +443,38 @@ fn render_named_policy_with(
     }
 }
 
+/// Named nodes plus the unexpanded remotes whose host tags were occupied
+/// during naming. Keep-pass and Rule frontend share this pairing so
+/// subscription URLs stay off [`NamedSubscriptionSources`].
+pub(crate) struct OccupiedSources {
+    named: NamedSubscriptionSources,
+    unexpanded: Vec<UnexpandedSubscriptionV1>,
+}
+
+impl OccupiedSources {
+    pub(crate) fn named(&self) -> &NamedSubscriptionSources {
+        &self.named
+    }
+
+    pub(crate) fn unexpanded(&self) -> &[UnexpandedSubscriptionV1] {
+        &self.unexpanded
+    }
+}
+
+/// Occupies unexpanded HTTPS host tags, then names nodes.
+pub(crate) fn occupy_named_sources(
+    parsed: ParsedSubscriptionSources,
+    group_names: &[&str],
+) -> Result<OccupiedSources, NodeNameError> {
+    let unexpanded = unexpanded_from_urls(&parsed.unexpanded_https, group_names);
+    let reserved: Vec<&str> = unexpanded
+        .iter()
+        .map(UnexpandedSubscriptionV1::name)
+        .collect();
+    let named = resolve_node_names(parsed, group_names, &reserved)?;
+    Ok(OccupiedSources { named, unexpanded })
+}
+
 pub(crate) fn render_builtin_v1(
     parsed: ParsedSubscriptionSources,
     target: OutputTarget,
@@ -447,16 +482,18 @@ pub(crate) fn render_builtin_v1(
     render_builtin_with_limit(parsed, render_fn(target), MAX_OUTPUT_BYTES)
 }
 
-/// Names the accepted nodes, compiles the builtin topology, and renders one target.
+/// Occupies remotes, names the accepted nodes, compiles the builtin topology,
+/// and renders one target.
 pub(crate) fn render_builtin_with_limit(
     parsed: ParsedSubscriptionSources,
     render: RenderFromPolicyFn,
     limit_bytes: usize,
 ) -> Result<RenderedConfig, ConversionRenderError> {
-    let (named, unexpanded) = resolve_node_names(parsed, &["PROXY", "AUTO"])
+    let occupied = occupy_named_sources(parsed, &["PROXY", "AUTO"])
         .map_err(|_| ConversionRenderError::Internal)?;
-    let policy = compile_builtin_policy_v1(&accepted_nodes(&named), &unexpanded);
-    render_named_policy_with(&named, &policy, render, limit_bytes)
+    let policy =
+        compile_builtin_policy_v1(&accepted_nodes(occupied.named()), occupied.unexpanded());
+    render_named_policy_with(occupied.named(), &policy, render, limit_bytes)
 }
 
 #[cfg(test)]
