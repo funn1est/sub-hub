@@ -7,14 +7,25 @@ use http::StatusCode;
 
 use super::RemoteFetchError;
 use crate::remote_https::{
-    HttpsHopHeaders, https_hop_needs_body, interpret_https_headers, is_followed_redirect,
+    HttpsHopHeaders, MAX_SUBSCRIPTION_USER_INFO_BYTES, https_hop_needs_body,
+    interpret_https_headers, is_followed_redirect,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) enum HeaderObservation {
     Absent,
     One(Vec<u8>),
     Invalid,
+}
+
+impl fmt::Debug for HeaderObservation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Absent => "absent",
+            Self::One(_) => "present",
+            Self::Invalid => "invalid",
+        })
+    }
 }
 
 pub struct RemoteResponse {
@@ -37,14 +48,7 @@ impl fmt::Debug for RemoteResponse {
             .debug_struct("RemoteResponse")
             .field("status_class", &status_class)
             .field("location", &self.location.as_ref().map(|_| "[REDACTED]"))
-            .field(
-                "subscription_user_info",
-                &match self.subscription_user_info {
-                    HeaderObservation::Absent => "absent",
-                    HeaderObservation::One(_) => "present",
-                    HeaderObservation::Invalid => "invalid",
-                },
-            )
+            .field("subscription_user_info", &self.subscription_user_info)
             .field("body", &"[REDACTED]")
             .field("body_len", &self.body.len())
             .finish()
@@ -64,7 +68,7 @@ impl RemoteResponse {
 
     #[must_use]
     pub fn with_subscription_user_info(mut self, value: Vec<u8>) -> Self {
-        self.subscription_user_info = if value.len() <= 256 {
+        self.subscription_user_info = if value.len() <= MAX_SUBSCRIPTION_USER_INFO_BYTES {
             HeaderObservation::One(value)
         } else {
             HeaderObservation::Invalid
@@ -306,7 +310,10 @@ where
 mod tests {
     use http::StatusCode;
 
-    use super::{HttpsHopOutcome, append_hop_chunk, begin_https_hop};
+    use super::{
+        HeaderObservation, HttpsHopOutcome, MAX_SUBSCRIPTION_USER_INFO_BYTES, RemoteResponse,
+        append_hop_chunk, begin_https_hop,
+    };
 
     #[test]
     fn append_hop_chunk_stops_at_the_hop_cap() {
@@ -435,5 +442,41 @@ mod tests {
         ))
         .expect("redirect hop");
         assert!(redirect.body.is_empty());
+    }
+
+    #[test]
+    fn header_observation_debug_does_not_dump_userinfo_bytes() {
+        const USERINFO: &[u8] = b"upload=1; download=2; total=3";
+        assert_eq!(
+            format!("{:?}", HeaderObservation::One(USERINFO.to_vec())),
+            "present"
+        );
+        assert_eq!(format!("{:?}", HeaderObservation::Absent), "absent");
+        assert_eq!(format!("{:?}", HeaderObservation::Invalid), "invalid");
+    }
+
+    #[test]
+    fn remote_response_debug_uses_header_observation_and_redacts_secrets() {
+        const USERINFO: &[u8] = b"upload=1; download=2; total=3";
+        const LOCATION: &str = "https://secret-canary.example/sub";
+
+        let present = RemoteResponse::body(StatusCode::OK, b"node-bytes".to_vec())
+            .with_subscription_user_info(USERINFO.to_vec());
+        let present_debug = format!("{present:?}");
+        assert!(present_debug.contains("subscription_user_info: present"));
+        assert!(!present_debug.contains("upload"));
+        assert!(!present_debug.contains("node-bytes"));
+        assert!(present_debug.contains("[REDACTED]"));
+
+        let redirect = RemoteResponse::redirect(StatusCode::FOUND, LOCATION);
+        let redirect_debug = format!("{redirect:?}");
+        assert!(redirect_debug.contains("subscription_user_info: absent"));
+        assert!(redirect_debug.contains("[REDACTED]"));
+        assert!(!redirect_debug.contains(LOCATION));
+        assert!(!redirect_debug.contains("secret-canary"));
+
+        let invalid = RemoteResponse::body(StatusCode::OK, Vec::new())
+            .with_subscription_user_info(vec![b'a'; MAX_SUBSCRIPTION_USER_INFO_BYTES + 1]);
+        assert!(format!("{invalid:?}").contains("subscription_user_info: invalid"));
     }
 }
