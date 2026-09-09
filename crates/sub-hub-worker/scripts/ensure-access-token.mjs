@@ -327,12 +327,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
 
   const needsList = operatorBlob === undefined;
   const listResult = needsList ? listSecrets(targeting) : null;
-  let action;
-  try {
-    action = decide({ listResult, flags });
-  } catch (error) {
-    fail(error instanceof Error ? error.message : "invalid access token list");
-  }
+  const action = decide({ listResult, flags });
 
   if (action === "abort-usage") {
     if (flags.replace && flags.preview) {
