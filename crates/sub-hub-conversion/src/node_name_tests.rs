@@ -482,11 +482,11 @@ fn unexpanded_host_tags_occupy_the_allocator_before_node_names() {
     ])
     .expect("node plus unexpanded remote");
 
-    let (named, unexpanded) = resolve_node_names(parsed, &[]).expect("occupied namespace");
+    let occupied = crate::render::occupy_named_sources(parsed, &[]).expect("occupied namespace");
 
-    assert_eq!(unexpanded[0].name(), "panel.example");
-    assert_eq!(accepted_names(&named), ["panel.example~00001"]);
-    assert!(!format!("{named:?}").contains(remote));
+    assert_eq!(occupied.unexpanded()[0].name(), "panel.example");
+    assert_eq!(accepted_names(occupied.named()), ["panel.example~00001"]);
+    assert!(!format!("{:?}", occupied.named()).contains(remote));
 }
 
 #[test]
@@ -698,11 +698,11 @@ fn named_sources(
     parsed: ParsedSubscriptionSources,
     groups: &[&str],
 ) -> Result<NamedSubscriptionSources, NodeNameError> {
-    resolve_node_names(parsed, groups).map(|(named, _)| named)
+    resolve_node_names(parsed, groups, &[])
 }
 
 fn naming_error(parsed: ParsedSubscriptionSources, groups: &[&str]) -> NodeNameError {
-    match resolve_node_names(parsed, groups) {
+    match resolve_node_names(parsed, groups, &[]) {
         Err(error) => error,
         Ok(_) => panic!("expected naming error"),
     }
