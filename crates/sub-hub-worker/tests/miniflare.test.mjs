@@ -11,6 +11,7 @@ import {
   readWorkspaceVersion,
   versionBody,
 } from "../../../scripts/workspace-version.mjs";
+import { conversionRuntimeFromToml } from "../scripts/wrangler-contract.mjs";
 
 const {
   Miniflare,
@@ -77,7 +78,11 @@ function concat(...parts) {
   return parts.join("");
 }
 
-const BUILD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../build");
+const WORKER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const BUILD_ROOT = resolve(WORKER_ROOT, "build");
+const CONVERSION_RUNTIME = conversionRuntimeFromToml(
+  readFileSync(resolve(WORKER_ROOT, "wrangler.toml"), "utf8"),
+);
 
 function createFetchMock() {
   return new MockAgent();
@@ -85,9 +90,8 @@ function createFetchMock() {
 
 function runtime(bindings = {}, fetchMock) {
   const options = {
-    // Bundled workerd 1.20260811.1 cannot accept a date later than 2026-08-11.
-    compatibilityDate: "2026-07-30",
-    compatibilityFlags: ["global_fetch_strictly_public"],
+    compatibilityDate: CONVERSION_RUNTIME.compatibilityDate,
+    compatibilityFlags: [...CONVERSION_RUNTIME.compatibilityFlags],
     modulesRoot: BUILD_ROOT,
     modules: [
       { type: "ESModule", path: resolve(BUILD_ROOT, "worker/shim.mjs") },

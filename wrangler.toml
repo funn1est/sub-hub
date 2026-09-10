@@ -6,7 +6,7 @@
 
 name = "sub-hub"
 main = "crates/sub-hub-worker/build/worker/shim.mjs"
-compatibility_date = "2026-08-13"
+compatibility_date = "2026-09-03"
 compatibility_flags = [
   "global_fetch_strictly_public",
 ]

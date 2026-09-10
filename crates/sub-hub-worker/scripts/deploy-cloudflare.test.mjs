@@ -16,6 +16,10 @@ import {
   resolveDeployConfig,
   wranglerConfigArgs,
 } from "./deploy-cloudflare.mjs";
+import {
+  conversionRuntimeFromToml,
+  tomlString,
+} from "./wrangler-contract.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -185,10 +189,11 @@ test("all and worker wrangler configs share identity; only all has assets", () =
     path.join(here, "..", "wrangler.worker.toml"),
     "utf8",
   );
-  const name = /^name = "([^"]+)"/m;
-  const date = /^compatibility_date = "([^"]+)"/m;
-  assert.equal(allToml.match(name)[1], workerOnly.match(name)[1]);
-  assert.equal(allToml.match(date)[1], workerOnly.match(date)[1]);
+  assert.equal(tomlString(allToml, "name"), tomlString(workerOnly, "name"));
+  assert.deepEqual(
+    conversionRuntimeFromToml(allToml),
+    conversionRuntimeFromToml(workerOnly),
+  );
   assert.match(allToml, /directory = "\.\.\/\.\.\/apps\/console\/dist"/);
   assert.match(allToml, /not_found_handling = "single-page-application"/);
   assert.match(allToml, /run_worker_first = \["\/version", "\/sub", "\/sub\/\*"\]/);

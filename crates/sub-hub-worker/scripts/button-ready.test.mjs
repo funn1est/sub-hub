@@ -4,18 +4,17 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import {
+  conversionRuntimeFromToml,
+  tomlString,
+} from "./wrangler-contract.mjs";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workerRoot = path.join(here, "..");
 const repoRoot = path.join(workerRoot, "..", "..");
 
 function readUtf8(filePath) {
   return fs.readFileSync(filePath, "utf8");
-}
-
-function tomlString(text, key) {
-  const match = text.match(new RegExp(`^${key} = "([^"]+)"`, "m"));
-  assert.ok(match, `missing ${key}`);
-  return match[1];
 }
 
 test("repository-root package.json pre-populates C1 Workers Builds commands", () => {
@@ -40,11 +39,6 @@ test("repository-root wrangler.toml is the Deploy-to-Cloudflare contract", () =>
   const crateToml = readUtf8(path.join(workerRoot, "wrangler.toml"));
   assert.equal(tomlString(rootToml, "name"), "sub-hub");
   assert.equal(tomlString(rootToml, "name"), tomlString(crateToml, "name"));
-  assert.equal(
-    tomlString(rootToml, "compatibility_date"),
-    tomlString(crateToml, "compatibility_date"),
-  );
-  assert.match(rootToml, /global_fetch_strictly_public/);
   assert.match(rootToml, /crates\/sub-hub-worker\/build\/worker/);
   assert.match(rootToml, /apps\/console\/dist/);
   assert.match(rootToml, /run_worker_first = \["\/version", "\/sub", "\/sub\/\*"\]/);
@@ -57,6 +51,33 @@ test("repository-root wrangler.toml is the Deploy-to-Cloudflare contract", () =>
   assert.doesNotMatch(bindings, /kv_namespaces|d1_databases|r2_buckets|secrets_store/i);
   assert.equal(fs.existsSync(path.join(repoRoot, "wrangler.json")), false);
   assert.equal(fs.existsSync(path.join(repoRoot, "wrangler.jsonc")), false);
+});
+
+test("Conversion wrangler runtime date and flags are one contract", () => {
+  const crate = conversionRuntimeFromToml(
+    readUtf8(path.join(workerRoot, "wrangler.toml")),
+  );
+  assert.deepEqual(crate.compatibilityFlags, [
+    "global_fetch_strictly_public",
+  ]);
+  assert.deepEqual(
+    conversionRuntimeFromToml(readUtf8(path.join(repoRoot, "wrangler.toml"))),
+    crate,
+  );
+  assert.deepEqual(
+    conversionRuntimeFromToml(
+      readUtf8(path.join(workerRoot, "wrangler.worker.toml")),
+    ),
+    crate,
+  );
+  const consoleToml = readUtf8(
+    path.join(repoRoot, "apps", "console", "wrangler.toml"),
+  );
+  assert.equal(
+    tomlString(consoleToml, "compatibility_date"),
+    crate.compatibilityDate,
+  );
+  assert.doesNotMatch(consoleToml, /compatibility_flags/);
 });
 
 test("Worker package.json keeps the local CI-refusing deploy helper", () => {
