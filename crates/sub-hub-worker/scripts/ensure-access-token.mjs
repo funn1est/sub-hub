@@ -262,6 +262,7 @@ export function putAndDeploy(mode, targeting, forwarded, blob, run = runWrangler
     os.tmpdir(),
     `sub-hub-secrets-${randomBytes(8).toString("hex")}.json`,
   );
+  let status = 0;
   try {
     fs.writeFileSync(file, secretsFileJson(blob), { encoding: "utf8" });
     try {
@@ -279,11 +280,12 @@ export function putAndDeploy(mode, targeting, forwarded, blob, run = runWrangler
     if (result.stderr) {
       process.stderr.write(result.stderr);
     }
-    if (result.status !== 0) {
-      process.exit(result.status ?? 1);
-    }
+    status = result.status ?? 1;
   } finally {
     fs.rmSync(file, { force: true });
+  }
+  if (status !== 0) {
+    process.exit(status);
   }
 }
 
