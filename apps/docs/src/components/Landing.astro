@@ -1,0 +1,220 @@
+---
+import { getRelativeLocaleUrl } from "astro:i18n"
+
+import BaseLayout from "../layouts/BaseLayout.astro"
+import {
+  DEPLOY_BUTTON_SRC,
+  DEPLOY_HREF,
+  RELEASES_URL,
+  SOURCE_LICENSE,
+  SOURCE_REPO,
+} from "../i18n/types.ts"
+import type { Copy, SiteLocale } from "../i18n/types.ts"
+
+type Props = {
+  locale: SiteLocale
+  copy: Copy
+}
+
+const { locale, copy } = Astro.props
+const otherLocale = locale === "en" ? "zh-cn" : "en"
+const homeHref = getRelativeLocaleUrl(locale)
+const otherHref = getRelativeLocaleUrl(otherLocale)
+const iconHref = `${import.meta.env.BASE_URL}icon.svg`
+---
+
+<BaseLayout locale={locale} copy={copy}>
+  <div class="site-shell relative isolate">
+    <div class="site-shell-bg" aria-hidden="true"></div>
+    <header
+      class="sticky top-0 z-10 border-b bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl"
+    >
+      <div
+        class="mx-auto flex w-full max-w-3xl min-w-0 items-center justify-between gap-3 px-4 py-3 sm:px-6"
+      >
+        <a href={homeHref} class="flex min-w-0 items-center gap-3">
+          <img
+            src={iconHref}
+            alt=""
+            width="36"
+            height="36"
+            class="size-9 rounded-[10px] ring-1 ring-foreground/10"
+          />
+          <div class="min-w-0">
+            <p class="truncate font-heading text-base font-medium tracking-tight">
+              {copy.brand}
+            </p>
+            <p class="hidden truncate text-xs text-muted-foreground sm:block">
+              {copy.tagline}
+            </p>
+          </div>
+        </a>
+        <nav aria-label={copy.languageNav} class="shrink-0 text-sm">
+          <a
+            href={otherHref}
+            hreflang={otherLocale === "en" ? "en" : "zh-CN"}
+            lang={otherLocale === "en" ? "en" : "zh-CN"}
+            class="rounded-md border px-3 py-1.5 text-foreground hover:bg-accent"
+          >
+            {copy.otherLocaleLabel}
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="content" class="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
+      <section class="space-y-5">
+        <p
+          class="inline-flex rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground"
+        >
+          {copy.noPublicInstance}
+        </p>
+        <h1 class="font-heading text-3xl font-medium tracking-tight sm:text-4xl">
+          {copy.tagline}
+        </h1>
+        <p class="text-pretty text-muted-foreground">{copy.heroLead}</p>
+        <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <a href={DEPLOY_HREF}>
+            <img
+              src={DEPLOY_BUTTON_SRC}
+              alt={copy.ctaDeployAlt}
+              width="171"
+              height="32"
+            />
+          </a>
+          <a
+            href={SOURCE_REPO}
+            class="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
+            {copy.ctaRepo}
+          </a>
+          <a
+            href={RELEASES_URL}
+            class="inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-medium hover:bg-accent"
+          >
+            {copy.ctaReleases}
+          </a>
+        </div>
+        <p class="text-sm text-muted-foreground">{copy.ctaDeployHint}</p>
+      </section>
+
+      <section class="mt-14 space-y-4">
+        <h2 class="font-heading text-xl font-medium tracking-tight">
+          {copy.inputsTitle}
+        </h2>
+        <p class="text-sm text-muted-foreground">{copy.inputsLead}</p>
+        <ul class="grid gap-3 sm:grid-cols-2">
+          {
+            copy.inputs.map((item) => (
+              <li class="rounded-lg border bg-card p-4">
+                <p class="font-medium">{item.name}</p>
+                <p class="mt-1 text-sm text-muted-foreground">{item.detail}</p>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
+      <section class="mt-14 space-y-4">
+        <h2 class="font-heading text-xl font-medium tracking-tight">
+          {copy.policyTitle}
+        </h2>
+        <ul class="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+          {copy.policyItems.map((item) => <li>{item}</li>)}
+        </ul>
+      </section>
+
+      <section class="mt-14 space-y-4">
+        <h2 class="font-heading text-xl font-medium tracking-tight">
+          {copy.outputsTitle}
+        </h2>
+        <p class="text-sm text-muted-foreground">{copy.outputsLead}</p>
+        <ul class="space-y-3">
+          {
+            copy.outputs.map((item) => (
+              <li class="rounded-lg border bg-card p-4">
+                <p class="font-mono text-sm font-medium">{item.token}</p>
+                <p class="mt-1 text-sm">{item.format}</p>
+                <p class="mt-1 text-sm text-muted-foreground">{item.clients}</p>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
+      <section class="mt-14 space-y-4">
+        <h2 class="font-heading text-xl font-medium tracking-tight">
+          {copy.workshopTitle}
+        </h2>
+        <p class="text-sm text-muted-foreground">{copy.workshopLead}</p>
+        <ul class="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+          {copy.workshopItems.map((item) => <li>{item}</li>)}
+        </ul>
+      </section>
+
+      <section class="mt-14 space-y-4">
+        <h2 class="font-heading text-xl font-medium tracking-tight">
+          {copy.runTitle}
+        </h2>
+        <p class="text-sm text-muted-foreground">{copy.runLead}</p>
+        <ul class="space-y-3">
+          {
+            copy.runItems.map((item) => (
+              <li class="rounded-lg border bg-card p-4">
+                <p class="font-medium">{item.title}</p>
+                <p class="mt-1 text-sm text-muted-foreground">{item.body}</p>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
+      <section class="mt-14 space-y-4">
+        <h2 class="font-heading text-xl font-medium tracking-tight">
+          {copy.httpTitle}
+        </h2>
+        <p class="text-sm text-muted-foreground">{copy.httpLead}</p>
+        <ul class="space-y-1 font-mono text-sm">
+          {copy.httpRoutes.map((item) => <li>{item}</li>)}
+        </ul>
+        <ul class="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+          {copy.httpNotes.map((item) => <li>{item}</li>)}
+        </ul>
+      </section>
+
+      <section class="mt-14 space-y-4">
+        <h2 class="font-heading text-xl font-medium tracking-tight">
+          {copy.notTitle}
+        </h2>
+        <ul class="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+          {copy.notItems.map((item) => <li>{item}</li>)}
+        </ul>
+      </section>
+
+      <section class="mt-14 space-y-3">
+        <h2 class="font-heading text-xl font-medium tracking-tight">
+          {copy.licenseTitle}
+        </h2>
+        <p class="text-sm text-muted-foreground">{copy.licenseBody}</p>
+        <p class="text-sm">
+          <a href={SOURCE_LICENSE} class="underline underline-offset-4 hover:text-foreground">
+            {copy.sourceLink}
+          </a>
+        </p>
+      </section>
+    </main>
+
+    <footer class="border-t">
+      <div
+        class="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 py-6 text-sm text-muted-foreground sm:px-6"
+      >
+        <p>{copy.footerNote}</p>
+        <p>
+          <a href={SOURCE_REPO} class="underline underline-offset-4 hover:text-foreground">
+            {SOURCE_REPO}
+          </a>
+        </p>
+      </div>
+    </footer>
+  </div>
+</BaseLayout>

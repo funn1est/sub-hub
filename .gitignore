@@ -2,7 +2,7 @@ node_modules/
 target/
 .tmp/
 dist/
-docs/
+/docs/
 tools/
 .scratch/
 .wrangler/
@@ -11,5 +11,5 @@ CONTEXT.md
 .env
 .dev.vars
 
-# docs/ and CONTEXT.md are maintainer working memory.
-# Do not `git add -f` docs/ or CONTEXT.md unless a maintainer asks.
+# /docs/ and CONTEXT.md are maintainer working memory.
+# Do not `git add -f` /docs/ or CONTEXT.md unless a maintainer asks.

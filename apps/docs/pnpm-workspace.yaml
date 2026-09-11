@@ -1,0 +1,8 @@
+packages: []
+
+allowBuilds:
+  esbuild: true
+  msw: false
+
+minimumReleaseAgeExclude:
+  - electron-to-chromium

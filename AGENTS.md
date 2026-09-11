@@ -11,7 +11,7 @@ paths below unless a maintainer asks.
 
 | Path | Why it is ignored |
 | --- | --- |
-| `docs/` | Local living surface, research freezes, and `docs/TODO.md`. Public docs are this file, `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, and `SECURITY.md`. |
+| `/docs/` | Local living surface, research freezes, and `docs/TODO.md`. Public docs are this file, `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, `SECURITY.md`, and the product intro in `apps/docs`. |
 | `CONTEXT.md` | Local vocabulary. If this file is present, use it. English terms stay English. |
 | `testdata/` | Extra local fixtures stay off origin. The goldens already on `main` (`testdata/host-visible-contract.json`, `testdata/subscription-url/cases.json`) are tracked; new files here need an explicit `git add -f` in review. |
 | `tools/` | Local helper scripts/binaries. |
@@ -19,7 +19,7 @@ paths below unless a maintainer asks.
 | `.env`, `.dev.vars` | Secrets. Never commit. |
 | `node_modules/`, `target/`, `dist/`, `.tmp/`, `.wrangler/` | Install and build output. |
 
-If `docs/` or `CONTEXT.md` is absent, use `CONTRIBUTING.md`, the README pair,
+If `/docs/` or `CONTEXT.md` is absent, use `CONTRIBUTING.md`, the README pair,
 and `SECURITY.md`. Origin will not contain the TODO or the glossary.
 
 ## Where work is authorized
@@ -33,7 +33,13 @@ and `SECURITY.md`. Origin will not contain the TODO or the glossary.
   stay English in the Chinese file (see `CONTEXT.md` when present). Do not
   let one side drift. `CONTRIBUTING.md` and `SECURITY.md` stay English-only
   unless a maintainer asks for a Chinese pair.
-- If `docs/` is present: operator / packaging guide is `docs/guide.md`;
+- Product intro (`apps/docs`): product copy for the current public
+  surface. It is not repository-root `/docs/` and not the Web Console.
+  When the README pair changes HTTP surface, Run, Native/Worker/Console,
+  env vars, or forbids, update `apps/docs` copy in the same change.
+  Product terms stay English in `zh-cn`. Do not put a published site
+  URL in the README pair.
+- If `/docs/` is present: operator / packaging guide is `docs/guide.md`;
   living `main` description is the files listed in `docs/README.md`;
   implementation tracker is `docs/TODO.md` (empty Now is a valid state);
   `docs/research/` is dated evidence, not a backlog — do not implement from it.

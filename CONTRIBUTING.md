@@ -34,6 +34,16 @@ pnpm run lint
 pnpm run build
 ```
 
+Docs (`apps/docs`):
+
+```sh
+pnpm install --frozen-lockfile
+pnpm run build
+```
+
+CI builds this package. It does not publish the site. Do not put this
+tree in `SUB_HUB_CONSOLE_ROOT` or the Worker `all` layout.
+
 Worker host conformance (`crates/sub-hub-worker`):
 
 ```sh

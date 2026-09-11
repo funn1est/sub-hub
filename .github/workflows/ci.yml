@@ -97,3 +97,30 @@ jobs:
 
       - name: Build Console
         run: pnpm run build
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/docs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js and pnpm
+        uses: jdx/mise-action@v4
+        with:
+          install_args: node pnpm
+
+      - name: Install docs dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs
+        run: pnpm run build
+        env:
+          ASTRO_TELEMETRY_DISABLED: "1"

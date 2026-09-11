@@ -1,0 +1,58 @@
+---
+import { getAbsoluteLocaleUrl } from "astro:i18n"
+
+import "../styles/global.css"
+import type { Copy, SiteLocale } from "../i18n/types.ts"
+
+type Props = {
+  locale: SiteLocale
+  copy: Copy
+}
+
+const { locale, copy } = Astro.props
+const canonical = getAbsoluteLocaleUrl(locale)
+const enUrl = getAbsoluteLocaleUrl("en")
+const zhUrl = getAbsoluteLocaleUrl("zh-cn")
+const sitemapHref = `${import.meta.env.BASE_URL}sitemap-index.xml`
+const iconHref = `${import.meta.env.BASE_URL}icon.svg`
+---
+
+<!doctype html>
+<html lang={copy.htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{copy.title}</title>
+    <meta name="description" content={copy.description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang="en" href={enUrl} />
+    <link rel="alternate" hreflang="zh-CN" href={zhUrl} />
+    <link rel="alternate" hreflang="x-default" href={enUrl} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Sub Hub" />
+    <meta property="og:title" content={copy.title} />
+    <meta property="og:description" content={copy.description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={copy.ogLocale} />
+    <meta
+      property="og:locale:alternate"
+      content={locale === "en" ? "zh_CN" : "en_US"}
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={copy.title} />
+    <meta name="twitter:description" content={copy.description} />
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href={iconHref} type="image/svg+xml" />
+    <link rel="sitemap" href={sitemapHref} />
+  </head>
+  <body>
+    <a
+      href="#content"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground"
+    >
+      {copy.skipToContent}
+    </a>
+    <slot />
+  </body>
+</html>
