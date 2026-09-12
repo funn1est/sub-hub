@@ -193,3 +193,52 @@ test("putAndDeploy writes a secrets-file then deletes it without echoing the blo
   assert.ok(!fs.existsSync(secretsFile));
   assert.ok(!chunks.join("").includes(blob));
 });
+
+test("putAndDeploy deletes the secrets-file before exiting on a non-zero deploy status", () => {
+  const blob = "operator-secret-blob";
+  let seenArgs;
+  let secretsFile;
+  let exitCode;
+  let existedAtExit;
+  const runWrangler = (args) => {
+    seenArgs = args;
+    const index = args.indexOf("--secrets-file");
+    assert.ok(index >= 0);
+    secretsFile = args[index + 1];
+    assert.ok(secretsFile);
+    assert.ok(fs.existsSync(secretsFile));
+    assert.ok(!args.includes(blob));
+    assert.ok(!JSON.stringify(args).includes(blob));
+    return { status: 2, stdout: "Published failed\n", stderr: "" };
+  };
+  const chunks = [];
+  const write = process.stdout.write.bind(process.stdout);
+  const exit = process.exit;
+  process.stdout.write = (chunk, encoding, callback) => {
+    chunks.push(String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+      return true;
+    }
+    if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+  process.exit = (code) => {
+    exitCode = code;
+    existedAtExit = fs.existsSync(secretsFile);
+  };
+  try {
+    putAndDeploy("deploy", [], [], blob, runWrangler);
+  } finally {
+    process.stdout.write = write;
+    process.exit = exit;
+  }
+  assert.equal(exitCode, 2);
+  assert.equal(existedAtExit, false);
+  assert.ok(seenArgs.includes("--secrets-file"));
+  assert.ok(!seenArgs.includes(blob));
+  assert.ok(!fs.existsSync(secretsFile));
+  assert.ok(!chunks.join("").includes(blob));
+});
