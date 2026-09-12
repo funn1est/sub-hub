@@ -8,12 +8,28 @@ import {
   type Target,
 } from "./service-contract.ts"
 
+/** Workshop picker identity. `mihomo` is the clash wire alias, not a job value. */
+export type ClientTarget = Exclude<Target, "mihomo">
+
+export const CLIENT_TARGETS: readonly ClientTarget[] = TARGETS.filter(
+  (target): target is ClientTarget => target !== "mihomo"
+)
+
+export function isClientTarget(value: string): value is ClientTarget {
+  return (CLIENT_TARGETS as readonly string[]).includes(value)
+}
+
+/** persist-only: stored `mihomo` becomes the clash picker identity. */
+export function clientTargetOf(target: Target): ClientTarget {
+  return target === "mihomo" ? "clash" : target
+}
+
 /** Conversion fields the Workshop job assembles and previews. */
 export type WorkshopFields = {
   serviceOrigin: string
   accessToken: string
   sources: string[]
-  target: Target
+  target: ClientTarget
   configUrl: string
   appendInfo: boolean
   /** When true, Subscription URL includes expand=true (inline remotes). */
@@ -80,7 +96,7 @@ export type WorkshopDisplay = {
 }
 
 export type AssembledTarget = {
-  target: Target
+  target: ClientTarget
   url: string
   getTarget: string
   overLimit: boolean
@@ -235,14 +251,14 @@ function assembledFrom(input: {
   origin: string
   token: string
   sources: string[]
-  target: Target
+  target: ClientTarget
   configUrl: string
   appendInfo: boolean
   expand: boolean
   filename: string
   iosPhone: boolean
 }): Assembled {
-  const siblings = TARGETS.map((target) => {
+  const row = (target: ClientTarget): AssembledTarget => {
     const getTarget = encodeSubGetTarget({
       accessToken: input.token,
       target,
@@ -259,22 +275,21 @@ function assembledFrom(input: {
       overLimit:
         new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES,
     }
-  })
-  const primary =
-    siblings.find((sibling) => sibling.target === input.target) ?? siblings[0]
-  if (primary === undefined) {
-    return emptyAssembled
   }
+  const primary = row(input.target)
+  const installable = !primary.overLimit
   return {
     url: primary.url,
     getTarget: primary.getTarget,
     overLimit: primary.overLimit,
-    previewable: !primary.overLimit,
-    clashInstall: input.target === "clash" || input.target === "mihomo",
-    surgeInstall: input.iosPhone && input.target === "surge",
-    loonInstall: input.iosPhone && input.target === "loon",
-    egernInstall: input.iosPhone && input.target === "egern",
-    singboxInstall: input.iosPhone && input.target === "singbox",
-    siblings,
+    previewable: installable,
+    clashInstall: installable && input.target === "clash",
+    surgeInstall: installable && input.iosPhone && input.target === "surge",
+    loonInstall: installable && input.iosPhone && input.target === "loon",
+    egernInstall: installable && input.iosPhone && input.target === "egern",
+    singboxInstall: installable && input.iosPhone && input.target === "singbox",
+    siblings: CLIENT_TARGETS.filter((target) => target !== input.target).map(
+      row
+    ),
   }
 }

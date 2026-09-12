@@ -56,11 +56,12 @@ const KNOWN_ERROR_SET = new Set<string>(KNOWN_SERVICE_ERRORS)
 const QUERY_KEY_SET = new Set<string>(QUERY_KEYS)
 
 export const SKIPPED_HEADER = "x-subconverter-skipped"
+export const USERINFO_HEADER = "subscription-userinfo"
 
 export const EXPOSED_HEADERS = [
   "content-disposition",
   "profile-update-interval",
-  "subscription-userinfo",
+  USERINFO_HEADER,
   "x-subconverter-result",
   "x-subconverter-omitted-rules",
   SKIPPED_HEADER,
@@ -191,6 +192,91 @@ export function parseSkippedHeader(value: string | null): SkipCounts | null {
 
 export type OmittedRules = {
   omittedUrlRegex: number
+}
+
+/**
+ * Bytes and unix expiry from Conversion `subscription-userinfo`.
+ * Missing `expire` is `null`. `expire=0` stays `0` (Conversion re-emits it).
+ */
+export type SubscriptionUserInfo = {
+  upload: number
+  download: number
+  total: number
+  expire: number | null
+}
+
+/**
+ * Conversion Service `subscription-userinfo` grammar from HTTP `userinfo.rs`.
+ * `expire` is optional on the wire. A missing key is `null`. `expire=0` is `0`.
+ */
+export function parseSubscriptionUserInfo(
+  value: string | null
+): SubscriptionUserInfo | null {
+  if (value === null) {
+    return null
+  }
+  const trimmed = value.replace(/^[\t ]+|[\t ]+$/g, "")
+  if (trimmed.length === 0 || trimmed.includes(",")) {
+    return null
+  }
+  const body = trimmed.endsWith(";") ? trimmed.slice(0, -1) : trimmed
+  if (body.replace(/[\t ]+$/g, "").endsWith(";")) {
+    return null
+  }
+
+  const values: {
+    upload?: number
+    download?: number
+    total?: number
+    expire?: number
+  } = {}
+  for (const pair of body.split(";")) {
+    const item = pair.replace(/^[\t ]+|[\t ]+$/g, "")
+    const eq = item.indexOf("=")
+    if (eq <= 0) {
+      return null
+    }
+    const key = item.slice(0, eq).replace(/^[\t ]+|[\t ]+$/g, "")
+    const number = item.slice(eq + 1).replace(/^[\t ]+|[\t ]+$/g, "")
+    if (
+      key.length === 0 ||
+      number.length === 0 ||
+      number.length > 19 ||
+      !/^[0-9]+$/.test(number)
+    ) {
+      return null
+    }
+    const parsed = Number(number)
+    if (!Number.isSafeInteger(parsed)) {
+      return null
+    }
+    const slot = key.toLowerCase()
+    if (
+      slot !== "upload" &&
+      slot !== "download" &&
+      slot !== "total" &&
+      slot !== "expire"
+    ) {
+      return null
+    }
+    if (values[slot] !== undefined) {
+      return null
+    }
+    values[slot] = parsed
+  }
+  if (
+    values.upload === undefined ||
+    values.download === undefined ||
+    values.total === undefined
+  ) {
+    return null
+  }
+  return {
+    upload: values.upload,
+    download: values.download,
+    total: values.total,
+    expire: values.expire === undefined ? null : values.expire,
+  }
 }
 
 /** HTTP `insert_lossy_headers`: `lossy` + `URL-REGEX=<uint>`. Other tokens stay raw. */

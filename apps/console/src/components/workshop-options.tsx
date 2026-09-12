@@ -26,13 +26,17 @@ import { Switch } from "@/components/ui/switch.tsx"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx"
 import { t, targetHint } from "@/lib/i18n.ts"
 import type { Locale } from "@/lib/persist.ts"
-import { TARGETS, isTarget } from "@/lib/service-contract.ts"
 import {
   type ConfigChoice,
   type ConfigChoiceGroup,
 } from "@/lib/workshop-config.ts"
 import type { WorkshopSessionActions } from "@/lib/workshop-session.ts"
-import { urlField, type WorkshopFields } from "@/lib/workshop.ts"
+import {
+  CLIENT_TARGETS,
+  isClientTarget,
+  urlField,
+  type WorkshopFields,
+} from "@/lib/workshop.ts"
 import { SectionCard } from "@/components/workshop-section.tsx"
 
 export function WorkshopOptions({
@@ -67,16 +71,16 @@ export function WorkshopOptions({
             value={[fields.target]}
             onValueChange={(value) => {
               const next = value[0]
-              if (next !== undefined && isTarget(next)) {
+              if (next !== undefined && isClientTarget(next)) {
                 actions.patch({ target: next })
               }
             }}
             spacing={2}
             className="w-full max-w-full flex-wrap"
           >
-            {TARGETS.map((target) => (
+            {CLIENT_TARGETS.map((target) => (
               <ToggleGroupItem key={target} value={target}>
-                {target}
+                {copy.client[target].label}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
@@ -95,7 +99,7 @@ export function WorkshopOptions({
               }
               actions.selectConfig(item.id)
             }}
-            itemToStringValue={(item) => item.label}
+            itemToStringLabel={(item) => item.search}
           >
             <ComboboxTrigger
               id="config-preset"
@@ -106,7 +110,11 @@ export function WorkshopOptions({
                 />
               }
             >
-              <span className="min-w-0 truncate">{selectedConfig.label}</span>
+              <span className="min-w-0 truncate">
+                {selectedConfig.detail
+                  ? `${selectedConfig.label} · ${selectedConfig.detail}`
+                  : selectedConfig.label}
+              </span>
             </ComboboxTrigger>
             <ComboboxContent>
               <ComboboxInput
@@ -126,7 +134,14 @@ export function WorkshopOptions({
                     <ComboboxCollection>
                       {(item: ConfigChoice) => (
                         <ComboboxItem key={item.id} value={item}>
-                          {item.label}
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate">{item.label}</span>
+                            {item.detail ? (
+                              <span className="truncate text-xs text-muted-foreground">
+                                {item.detail}
+                              </span>
+                            ) : null}
+                          </span>
                         </ComboboxItem>
                       )}
                     </ComboboxCollection>

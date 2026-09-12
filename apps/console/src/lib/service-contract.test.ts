@@ -17,14 +17,12 @@ import {
   isTarget,
   parseFilenameStem,
   parseSkippedHeader,
+  parseSubscriptionUserInfo,
   percentDecodeValue,
   subscriptionMediaType,
   type Target,
 } from "./service-contract.ts"
-import {
-  filenameFromDisposition,
-  parseSkippedFromHeaders,
-} from "./preview.ts"
+import { filenameFromDisposition, parseSkippedFromHeaders } from "./preview.ts"
 type GoldenContract = {
   targets: string[]
   queryKeys: string[]
@@ -111,6 +109,41 @@ describe("Conversion Service GET contract", () => {
       "/sub?target=clash&url=ss%3A%2F%2Faes-128-gcm%3Ap%2Bss%40example.com%3A8388%23Plus"
     )
     expect(getTarget).not.toContain("insert")
+  })
+
+  it("parses subscription-userinfo and keeps expire=0 as zero", () => {
+    expect(
+      parseSubscriptionUserInfo("upload=1; download=2; total=3; expire=0")
+    ).toEqual({
+      upload: 1,
+      download: 2,
+      total: 3,
+      expire: 0,
+    })
+    expect(parseSubscriptionUserInfo("upload=1; download=2; total=3")).toEqual({
+      upload: 1,
+      download: 2,
+      total: 3,
+      expire: null,
+    })
+    expect(
+      parseSubscriptionUserInfo(
+        "upload=1048576; download=2097152; total=10737418240; expire=1893456000"
+      )
+    ).toEqual({
+      upload: 1_048_576,
+      download: 2_097_152,
+      total: 10_737_418_240,
+      expire: 1_893_456_000,
+    })
+    expect(parseSubscriptionUserInfo(null)).toBeNull()
+    expect(
+      parseSubscriptionUserInfo("upload=1, download=2; total=3")
+    ).toBeNull()
+    expect(parseSubscriptionUserInfo("upload=1; download=2")).toBeNull()
+    expect(
+      parseSubscriptionUserInfo("upload=1; download=2; total=3; upload=4")
+    ).toBeNull()
   })
 
   it("accepts a download-name stem and rejects path characters", () => {

@@ -1,29 +1,44 @@
 import {
   EXPOSED_HEADERS,
   SKIPPED_HEADER,
+  USERINFO_HEADER,
   VERSION_BODY,
   VERSION_PATH,
   fallbackDownloadName,
   isKnownServiceError,
   parseOmittedRulesHeader,
   parseSkippedHeader,
+  parseSubscriptionUserInfo,
   type KnownServiceError,
   type OmittedRules,
   type SkipCounts,
+  type SubscriptionUserInfo,
   type Target,
 } from "./service-contract.ts"
+
+function headerValue(
+  headers: readonly { name: string; value: string }[],
+  name: string
+): string | null {
+  return headers.find((header) => header.name === name)?.value ?? null
+}
 
 export function parseSkippedFromHeaders(
   headers: readonly { name: string; value: string }[]
 ): SkipCounts | null {
-  const value =
-    headers.find((header) => header.name === SKIPPED_HEADER)?.value ?? null
-  return parseSkippedHeader(value)
+  return parseSkippedHeader(headerValue(headers, SKIPPED_HEADER))
+}
+
+export function parseUserInfoFromHeaders(
+  headers: readonly { name: string; value: string }[]
+): SubscriptionUserInfo | null {
+  return parseSubscriptionUserInfo(headerValue(headers, USERINFO_HEADER))
 }
 
 export type SubGetHeaders = {
   skipped: SkipCounts | null
   omitted: OmittedRules | null
+  traffic: SubscriptionUserInfo | null
   filename: string | null
   exposed: { name: string; value: string }[]
 }
@@ -75,6 +90,7 @@ export function readSubGetHeaders(
       headers.get("x-subconverter-result"),
       headers.get("x-subconverter-omitted-rules")
     ),
+    traffic: parseUserInfoFromHeaders(exposed),
     filename:
       filenameFromDisposition(headers.get("content-disposition")) ??
       fallbackDownloadName(target),
@@ -193,6 +209,7 @@ export type PreviewDone = {
   headers: { name: string; value: string }[]
   skipped: SkipCounts | null
   omitted: OmittedRules | null
+  traffic: SubscriptionUserInfo | null
   body: string
   viewText: string
   truncated: boolean
@@ -230,6 +247,7 @@ export async function runPreview(input: {
       headers: headers.exposed,
       skipped: headers.skipped,
       omitted: headers.omitted,
+      traffic: headers.traffic,
       body,
       viewText: truncated.text,
       truncated: truncated.truncated,

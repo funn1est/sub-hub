@@ -87,8 +87,8 @@ export function WorkshopSubscription({
                     key={sibling.target}
                     className="flex items-center gap-2 rounded-md px-2.5 py-1.5"
                   >
-                    <span className="w-16 shrink-0 font-mono text-xs">
-                      {sibling.target}
+                    <span className="w-28 shrink-0 text-xs">
+                      {copy.client[sibling.target].label}
                     </span>
                     <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
                       {sibling.url}
@@ -97,7 +97,7 @@ export function WorkshopSubscription({
                       type="button"
                       variant="ghost"
                       size="icon-xs"
-                      aria-label={`${copy.copyUrl} ${sibling.target}`}
+                      aria-label={`${copy.copyUrl} ${copy.client[sibling.target].label}`}
                       disabled={sibling.overLimit}
                       onClick={() => void actions.copy(sibling.url)}
                     >
@@ -114,7 +114,7 @@ export function WorkshopSubscription({
         <Button
           type="button"
           onClick={() => void actions.copy()}
-          disabled={assembled.url === null}
+          disabled={assembled.url === null || assembled.overLimit}
         >
           <CopyIcon data-icon="inline-start" />
           {copy.copyUrl}

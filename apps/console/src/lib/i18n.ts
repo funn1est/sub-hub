@@ -1,10 +1,7 @@
-import type {
-  KnownServiceError,
-  SkipCounts,
-  Target,
-} from "./service-contract.ts"
 import type { Locale } from "./persist.ts"
+import type { KnownServiceError } from "./service-contract.ts"
 import { targetConsumers } from "./target-consumers.ts"
+import type { ClientTarget } from "./workshop.ts"
 
 const ERROR_TITLES: Record<Locale, Record<KnownServiceError, string>> = {
   en: {
@@ -78,19 +75,72 @@ export const messages = {
     done: "Done",
     tokenSet: "Token set",
     options: "Options",
-    target: "Target",
+    target: "Client",
     config: "Remote config",
-    configNone: "No remote config",
-    configOnline: "Online",
-    configMini: "Mini",
-    configFull: "Full",
-    configClassic: "Classic / other",
+    configNone: "Nodes only (PROXY/AUTO)",
+    configFamilies: {
+      online: "Online · recommended start",
+      mini: "Mini",
+      full: "Full",
+      classic: "Classic / other",
+    },
     configCustom: "Custom URL",
     configUrl: "Config URL",
     configSearch: "Search…",
     configHint:
-      "Empty omits config= and uses PROXY/AUTO. Pick a listed preset or a custom HTTPS URL.",
+      "Empty omits config= and emits only nodes plus default groups. No ads or China split. Pick a listed preset for routing, or a custom HTTPS URL.",
     configEmpty: "No matching config.",
+    configEffects: {
+      adsChinaSplit: "Ads and China split",
+      adblockPlus: "Adblock Plus",
+      multiCountry: "Multiple countries",
+      noAuto: "No automatic test",
+      noReject: "No reject",
+      ai: "AI services",
+      fallback: "Fallback",
+      multiMode: "Multiple modes",
+      google: "Google",
+      netflix: "Netflix",
+      backCN: "Back to China",
+      noApple: "No Apple",
+      noMicrosoft: "No Microsoft",
+      noAutoNoApple: "No automatic test, no Apple",
+      noAutoNoAppleNoMicrosoft: "No automatic test, no Apple, no Microsoft",
+      withChinaIp: "China IP",
+      withChinaIpGfw: "China IP and GFW",
+      withGfw: "GFW",
+    },
+    client: {
+      clash: {
+        label: "Clash / Mihomo",
+        capability:
+          "Clash-family clients keep every protocol this Conversion Service accepts.",
+        wireNote: "Mihomo YAML (clash is the compatibility name).",
+      },
+      quanx: {
+        label: "Quantumult X",
+        capability: "Quantumult X skips every Hysteria2 and TUIC node.",
+      },
+      singbox: {
+        label: "sing-box",
+        capability:
+          "This sing-box pin skips Hysteria2 gecko and pinSHA256.",
+      },
+      loon: {
+        label: "Loon",
+        capability:
+          "Loon skips every TUIC node. VLESS Reality stays only with Vision.",
+      },
+      egern: {
+        label: "Egern",
+        capability:
+          "Egern skips TUIC with non-default congestion and Trojan gRPC.",
+      },
+      surge: {
+        label: "Surge",
+        capability: "Surge and Surfboard skip every VLESS node.",
+      },
+    },
     appendInfo: "Append subscription-userinfo",
     appendInfoHint:
       "On by default for a single remote source. Turning this off sends append_info=false. Mihomo still sends profile-update-interval: 24.",
@@ -103,7 +153,7 @@ export const messages = {
     subscription: "Subscription URL",
     subscriptionDescription:
       "The importable URL a client fetches. Preview uses this exact URL.",
-    subscriptionTargets: "All targets",
+    subscriptionTargets: "Other clients",
     copyUrl: "Copy URL",
     copied: "Copied",
     copyFailed: "Could not copy",
@@ -125,8 +175,11 @@ export const messages = {
     skipped: "Skipped nodes",
     omitted: "Omitted rules",
     status: "Status",
-    headers: "Headers",
-    body: "Body",
+    headers: "Response headers",
+    body: "Original document",
+    traffic: "Traffic",
+    trafficNone: "no listed cap",
+    expires: "Expires",
     unreachableCors:
       "The Console could not read this Conversion Service (CORS, network, or the request was blocked). This is not an Unauthorized response.",
     unreachableMixed:
@@ -174,19 +227,69 @@ export const messages = {
     done: "完成",
     tokenSet: "已设置 token",
     options: "选项",
-    target: "Target",
+    target: "客户端",
     config: "远端配置",
-    configNone: "无远端配置",
-    configOnline: "Online",
-    configMini: "Mini",
-    configFull: "Full",
-    configClassic: "Classic / 其他",
+    configNone: "仅节点列表（PROXY/AUTO）",
+    configFamilies: {
+      online: "Online · 推荐起步",
+      mini: "Mini",
+      full: "Full",
+      classic: "Classic / 其他",
+    },
     configCustom: "自定义 URL",
     configUrl: "配置 URL",
     configSearch: "搜索…",
     configHint:
-      "留空则不发送 config=，使用 PROXY/AUTO。可选列表中的预设，或填写自定义 HTTPS URL。",
+      "留空则不发送 config=，只输出节点和默认分组，没有广告和分流。选列表中的预设做分流，或填写自定义 HTTPS URL。",
     configEmpty: "没有匹配的配置。",
+    configEffects: {
+      adsChinaSplit: "广告与分流",
+      adblockPlus: "Adblock Plus",
+      multiCountry: "多国家",
+      noAuto: "无自动测速",
+      noReject: "无 REJECT",
+      ai: "AI 服务",
+      fallback: "Fallback",
+      multiMode: "多模式",
+      google: "Google",
+      netflix: "Netflix",
+      backCN: "回国",
+      noApple: "不含 Apple",
+      noMicrosoft: "不含 Microsoft",
+      noAutoNoApple: "无自动测速、不含 Apple",
+      noAutoNoAppleNoMicrosoft: "无自动测速、不含 Apple、不含 Microsoft",
+      withChinaIp: "China IP",
+      withChinaIpGfw: "China IP 与 GFW",
+      withGfw: "GFW",
+    },
+    client: {
+      clash: {
+        label: "Clash / Mihomo",
+        capability:
+          "Clash 家族客户端会保留本 Conversion Service 接受的全部协议。",
+        wireNote: "Mihomo YAML（clash 是兼容名）。",
+      },
+      quanx: {
+        label: "Quantumult X",
+        capability: "Quantumult X 会跳过全部 Hysteria2 和 TUIC 节点。",
+      },
+      singbox: {
+        label: "sing-box",
+        capability: "当前 sing-box pin 会跳过 Hysteria2 gecko 和 pinSHA256。",
+      },
+      loon: {
+        label: "Loon",
+        capability: "Loon 会跳过全部 TUIC。VLESS Reality 只在 Vision 时保留。",
+      },
+      egern: {
+        label: "Egern",
+        capability: "Egern 会跳过非默认拥塞的 TUIC，以及 Trojan gRPC。",
+      },
+      surge: {
+        label: "Surge",
+        capability: "Surge 和 Surfboard 会跳过全部 VLESS 节点。",
+      },
+    },
     appendInfo: "附加 subscription-userinfo",
     appendInfoHint:
       "单个远端源时默认开启。关闭时发送 append_info=false。Mihomo 仍会发送 profile-update-interval: 24。",
@@ -199,7 +302,7 @@ export const messages = {
     subscription: "Subscription URL",
     subscriptionDescription:
       "客户端导入的转换 URL。Preview 会 GET 同一条 URL。",
-    subscriptionTargets: "全部 target",
+    subscriptionTargets: "其他客户端",
     copyUrl: "复制 URL",
     copied: "已复制",
     copyFailed: "无法复制",
@@ -221,7 +324,10 @@ export const messages = {
     omitted: "省略的规则",
     status: "状态",
     headers: "响应头",
-    body: "正文",
+    body: "原始文档",
+    traffic: "流量",
+    trafficNone: "未标明总量",
+    expires: "到期",
     unreachableCors:
       "Console 无法读取这个 Conversion Service（CORS、网络或请求被拦截）。这不是 Unauthorized 响应。",
     unreachableMixed:
@@ -247,65 +353,27 @@ export function knownErrorTitle(
   return ERROR_TITLES[locale][body]
 }
 
-export function skippedSummary(locale: Locale, counts: SkipCounts): string {
-  const parts: string[] = []
-  if (counts.parse > 0) {
-    parts.push(
-      locale === "zh"
-        ? `解析失败 ${counts.parse}`
-        : `${counts.parse} could not be parsed`
-    )
-  }
-  if (counts.capability > 0) {
-    parts.push(
-      locale === "zh"
-        ? `此 target 不支持 ${counts.capability}`
-        : `${counts.capability} unsupported on this target`
-    )
-  }
-  if (counts.name > 0) {
-    parts.push(
-      locale === "zh"
-        ? `名称不可用 ${counts.name}`
-        : `${counts.name} had a reserved or unrepresentable name`
-    )
-  }
-  const total = counts.parse + counts.capability + counts.name
-  if (locale === "zh") {
-    return `跳过 ${total} 个节点（${parts.join("，")}）。`
-  }
-  return `Skipped ${total} nodes (${parts.join(", ")}).`
-}
-
-export function omittedSummary(
-  locale: Locale,
-  omittedUrlRegex: number
-): string {
-  if (locale === "zh") {
-    return `省略 ${omittedUrlRegex} 条 URL-REGEX 规则（此 target 不支持）。`
-  }
-  return `Omitted ${omittedUrlRegex} URL-REGEX rules (unsupported on this target).`
-}
-
-export function targetHint(locale: Locale, target: Target): string {
+export function targetHint(locale: Locale, target: ClientTarget): string {
   const list = targetConsumers(target).join(", ")
-  const frame =
-    locale === "zh"
-      ? `以下客户端导入此文档：${list}。`
-      : `Imported by: ${list}.`
-  if (target === "clash" || target === "mihomo") {
-    const extra =
-      locale === "zh"
-        ? "Mihomo YAML（clash 是兼容名）。"
-        : "Mihomo YAML (clash is the compatibility name)."
-    return locale === "zh" ? `${frame}${extra}` : `${frame} ${extra}`
+  const extra =
+    target === "clash" ? messages[locale].client.clash.wireNote : undefined
+  if (locale === "zh") {
+    return extra !== undefined
+      ? `以下客户端导入此文档：${list}。${extra}`
+      : `以下客户端导入此文档：${list}。`
   }
-  if (target === "surge") {
-    const extra =
-      locale === "zh"
-        ? "Surfboard 跟随 Surge 语法，不支持 VLESS。"
-        : "Surfboard follows Surge and does not support VLESS."
-    return locale === "zh" ? `${frame}${extra}` : `${frame} ${extra}`
-  }
-  return frame
+  return extra !== undefined
+    ? `Imported by: ${list}. ${extra}`
+    : `Imported by: ${list}.`
+}
+
+export function clientTargetLabel(
+  locale: Locale,
+  target: ClientTarget
+): string {
+  return messages[locale].client[target].label
+}
+
+export function capabilityHint(locale: Locale, target: ClientTarget): string {
+  return messages[locale].client[target].capability
 }

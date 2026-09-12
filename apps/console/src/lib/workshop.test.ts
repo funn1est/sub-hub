@@ -1,22 +1,27 @@
 import { describe, expect, it } from "vitest"
 
-import { parseAccessToken } from "./service-contract.ts"
 import {
-  ACL4SSR_CLASSIC_FILES,
-  ACL4SSR_FULL_FILES,
-  ACL4SSR_MINI_FILES,
-  ACL4SSR_ONLINE_FILES,
+  encodeSubGetTarget,
+  isTarget,
+  parseAccessToken,
+  type SubGetEncodeInput,
+} from "./service-contract.ts"
+import {
   ACL4SSR_ONLINE_URL,
   acl4ssrConfigUrl,
+  acl4ssrListed,
   configPresetOf,
   configSelectionId,
 } from "./acl4ssr-catalog.ts"
 import { messages } from "./i18n.ts"
 import { configChoiceGroups } from "./workshop-config.ts"
 import {
+  CLIENT_TARGETS,
   clashInstallUrl,
+  clientTargetOf,
   egernInstallUrl,
   evaluateWorkshop,
+  isClientTarget,
   isIosPhoneUserAgent,
   loonInstallUrl,
   parseServiceOrigin,
@@ -174,18 +179,15 @@ describe("assembleSubscription", () => {
     )
   })
 
-  it("emits mihomo as the exact selected token", () => {
-    const assembled = assembleSubscription(input({ target: "mihomo" }))
-    expect(assembled.getTarget).toBe(
-      `/sub?target=mihomo&url=${VLESS_ENCODED}&expand=true`
-    )
+  it("treats mihomo as the clash picker identity", () => {
+    expect(CLIENT_TARGETS).not.toContain("mihomo")
+    expect(clientTargetOf("mihomo")).toBe("clash")
+    expect(clientTargetOf("clash")).toBe("clash")
   })
 
-  it("lists a sibling URL for every released target without changing the primary", () => {
+  it("lists a sibling URL for every other client without changing the primary", () => {
     const clash = assembleSubscription(input())
     expect(clash.siblings.map((sibling) => sibling.target)).toEqual([
-      "clash",
-      "mihomo",
       "quanx",
       "singbox",
       "loon",
@@ -193,8 +195,6 @@ describe("assembleSubscription", () => {
       "surge",
     ])
     expect(clash.siblings.map((sibling) => sibling.getTarget)).toEqual([
-      `/sub?target=clash&url=${VLESS_ENCODED}&expand=true`,
-      `/sub?target=mihomo&url=${VLESS_ENCODED}&expand=true`,
       `/sub?target=quanx&url=${VLESS_ENCODED}&expand=true`,
       `/sub?target=singbox&url=${VLESS_ENCODED}&expand=true`,
       `/sub?target=loon&url=${VLESS_ENCODED}&expand=true`,
@@ -204,14 +204,22 @@ describe("assembleSubscription", () => {
     expect(clash.url).toBe(
       `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&expand=true`
     )
-    expect(clash.url).toBe(clash.siblings[0]?.url)
+    expect(clash.siblings.some((sibling) => sibling.target === "clash")).toBe(
+      false
+    )
 
     const loon = assembleSubscription(input({ target: "loon" }))
     expect(loon.getTarget).toBe(
       `/sub?target=loon&url=${VLESS_ENCODED}&expand=true`
     )
-    expect(loon.url).toBe(loon.siblings[4]?.url)
-    expect(loon.siblings).toHaveLength(7)
+    expect(loon.siblings.map((sibling) => sibling.target)).toEqual([
+      "clash",
+      "quanx",
+      "singbox",
+      "egern",
+      "surge",
+    ])
+    expect(loon.siblings).toHaveLength(5)
 
     const collapsed = assembleSubscription(input({ expand: false }))
     expect(
@@ -232,9 +240,9 @@ describe("assembleSubscription", () => {
     const over = assembleSubscription(input({ sources: ["a".repeat(8159)] }))
     expect(new TextEncoder().encode(over.getTarget ?? "").length).toBe(8193)
     expect(over.overLimit).toBe(true)
-    expect(
-      atLimit.siblings.find((sibling) => sibling.target === "clash")?.overLimit
-    ).toBe(false)
+    expect(over.clashInstall).toBe(false)
+    expect(over.previewable).toBe(false)
+    expect(atLimit.clashInstall).toBe(true)
     expect(
       atLimit.siblings.find((sibling) => sibling.target === "singbox")
         ?.overLimit
@@ -277,12 +285,7 @@ describe("assembleSubscription", () => {
 
 describe("configPresetOf", () => {
   it("maps empty, the 33 master files, and any other URL", () => {
-    const files = [
-      ...ACL4SSR_ONLINE_FILES,
-      ...ACL4SSR_MINI_FILES,
-      ...ACL4SSR_FULL_FILES,
-      ...ACL4SSR_CLASSIC_FILES,
-    ]
+    const files = acl4ssrListed().map((preset) => preset.file)
     expect(files).toHaveLength(33)
     expect(new Set(files).size).toBe(33)
     expect(configPresetOf("")).toEqual({ kind: "none" })
@@ -295,28 +298,10 @@ describe("configPresetOf", () => {
     )
     expect(acl4ssrConfigUrl("ACL4SSR_Online.ini")).not.toMatch(/[0-9a-f]{40}/)
 
-    for (const file of ACL4SSR_ONLINE_FILES) {
-      expect(configPresetOf(acl4ssrConfigUrl(file))).toEqual({
-        kind: "online",
-        file,
-      })
-    }
-    for (const file of ACL4SSR_MINI_FILES) {
-      expect(configPresetOf(acl4ssrConfigUrl(file))).toEqual({
-        kind: "mini",
-        file,
-      })
-    }
-    for (const file of ACL4SSR_FULL_FILES) {
-      expect(configPresetOf(acl4ssrConfigUrl(file))).toEqual({
-        kind: "full",
-        file,
-      })
-    }
-    for (const file of ACL4SSR_CLASSIC_FILES) {
-      expect(configPresetOf(acl4ssrConfigUrl(file))).toEqual({
-        kind: "classic",
-        file,
+    for (const preset of acl4ssrListed()) {
+      expect(configPresetOf(acl4ssrConfigUrl(preset.file))).toEqual({
+        kind: "listed",
+        file: preset.file,
       })
     }
     expect(configPresetOf("https://example.com/custom.ini")).toEqual({
@@ -325,13 +310,22 @@ describe("configPresetOf", () => {
     const groups = configChoiceGroups(messages.en)
     expect(groups.map((group) => group.value)).toEqual([
       messages.en.configNone,
-      messages.en.configOnline,
-      messages.en.configMini,
-      messages.en.configFull,
-      messages.en.configClassic,
+      messages.en.configFamilies.online,
+      messages.en.configFamilies.mini,
+      messages.en.configFamilies.full,
+      messages.en.configFamilies.classic,
       messages.en.configCustom,
     ])
     expect(groups[4]?.items).toHaveLength(15)
+    expect(groups[0]?.items[0]?.search).toMatch(/PROXY AUTO/)
+    expect(groups[0]?.items[0]?.detail).toBeUndefined()
+    expect(groups[5]?.items[0]?.detail).toBeUndefined()
+    expect(groups[1]?.items[0]).toMatchObject({
+      id: "ACL4SSR_Online.ini",
+      label: messages.en.configEffects.adsChinaSplit,
+      detail: "ACL4SSR_Online",
+    })
+    expect(groups[1]?.items[0]?.search).toContain("ACL4SSR_Online.ini")
   })
 })
 
@@ -444,14 +438,10 @@ describe("evaluateWorkshop", () => {
     expect(configSelectionId({ kind: "none" }, true)).toBe("custom")
   })
 
-  it("always offers clash:// on clash and mihomo, on every UA", () => {
+  it("always offers clash:// on clash, on every UA", () => {
     for (const userAgent of [WINDOWS_CHROME, ANDROID_CHROME, IPHONE_SAFARI]) {
       expect(
         evaluateWorkshop(input(), { userAgent }).assembled.clashInstall
-      ).toBe(true)
-      expect(
-        evaluateWorkshop(input({ target: "mihomo" }), { userAgent }).assembled
-          .clashInstall
       ).toBe(true)
     }
   })
@@ -506,8 +496,12 @@ describe("evaluateWorkshop", () => {
   })
 })
 
+type GoldenSubEncode = {
+  serviceOrigin: string
+} & SubGetEncodeInput
+
 describe("subscription URL golden", () => {
-  it("round-trips shared cases through the Workshop adapter", async () => {
+  it("round-trips picker cases through Workshop and wire aliases through encode", async () => {
     const { readFile } = await import("node:fs/promises")
     const { resolve } = await import("node:path")
     const raw = await readFile(
@@ -522,21 +516,47 @@ describe("subscription URL golden", () => {
         id: string
         query: string
         path?: string
-        workshop?: WorkshopFields
+        workshop?: GoldenSubEncode
       }>
     }
 
     for (const testCase of file.cases) {
-      if (testCase.workshop !== undefined) {
-        const assembled = assembleSubscription(testCase.workshop)
-        const path = testCase.path ?? "/sub"
-        expect(assembled.getTarget, testCase.id).toBe(
-          `${path}?${testCase.query}`
-        )
-        expect(assembled.url, testCase.id).toBe(
-          `${testCase.workshop.serviceOrigin}${path}?${testCase.query}`
-        )
+      const workshop = testCase.workshop
+      if (workshop === undefined) {
+        continue
       }
+      expect(isTarget(workshop.target), testCase.id).toBe(true)
+      const path = testCase.path ?? "/sub"
+      const expected = `${path}?${testCase.query}`
+      if (isClientTarget(workshop.target)) {
+        const assembled = assembleSubscription({
+          serviceOrigin: workshop.serviceOrigin,
+          accessToken: workshop.accessToken,
+          sources: workshop.sources,
+          target: workshop.target,
+          configUrl: workshop.configUrl,
+          appendInfo: workshop.appendInfo,
+          expand: workshop.expand === true,
+          filename: workshop.filename ?? "",
+        })
+        expect(assembled.getTarget, testCase.id).toBe(expected)
+        expect(assembled.url, testCase.id).toBe(
+          `${workshop.serviceOrigin}${expected}`
+        )
+        continue
+      }
+      expect(
+        encodeSubGetTarget({
+          accessToken: workshop.accessToken,
+          target: workshop.target,
+          sources: workshop.sources,
+          configUrl: workshop.configUrl,
+          appendInfo: workshop.appendInfo,
+          expand: workshop.expand,
+          filename: workshop.filename,
+        }),
+        testCase.id
+      ).toBe(expected)
     }
   })
 })

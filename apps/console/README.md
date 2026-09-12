@@ -13,11 +13,14 @@ React + Vite 8 + shadcn v4 / Base UI + Tailwind v4 + `vite-plugin-pwa`.
 Node 24.19.0 and pnpm 11.22.0 are pinned in the repository-root `mise.toml`.
 Chrome and Workshop copy localize to Chinese and English. The Conversion
 Service does not: HTTP bodies stay English and ignore `Accept-Language`.
-The Workshop target toggle shows which popular clients import that document
-(Stash uses `clash`; Surfboard uses `surge`). It does not add `stash`,
-`surfboard`, or `shadowrocket` tokens. One-click import: `clash://` is
-always shown for `clash` / `mihomo`. Surge / Loon / Egern / sing-box
-schemes show only on iPhone and iPad UA.
+The Workshop target toggle picks the client on the phone (Clash / Mihomo
+as one choice, then Quantumult X, sing-box, Loon, Egern, Surge). The
+hint still lists popular apps that import that document (Stash uses
+`clash`; Surfboard uses `surge`). It does not add `stash`, `surfboard`,
+or `shadowrocket` tokens. One-click import: `clash://` is shown for the
+Clash / Mihomo choice (`clash`). Stored `mihomo` remaps to that choice
+on load. Surge / Loon / Egern / sing-box schemes show only on iPhone
+and iPad UA.
 
 ## Develop
 
@@ -64,16 +67,24 @@ Then open `http://127.0.0.1:25500/`. When `/version` on that origin succeeds,
 the Workshop fills the Conversion Service origin itself.
 
 Preview is a simple `GET`. The Conversion Service does not answer `OPTIONS`.
-When the service skipped nodes, Preview shows the counts from
-`x-subconverter-skipped`; it does not fetch a second URL.
+Skip counts come from `x-subconverter-skipped` when that header is present,
+including the 400 Conversion returns when Keep-pass dropped every node.
+A per-client capability hint is Workshop copy for the selected client,
+not a header. Traffic comes from `subscription-userinfo` on the same GET
+(`expire=0` is kept on the record and omitted from the date line). Preview
+does not fetch a second URL and does not parse the document for a node or
+group outline. The original document and raw headers stay folded.
 
 The Workshop lists 33 INIs from
 `https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/`
-(18 Online plus 15 Classic / other). `master` moves; the Console does
+grouped Online, Mini, Full, and Classic. Labels describe the effect. The
+combobox shows the INI stem next to the label and matches search against
+the stem and filename. `master` moves; the Console does
 not pin a commit. The default is no remote
-config (`config=` omitted, PROXY/AUTO). A custom HTTPS URL is the only case
-that shows a URL field. `URL-REGEX` is emitted for Loon and Surge and
-omitted on other targets.
+config (`config=` omitted, PROXY/AUTO: nodes and default groups only, no ads
+or China split). Online is the recommended start. A custom HTTPS URL is
+the only case that shows a URL field. `URL-REGEX` is emitted for Loon and
+Surge and omitted on other targets.
 
 ## Build
 

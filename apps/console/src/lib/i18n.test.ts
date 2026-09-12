@@ -2,13 +2,14 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
-import { KNOWN_SERVICE_ERRORS, TARGETS } from "./service-contract.ts"
+import { KNOWN_SERVICE_ERRORS } from "./service-contract.ts"
+import { CLIENT_TARGETS } from "./workshop.ts"
 import {
   SOURCE_REPO,
+  capabilityHint,
+  clientTargetLabel,
   knownErrorTitle,
   messages,
-  omittedSummary,
-  skippedSummary,
   targetHint,
 } from "./i18n.ts"
 
@@ -44,6 +45,10 @@ describe("remote config copy", () => {
     expect(messages.zh.config).not.toMatch(/ACL4SSR/i)
     expect(messages.en.configHint).toContain("config=")
     expect(messages.zh.configHint).toContain("config=")
+    expect(messages.en.configNone).toContain("PROXY/AUTO")
+    expect(messages.zh.configNone).toContain("PROXY/AUTO")
+    expect(messages.en.configHint).toMatch(/ads or China split/i)
+    expect(messages.zh.configHint).toMatch(/广告和分流/)
   })
 })
 
@@ -55,28 +60,6 @@ describe("append_info copy", () => {
     expect(messages.en.appendInfoHint).toContain("profile-update-interval: 24")
     expect(messages.zh.appendInfo).toContain("subscription-userinfo")
     expect(messages.zh.appendInfoHint).toContain("append_info=false")
-  })
-})
-
-describe("skippedSummary", () => {
-  it("lists only the non-zero buckets in zh and en", () => {
-    expect(skippedSummary("en", { parse: 1, capability: 4, name: 0 })).toBe(
-      "Skipped 5 nodes (1 could not be parsed, 4 unsupported on this target)."
-    )
-    expect(skippedSummary("zh", { parse: 1, capability: 4, name: 0 })).toBe(
-      "跳过 5 个节点（解析失败 1，此 target 不支持 4）。"
-    )
-  })
-})
-
-describe("omittedSummary", () => {
-  it("names the omitted URL-REGEX count in zh and en", () => {
-    expect(omittedSummary("en", 3)).toBe(
-      "Omitted 3 URL-REGEX rules (unsupported on this target)."
-    )
-    expect(omittedSummary("zh", 3)).toBe(
-      "省略 3 条 URL-REGEX 规则（此 target 不支持）。"
-    )
   })
 })
 
@@ -92,23 +75,64 @@ describe("targetHint", () => {
     )
     expect(en).not.toMatch(/Shadowrocket/i)
     expect(zh).not.toMatch(/Shadowrocket/i)
-    expect(targetHint("en", "mihomo")).toBe(en)
   })
 
   it("names Surfboard on surge in en and zh", () => {
-    expect(targetHint("en", "surge")).toBe(
-      "Imported by: Surge, Surfboard. Surfboard follows Surge and does not support VLESS."
-    )
+    expect(targetHint("en", "surge")).toBe("Imported by: Surge, Surfboard.")
     expect(targetHint("zh", "surge")).toBe(
-      "以下客户端导入此文档：Surge, Surfboard。Surfboard 跟随 Surge 语法，不支持 VLESS。"
+      "以下客户端导入此文档：Surge, Surfboard。"
     )
   })
 
-  it("never names Shadowrocket on any released target", () => {
-    for (const target of TARGETS) {
+  it("never names Shadowrocket on any Workshop client", () => {
+    for (const target of CLIENT_TARGETS) {
       expect(targetHint("en", target)).not.toMatch(/Shadowrocket/i)
       expect(targetHint("zh", target)).not.toMatch(/Shadowrocket/i)
+      expect(capabilityHint("en", target)).not.toMatch(/Shadowrocket/i)
+      expect(capabilityHint("zh", target)).not.toMatch(/Shadowrocket/i)
+      expect(clientTargetLabel("en", target)).not.toMatch(/Shadowrocket/i)
     }
+  })
+})
+
+describe("client-first copy", () => {
+  it("names the phone app, not the wire token", () => {
+    expect(clientTargetLabel("en", "clash")).toBe("Clash / Mihomo")
+    expect(clientTargetLabel("zh", "quanx")).toBe("Quantumult X")
+    expect(clientTargetLabel("en", "singbox")).toBe("sing-box")
+    expect(Object.keys(messages.en.client)).toEqual([...CLIENT_TARGETS])
+    expect(messages.en.client.clash.wireNote).toMatch(/Mihomo YAML/)
+    expect(messages.zh.client.clash.wireNote).toMatch(/Mihomo YAML/)
+    for (const target of CLIENT_TARGETS) {
+      if (target === "clash") {
+        continue
+      }
+      expect("wireNote" in messages.en.client[target]).toBe(false)
+      expect("wireNote" in messages.zh.client[target]).toBe(false)
+    }
+  })
+
+  it("states Surge drops every VLESS node", () => {
+    expect(capabilityHint("en", "surge")).toMatch(/skip every VLESS/i)
+    expect(capabilityHint("zh", "surge")).toMatch(/VLESS/)
+  })
+})
+
+describe("locale key alignment", () => {
+  it("keeps the same message keys in zh and en", () => {
+    expect(Object.keys(messages.zh)).toEqual(Object.keys(messages.en))
+    expect(Object.keys(messages.zh.configEffects)).toEqual(
+      Object.keys(messages.en.configEffects)
+    )
+    expect(Object.keys(messages.zh.configFamilies)).toEqual(
+      Object.keys(messages.en.configFamilies)
+    )
+    expect(Object.keys(messages.zh.client)).toEqual(
+      Object.keys(messages.en.client)
+    )
+    expect(Object.keys(messages.zh.client.clash)).toEqual(
+      Object.keys(messages.en.client.clash)
+    )
   })
 })
 

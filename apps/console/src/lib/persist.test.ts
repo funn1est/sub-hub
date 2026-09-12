@@ -4,6 +4,7 @@ import {
   composePersisted,
   createConsolePersist,
   defaultLocale,
+  parsePersisted,
   PERSIST_KEY,
   serializePersisted,
   workshopFieldsOf,
@@ -118,6 +119,29 @@ describe("persist", () => {
       memoryStorage([[PERSIST_KEY, JSON.stringify(withoutFilename)]])
     ).getState()
     expect(loaded.filename).toBe("")
+  })
+
+  it("coerces a persisted mihomo target to the clash picker identity", () => {
+    expect(
+      parsePersisted(
+        JSON.stringify({ ...sample, target: "mihomo" })
+      ).target
+    ).toBe("clash")
+  })
+
+  it("rewrites a hydrated mihomo blob to clash on the next persist write", () => {
+    const storage = memoryStorage([
+      [PERSIST_KEY, JSON.stringify({ ...sample, target: "mihomo" })],
+    ])
+    const store = createConsolePersist(storage)
+    expect(store.getState().target).toBe("clash")
+    expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? "").target).toBe(
+      "mihomo"
+    )
+    store.setState(workshopFieldsOf(store.getState()))
+    expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? "").target).toBe(
+      "clash"
+    )
   })
 
   it("treats a missing expand field as the default on", () => {

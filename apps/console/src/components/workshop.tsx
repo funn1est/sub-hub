@@ -69,6 +69,7 @@ export function Workshop({ view, actions, locale }: WorkshopProps) {
         locale={locale}
         preview={view.preview}
         copy={copy}
+        target={fields.target}
         onDownload={actions.download}
       />
       <p className="pb-4 text-center text-xs text-muted-foreground">

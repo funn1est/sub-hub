@@ -11,6 +11,7 @@ import {
   classifyVersionBody,
   filenameFromDisposition,
   isLoopbackHost,
+  parseUserInfoFromHeaders,
   PREVIEW_VIEW_LIMIT_BYTES,
   readSubGetHeaders,
   runPreview,
@@ -199,6 +200,20 @@ describe("parseOmittedRulesHeader", () => {
   })
 })
 
+describe("parseUserInfoFromHeaders", () => {
+  it("reads subscription-userinfo from exposed Preview headers", () => {
+    expect(
+      parseUserInfoFromHeaders([
+        { name: "content-disposition", value: 'attachment; filename="a.yaml"' },
+        {
+          name: "subscription-userinfo",
+          value: "upload=1; download=2; total=3",
+        },
+      ])
+    ).toEqual({ upload: 1, download: 2, total: 3, expire: null })
+  })
+})
+
 describe("download filename", () => {
   it("prefers content-disposition and falls back to sub-hub-<target>.<ext>", () => {
     expect(
@@ -247,6 +262,7 @@ describe("runPreview", () => {
       ],
       skipped: null,
       omitted: null,
+      traffic: null,
       body: "mode: rule\n",
       viewText: "mode: rule\n",
       truncated: false,
@@ -299,6 +315,45 @@ describe("runPreview", () => {
     expect(outcome.status).toBe("done")
     if (outcome.status === "done") {
       expect(outcome.filename).toBe("sub-hub-mihomo.yaml")
+    }
+  })
+
+  it("parses subscription-userinfo from the same GET", async () => {
+    const body = [
+      "mode: rule",
+      "proxies:",
+      "- name: Alpha",
+      "  type: vless",
+      "proxy-groups:",
+      "- name: PROXY",
+      "  type: select",
+      "rules:",
+      "- MATCH,PROXY",
+      "",
+    ].join("\n")
+    const outcome = await runPreview({
+      url: "http://127.0.0.1:25500/sub?target=clash&url=vless://x",
+      target: "clash",
+      pageHttps: false,
+      fetchImpl: async () => ({
+        status: 200,
+        text: async () => body,
+        headers: {
+          get: (name: string) =>
+            name === "subscription-userinfo"
+              ? "upload=1; download=2; total=3; expire=0"
+              : null,
+        },
+      }),
+    })
+    expect(outcome.status).toBe("done")
+    if (outcome.status === "done") {
+      expect(outcome.traffic).toEqual({
+        upload: 1,
+        download: 2,
+        total: 3,
+        expire: 0,
+      })
     }
   })
 

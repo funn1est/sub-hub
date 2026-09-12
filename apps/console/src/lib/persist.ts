@@ -2,7 +2,7 @@ import { persist, type PersistStorage } from "zustand/middleware"
 import { createStore } from "zustand/vanilla"
 
 import { isTarget } from "./service-contract.ts"
-import type { WorkshopFields } from "./workshop.ts"
+import { clientTargetOf, type WorkshopFields } from "./workshop.ts"
 
 export const PERSIST_KEY = "sub-hub.console.v1"
 
@@ -131,7 +131,7 @@ export function parsePersisted(
     sources: sources.length > 0 ? sources : [""],
     target:
       typeof value.target === "string" && isTarget(value.target)
-        ? value.target
+        ? clientTargetOf(value.target)
         : defaults.target,
     configUrl:
       typeof value.configUrl === "string"
