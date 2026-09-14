@@ -95,6 +95,9 @@ jobs:
       - name: Run Console lint
         run: pnpm run lint
 
+      - name: Check Console formatting
+        run: pnpm run format:check
+
       - name: Build Console
         run: pnpm run build
 

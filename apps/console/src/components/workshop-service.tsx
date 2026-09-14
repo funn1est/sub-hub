@@ -1,54 +1,35 @@
-import * as React from "react"
-import { EyeIcon, EyeOffIcon, ServerIcon } from "lucide-react"
+import * as React from 'react';
+import { EyeIcon, EyeOffIcon, ServerIcon } from 'lucide-react';
 
-import { Badge } from "@/components/ui/badge.tsx"
-import { Button } from "@/components/ui/button.tsx"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardHeader,
-} from "@/components/ui/card.tsx"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field.tsx"
+import { Badge } from '@/components/ui/badge.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Card, CardAction, CardContent, CardHeader } from '@/components/ui/card.tsx';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field.tsx';
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from "@/components/ui/input-group.tsx"
-import { t } from "@/lib/i18n.ts"
-import type {
-  WorkshopSessionActions,
-  WorkshopSessionView,
-} from "@/lib/workshop-session.ts"
-import { urlField } from "@/lib/workshop.ts"
-import {
-  SectionHeading,
-  VersionAlert,
-  VersionBadge,
-} from "@/components/workshop-section.tsx"
+} from '@/components/ui/input-group.tsx';
+import { t } from '@/lib/i18n.ts';
+import type { WorkshopSessionActions, WorkshopSessionView } from '@/lib/workshop-session.ts';
+import { urlField } from '@/lib/workshop.ts';
+import { SectionHeading, VersionAlert, VersionBadge } from '@/components/workshop-section.tsx';
 
 export function WorkshopService({
   view,
   actions,
   copy,
 }: {
-  view: WorkshopSessionView
-  actions: WorkshopSessionActions
-  copy: ReturnType<typeof t>
+  view: WorkshopSessionView;
+  actions: WorkshopSessionActions;
+  copy: ReturnType<typeof t>;
 }) {
-  const fields = view.fields
-  const canCollapseService = view.serviceCollapsible
-  const [revealToken, setRevealToken] = React.useState(false)
-  const [serviceOpen, setServiceOpen] = React.useState(
-    () => view.canonicalOrigin === null
-  )
-  const showServiceFields = serviceOpen || !canCollapseService
+  const fields = view.fields;
+  const canCollapseService = view.serviceCollapsible;
+  const [revealToken, setRevealToken] = React.useState(false);
+  const [serviceOpen, setServiceOpen] = React.useState(() => view.canonicalOrigin === null);
+  const showServiceFields = serviceOpen || !canCollapseService;
 
   return (
     <Card>
@@ -57,11 +38,9 @@ export function WorkshopService({
           icon={<ServerIcon />}
           title={copy.service}
           description={
-            showServiceFields
-              ? copy.serviceDescription
-              : (view.canonicalOrigin ?? undefined)
+            showServiceFields ? copy.serviceDescription : (view.canonicalOrigin ?? undefined)
           }
-          descriptionClassName={showServiceFields ? undefined : "break-all"}
+          descriptionClassName={showServiceFields ? undefined : 'break-all'}
         />
         <CardAction>
           <div className="flex max-w-full flex-wrap items-center gap-2">
@@ -87,9 +66,7 @@ export function WorkshopService({
         <CardContent>
           <FieldGroup>
             <Field data-invalid={view.originInvalid || undefined}>
-              <FieldLabel htmlFor="service-origin">
-                {copy.serviceOrigin}
-              </FieldLabel>
+              <FieldLabel htmlFor="service-origin">{copy.serviceOrigin}</FieldLabel>
               <InputGroup>
                 <InputGroupInput
                   id="service-origin"
@@ -114,7 +91,7 @@ export function WorkshopService({
               <InputGroup>
                 <InputGroupInput
                   id="access-token"
-                  type={revealToken ? "text" : "password"}
+                  type={revealToken ? 'text' : 'password'}
                   value={fields.accessToken}
                   autoComplete="off"
                   autoCapitalize="none"
@@ -149,5 +126,5 @@ export function WorkshopService({
         </CardContent>
       )}
     </Card>
-  )
+  );
 }

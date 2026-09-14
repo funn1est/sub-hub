@@ -1,6 +1,6 @@
-import { Settings2Icon } from "lucide-react"
+import { Settings2Icon } from 'lucide-react';
 
-import { Button } from "@/components/ui/button.tsx"
+import { Button } from '@/components/ui/button.tsx';
 import {
   Combobox,
   ComboboxCollection,
@@ -13,31 +13,23 @@ import {
   ComboboxList,
   ComboboxSeparator,
   ComboboxTrigger,
-} from "@/components/ui/combobox.tsx"
+} from '@/components/ui/combobox.tsx';
 import {
   Field,
   FieldContent,
   FieldDescription,
   FieldGroup,
   FieldLabel,
-} from "@/components/ui/field.tsx"
-import { InputGroup, InputGroupInput } from "@/components/ui/input-group.tsx"
-import { Switch } from "@/components/ui/switch.tsx"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group.tsx"
-import { t, targetHint } from "@/lib/i18n.ts"
-import type { Locale } from "@/lib/persist.ts"
-import {
-  type ConfigChoice,
-  type ConfigChoiceGroup,
-} from "@/lib/workshop-config.ts"
-import type { WorkshopSessionActions } from "@/lib/workshop-session.ts"
-import {
-  CLIENT_TARGETS,
-  isClientTarget,
-  urlField,
-  type WorkshopFields,
-} from "@/lib/workshop.ts"
-import { SectionCard } from "@/components/workshop-section.tsx"
+} from '@/components/ui/field.tsx';
+import { InputGroup, InputGroupInput } from '@/components/ui/input-group.tsx';
+import { Switch } from '@/components/ui/switch.tsx';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx';
+import { t, targetHint } from '@/lib/i18n.ts';
+import type { Locale } from '@/lib/persist.ts';
+import { type ConfigChoice, type ConfigChoiceGroup } from '@/lib/workshop-config.ts';
+import type { WorkshopSessionActions } from '@/lib/workshop-session.ts';
+import { CLIENT_TARGETS, isClientTarget, urlField, type WorkshopFields } from '@/lib/workshop.ts';
+import { SectionCard } from '@/components/workshop-section.tsx';
 
 export function WorkshopOptions({
   fields,
@@ -50,15 +42,15 @@ export function WorkshopOptions({
   locale,
   actions,
 }: {
-  fields: WorkshopFields
-  configInvalid: boolean
-  filenameInvalid: boolean
-  showCustomConfigField: boolean
-  configGroups: ConfigChoiceGroup[]
-  selectedConfig: ConfigChoice
-  copy: ReturnType<typeof t>
-  locale: Locale
-  actions: WorkshopSessionActions
+  fields: WorkshopFields;
+  configInvalid: boolean;
+  filenameInvalid: boolean;
+  showCustomConfigField: boolean;
+  configGroups: ConfigChoiceGroup[];
+  selectedConfig: ConfigChoice;
+  copy: ReturnType<typeof t>;
+  locale: Locale;
+  actions: WorkshopSessionActions;
 }) {
   return (
     <SectionCard icon={<Settings2Icon />} title={copy.options}>
@@ -70,9 +62,9 @@ export function WorkshopOptions({
             size="sm"
             value={[fields.target]}
             onValueChange={(value) => {
-              const next = value[0]
+              const next = value[0];
               if (next !== undefined && isClientTarget(next)) {
-                actions.patch({ target: next })
+                actions.patch({ target: next });
               }
             }}
             spacing={2}
@@ -84,9 +76,7 @@ export function WorkshopOptions({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <FieldDescription>
-            {targetHint(locale, fields.target)}
-          </FieldDescription>
+          <FieldDescription>{targetHint(locale, fields.target)}</FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="config-preset">{copy.config}</FieldLabel>
@@ -94,20 +84,17 @@ export function WorkshopOptions({
             items={configGroups}
             value={selectedConfig}
             onValueChange={(item) => {
-              if (item == null || !("id" in item)) {
-                return
+              if (item == null || !('id' in item)) {
+                return;
               }
-              actions.selectConfig(item.id)
+              actions.selectConfig(item.id);
             }}
             itemToStringLabel={(item) => item.search}
           >
             <ComboboxTrigger
               id="config-preset"
               render={
-                <Button
-                  variant="outline"
-                  className="w-full min-w-0 justify-between font-normal"
-                />
+                <Button variant="outline" className="w-full min-w-0 justify-between font-normal" />
               }
             >
               <span className="min-w-0 truncate">
@@ -145,9 +132,7 @@ export function WorkshopOptions({
                         </ComboboxItem>
                       )}
                     </ComboboxCollection>
-                    {index < configGroups.length - 1 ? (
-                      <ComboboxSeparator />
-                    ) : null}
+                    {index < configGroups.length - 1 ? <ComboboxSeparator /> : null}
                   </ComboboxGroup>
                 )}
               </ComboboxList>
@@ -166,9 +151,7 @@ export function WorkshopOptions({
                 aria-invalid={configInvalid || undefined}
                 placeholder="https://"
                 {...urlField}
-                onChange={(event) =>
-                  actions.editCustomConfigUrl(event.target.value)
-                }
+                onChange={(event) => actions.editCustomConfigUrl(event.target.value)}
               />
             </InputGroup>
           </Field>
@@ -181,9 +164,7 @@ export function WorkshopOptions({
           <Switch
             id="append-info"
             checked={fields.appendInfo}
-            onCheckedChange={(checked) =>
-              actions.patch({ appendInfo: checked })
-            }
+            onCheckedChange={(checked) => actions.patch({ appendInfo: checked })}
           />
         </Field>
         <Field orientation="horizontal">
@@ -208,14 +189,12 @@ export function WorkshopOptions({
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              onChange={(event) =>
-                actions.patch({ filename: event.target.value })
-              }
+              onChange={(event) => actions.patch({ filename: event.target.value })}
             />
           </InputGroup>
           <FieldDescription>{copy.filenameHint}</FieldDescription>
         </Field>
       </FieldGroup>
     </SectionCard>
-  )
+  );
 }

@@ -31,6 +31,7 @@ Web Console (`apps/console`):
 pnpm install --frozen-lockfile
 pnpm test
 pnpm run lint
+pnpm run format:check
 pnpm run build
 ```
 

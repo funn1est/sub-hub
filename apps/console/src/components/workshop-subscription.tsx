@@ -1,51 +1,39 @@
-import { CircleAlertIcon, CopyIcon, GlobeIcon } from "lucide-react"
+import { CircleAlertIcon, CopyIcon, GlobeIcon } from 'lucide-react';
 
-import { Alert, AlertTitle } from "@/components/ui/alert.tsx"
-import { Button } from "@/components/ui/button.tsx"
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card.tsx"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field.tsx"
-import { Textarea } from "@/components/ui/textarea.tsx"
-import { t } from "@/lib/i18n.ts"
-import type {
-  WorkshopSessionActions,
-  WorkshopSessionView,
-} from "@/lib/workshop-session.ts"
+import { Alert, AlertTitle } from '@/components/ui/alert.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card.tsx';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.tsx';
+import { Textarea } from '@/components/ui/textarea.tsx';
+import { t } from '@/lib/i18n.ts';
+import type { WorkshopSessionActions, WorkshopSessionView } from '@/lib/workshop-session.ts';
 import {
   clashInstallUrl,
   egernInstallUrl,
   loonInstallUrl,
   singboxInstallUrl,
   surgeInstallUrl,
-} from "@/lib/workshop.ts"
-import { SectionHeading } from "@/components/workshop-section.tsx"
+} from '@/lib/workshop.ts';
+import { SectionHeading } from '@/components/workshop-section.tsx';
 
 export function WorkshopSubscription({
   view,
   actions,
   copy,
 }: {
-  view: WorkshopSessionView
-  actions: WorkshopSessionActions
-  copy: ReturnType<typeof t>
+  view: WorkshopSessionView;
+  actions: WorkshopSessionActions;
+  copy: ReturnType<typeof t>;
 }) {
-  const assembled = view.assembled
-  const previewEnabled = view.previewReady
-  const url = assembled.url
-  const clashInstallHref =
-    assembled.clashInstall && url !== null ? clashInstallUrl(url) : null
-  const surgeInstallHref =
-    assembled.surgeInstall && url !== null ? surgeInstallUrl(url) : null
-  const loonInstallHref =
-    assembled.loonInstall && url !== null ? loonInstallUrl(url) : null
-  const egernInstallHref =
-    assembled.egernInstall && url !== null ? egernInstallUrl(url) : null
+  const assembled = view.assembled;
+  const previewEnabled = view.previewReady;
+  const url = assembled.url;
+  const clashInstallHref = assembled.clashInstall && url !== null ? clashInstallUrl(url) : null;
+  const surgeInstallHref = assembled.surgeInstall && url !== null ? surgeInstallUrl(url) : null;
+  const loonInstallHref = assembled.loonInstall && url !== null ? loonInstallUrl(url) : null;
+  const egernInstallHref = assembled.egernInstall && url !== null ? egernInstallUrl(url) : null;
   const singboxInstallHref =
-    assembled.singboxInstall && url !== null ? singboxInstallUrl(url) : null
+    assembled.singboxInstall && url !== null ? singboxInstallUrl(url) : null;
 
   return (
     <Card>
@@ -65,7 +53,7 @@ export function WorkshopSubscription({
             <Textarea
               id="subscription-url"
               readOnly
-              value={assembled.url ?? ""}
+              value={assembled.url ?? ''}
               rows={3}
               placeholder={copy.previewBlocked}
               className="font-mono text-base break-all md:text-sm"
@@ -128,51 +116,31 @@ export function WorkshopSubscription({
           {copy.preview}
         </Button>
         {clashInstallHref !== null ? (
-          <Button
-            nativeButton={false}
-            variant="outline"
-            render={<a href={clashInstallHref} />}
-          >
+          <Button nativeButton={false} variant="outline" render={<a href={clashInstallHref} />}>
             {copy.clashInstall}
           </Button>
         ) : null}
         {surgeInstallHref !== null ? (
-          <Button
-            nativeButton={false}
-            variant="outline"
-            render={<a href={surgeInstallHref} />}
-          >
+          <Button nativeButton={false} variant="outline" render={<a href={surgeInstallHref} />}>
             {copy.surgeInstall}
           </Button>
         ) : null}
         {loonInstallHref !== null ? (
-          <Button
-            nativeButton={false}
-            variant="outline"
-            render={<a href={loonInstallHref} />}
-          >
+          <Button nativeButton={false} variant="outline" render={<a href={loonInstallHref} />}>
             {copy.loonInstall}
           </Button>
         ) : null}
         {egernInstallHref !== null ? (
-          <Button
-            nativeButton={false}
-            variant="outline"
-            render={<a href={egernInstallHref} />}
-          >
+          <Button nativeButton={false} variant="outline" render={<a href={egernInstallHref} />}>
             {copy.egernInstall}
           </Button>
         ) : null}
         {singboxInstallHref !== null ? (
-          <Button
-            nativeButton={false}
-            variant="outline"
-            render={<a href={singboxInstallHref} />}
-          >
+          <Button nativeButton={false} variant="outline" render={<a href={singboxInstallHref} />}>
             {copy.singboxInstall}
           </Button>
         ) : null}
       </CardFooter>
     </Card>
-  )
+  );
 }

@@ -1,24 +1,24 @@
-import { persist, type PersistStorage } from "zustand/middleware"
-import { createStore } from "zustand/vanilla"
+import { persist, type PersistStorage } from 'zustand/middleware';
+import { createStore } from 'zustand/vanilla';
 
-import { isTarget } from "./service-contract.ts"
-import { clientTargetOf, type WorkshopFields } from "./workshop.ts"
+import { isTarget } from './service-contract.ts';
+import { clientTargetOf, type WorkshopFields } from './workshop.ts';
 
-export const PERSIST_KEY = "sub-hub.console.v1"
+export const PERSIST_KEY = 'sub-hub.console.v1';
 
-export type Locale = "zh" | "en"
-export type Theme = "system" | "light" | "dark"
+export type Locale = 'zh' | 'en';
+export type Theme = 'system' | 'light' | 'dark';
 
 /** Workshop conversion record plus Console chrome. */
 export type PersistedWorkshop = WorkshopFields & {
-  locale: Locale
-  theme: Theme
-}
+  locale: Locale;
+  theme: Theme;
+};
 
 export type ConsoleChrome = {
-  locale: Locale
-  theme: Theme
-}
+  locale: Locale;
+  theme: Theme;
+};
 
 export function workshopFieldsOf(state: PersistedWorkshop): WorkshopFields {
   return {
@@ -30,48 +30,43 @@ export function workshopFieldsOf(state: PersistedWorkshop): WorkshopFields {
     appendInfo: state.appendInfo,
     expand: state.expand,
     filename: state.filename,
-  }
+  };
 }
 
-export function composePersisted(
-  fields: WorkshopFields,
-  chrome: ConsoleChrome
-): PersistedWorkshop {
+export function composePersisted(fields: WorkshopFields, chrome: ConsoleChrome): PersistedWorkshop {
   return {
     ...fields,
     locale: chrome.locale,
     theme: chrome.theme,
-  }
+  };
 }
 
 type StorageLike = {
-  getItem: (key: string) => string | null
-  setItem?: (key: string, value: string) => void
-  removeItem?: (key: string) => void
-}
+  getItem: (key: string) => string | null;
+  setItem?: (key: string, value: string) => void;
+  removeItem?: (key: string) => void;
+};
 
-const THEMES: readonly Theme[] = ["system", "light", "dark"]
+const THEMES: readonly Theme[] = ['system', 'light', 'dark'];
 
 export function defaultLocale(language: string): Locale {
-  return language.toLowerCase().startsWith("zh") ? "zh" : "en"
+  return language.toLowerCase().startsWith('zh') ? 'zh' : 'en';
 }
 
-export function defaultPersisted(
-  overrides: Partial<PersistedWorkshop> = {}
-): PersistedWorkshop {
+export function defaultPersisted(overrides: Partial<PersistedWorkshop> = {}): PersistedWorkshop {
   return {
-    locale: "en",
-    theme: "system",
-    serviceOrigin: "",
-    accessToken: "",
-    sources: [""],
-    target: "clash",
-    configUrl: "",
+    locale: 'en',
+    theme: 'system',
+    serviceOrigin: '',
+    accessToken: '',
+    sources: [''],
+    target: 'clash',
+    configUrl: '',
     appendInfo: true,
     expand: true,
-    filename: "",
+    filename: '',
     ...overrides,
-  }
+  };
 }
 
 export function serializePersisted(state: PersistedWorkshop): string {
@@ -86,71 +81,56 @@ export function serializePersisted(state: PersistedWorkshop): string {
     appendInfo: state.appendInfo,
     expand: state.expand,
     filename: state.filename,
-  }
-  return JSON.stringify(body)
+  };
+  return JSON.stringify(body);
 }
 
 export function parsePersisted(
   raw: string | null,
-  fallback: Partial<PersistedWorkshop> = {}
+  fallback: Partial<PersistedWorkshop> = {},
 ): PersistedWorkshop {
-  const defaults = defaultPersisted(fallback)
+  const defaults = defaultPersisted(fallback);
   if (raw === null) {
-    return defaults
+    return defaults;
   }
 
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw)
+    parsed = JSON.parse(raw);
   } catch {
-    return defaults
+    return defaults;
   }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return defaults
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return defaults;
   }
 
-  const value = parsed as Record<string, unknown>
+  const value = parsed as Record<string, unknown>;
   const sources = Array.isArray(value.sources)
-    ? value.sources.filter((item): item is string => typeof item === "string")
-    : defaults.sources
+    ? value.sources.filter((item): item is string => typeof item === 'string')
+    : defaults.sources;
 
   return {
-    locale:
-      value.locale === "zh" || value.locale === "en"
-        ? value.locale
-        : defaults.locale,
+    locale: value.locale === 'zh' || value.locale === 'en' ? value.locale : defaults.locale,
     theme: isTheme(value.theme) ? value.theme : defaults.theme,
     serviceOrigin:
-      typeof value.serviceOrigin === "string"
-        ? value.serviceOrigin
-        : defaults.serviceOrigin,
-    accessToken:
-      typeof value.accessToken === "string"
-        ? value.accessToken
-        : defaults.accessToken,
-    sources: sources.length > 0 ? sources : [""],
+      typeof value.serviceOrigin === 'string' ? value.serviceOrigin : defaults.serviceOrigin,
+    accessToken: typeof value.accessToken === 'string' ? value.accessToken : defaults.accessToken,
+    sources: sources.length > 0 ? sources : [''],
     target:
-      typeof value.target === "string" && isTarget(value.target)
+      typeof value.target === 'string' && isTarget(value.target)
         ? clientTargetOf(value.target)
         : defaults.target,
-    configUrl:
-      typeof value.configUrl === "string"
-        ? value.configUrl
-        : defaults.configUrl,
-    appendInfo:
-      typeof value.appendInfo === "boolean"
-        ? value.appendInfo
-        : defaults.appendInfo,
-    expand:
-      typeof value.expand === "boolean" ? value.expand : defaults.expand,
-    filename: typeof value.filename === "string" ? value.filename : defaults.filename,
-  }
+    configUrl: typeof value.configUrl === 'string' ? value.configUrl : defaults.configUrl,
+    appendInfo: typeof value.appendInfo === 'boolean' ? value.appendInfo : defaults.appendInfo,
+    expand: typeof value.expand === 'boolean' ? value.expand : defaults.expand,
+    filename: typeof value.filename === 'string' ? value.filename : defaults.filename,
+  };
 }
 
 /** Zustand persist I/O. On-disk blob stays `serializePersisted` JSON, not `{state, version}`. */
 export function createConsolePersist(
   storage: StorageLike,
-  fallback: Partial<PersistedWorkshop> = {}
+  fallback: Partial<PersistedWorkshop> = {},
 ) {
   return createStore<PersistedWorkshop>()(
     persist(() => defaultPersisted(fallback), {
@@ -161,33 +141,31 @@ export function createConsolePersist(
           locale: state.locale,
           theme: state.theme,
         }),
-    })
-  )
+    }),
+  );
 }
 
 function workshopPersistStorage(
   storage: StorageLike,
-  fallback: Partial<PersistedWorkshop>
+  fallback: Partial<PersistedWorkshop>,
 ): PersistStorage<PersistedWorkshop> {
   return {
     getItem: (name) => {
-      const raw = storage.getItem(name)
+      const raw = storage.getItem(name);
       if (raw === null) {
-        return null
+        return null;
       }
-      return { state: parsePersisted(raw, fallback) }
+      return { state: parsePersisted(raw, fallback) };
     },
     setItem: (name, value) => {
-      storage.setItem?.(name, serializePersisted(value.state))
+      storage.setItem?.(name, serializePersisted(value.state));
     },
     removeItem: (name) => {
-      storage.removeItem?.(name)
+      storage.removeItem?.(name);
     },
-  }
+  };
 }
 
 function isTheme(value: unknown): value is Theme {
-  return (
-    typeof value === "string" && (THEMES as readonly string[]).includes(value)
-  )
+  return typeof value === 'string' && (THEMES as readonly string[]).includes(value);
 }

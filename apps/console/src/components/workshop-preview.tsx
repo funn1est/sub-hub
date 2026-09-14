@@ -1,26 +1,16 @@
-import {
-  CircleAlertIcon,
-  DownloadIcon,
-  FileCode2Icon,
-  ShieldAlertIcon,
-} from "lucide-react"
+import { CircleAlertIcon, DownloadIcon, FileCode2Icon, ShieldAlertIcon } from 'lucide-react';
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert.tsx"
-import { Button } from "@/components/ui/button.tsx"
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card.tsx"
-import { ScrollArea } from "@/components/ui/scroll-area.tsx"
-import { Spinner } from "@/components/ui/spinner.tsx"
-import { SectionHeading } from "@/components/workshop-section.tsx"
-import { t } from "@/lib/i18n.ts"
-import type { Locale } from "@/lib/persist.ts"
-import { previewProfile } from "@/lib/preview-copy.ts"
-import type { PreviewState } from "@/lib/preview.ts"
-import type { ClientTarget } from "@/lib/workshop.ts"
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.tsx';
+import { Button } from '@/components/ui/button.tsx';
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card.tsx';
+import { ScrollArea } from '@/components/ui/scroll-area.tsx';
+import { Spinner } from '@/components/ui/spinner.tsx';
+import { SectionHeading } from '@/components/workshop-section.tsx';
+import { t } from '@/lib/i18n.ts';
+import type { Locale } from '@/lib/persist.ts';
+import { previewProfile } from '@/lib/preview-copy.ts';
+import type { PreviewState } from '@/lib/preview.ts';
+import type { ClientTarget } from '@/lib/workshop.ts';
 
 export function PreviewCard({
   locale,
@@ -29,17 +19,17 @@ export function PreviewCard({
   target,
   onDownload,
 }: {
-  locale: Locale
-  preview: PreviewState
-  copy: ReturnType<typeof t>
-  target: ClientTarget
-  onDownload: () => void
+  locale: Locale;
+  preview: PreviewState;
+  copy: ReturnType<typeof t>;
+  target: ClientTarget;
+  onDownload: () => void;
 }) {
-  if (preview.status === "idle") {
-    return null
+  if (preview.status === 'idle') {
+    return null;
   }
 
-  if (preview.status === "loading") {
+  if (preview.status === 'loading') {
     return (
       <Card>
         <CardHeader className="border-b">
@@ -52,16 +42,16 @@ export function PreviewCard({
           </div>
         </CardContent>
       </Card>
-    )
+    );
   }
 
-  if (preview.status === "unreachable") {
+  if (preview.status === 'unreachable') {
     const title =
-      preview.cause === "mixed-content"
+      preview.cause === 'mixed-content'
         ? copy.unreachableMixed
-        : preview.cause === "local-network"
+        : preview.cause === 'local-network'
           ? copy.unreachableLna
-          : copy.unreachableCors
+          : copy.unreachableCors;
     return (
       <Card>
         <CardHeader className="border-b">
@@ -74,10 +64,10 @@ export function PreviewCard({
           </Alert>
         </CardContent>
       </Card>
-    )
+    );
   }
 
-  const profile = previewProfile(locale, preview, target)
+  const profile = previewProfile(locale, preview, target);
 
   return (
     <Card>
@@ -91,9 +81,7 @@ export function PreviewCard({
               <CircleAlertIcon />
               <AlertTitle>{profile.error.heading}</AlertTitle>
               {profile.error.wire !== null ? (
-                <AlertDescription className="font-mono">
-                  {profile.error.wire}
-                </AlertDescription>
+                <AlertDescription className="font-mono">{profile.error.wire}</AlertDescription>
               ) : null}
             </Alert>
           ) : null}
@@ -102,9 +90,7 @@ export function PreviewCard({
               <p className="text-sm font-medium">{copy.traffic}</p>
               <p className="text-sm">{profile.traffic.summary}</p>
               {profile.traffic.expire !== undefined ? (
-                <p className="text-sm text-muted-foreground">
-                  {profile.traffic.expire}
-                </p>
+                <p className="text-sm text-muted-foreground">{profile.traffic.expire}</p>
               ) : null}
             </div>
           ) : null}
@@ -133,9 +119,7 @@ export function PreviewCard({
             <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
               {copy.body}
               {preview.truncated ? (
-                <span className="ml-2 font-normal text-muted-foreground">
-                  {copy.truncated}
-                </span>
+                <span className="ml-2 font-normal text-muted-foreground">{copy.truncated}</span>
               ) : null}
             </summary>
             <ScrollArea className="h-[min(20rem,50svh)] border-t">
@@ -173,5 +157,5 @@ export function PreviewCard({
         </CardFooter>
       ) : null}
     </Card>
-  )
+  );
 }

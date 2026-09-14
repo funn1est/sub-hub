@@ -15,302 +15,292 @@ import {
   configPresetOf,
   configSelectionId,
   type ConfigSelectionId,
-} from "./acl4ssr-catalog.ts"
+} from './acl4ssr-catalog.ts';
 import {
   readClipboardInBrowser,
   saveFileInBrowser,
   writeClipboardInBrowser,
-} from "./browser-ports.ts"
-import { createWorkshopProbe } from "./workshop-probe.ts"
-import { subscriptionMediaType } from "./service-contract.ts"
-import { runPreview, type PreviewState, type VersionState } from "./preview.ts"
+} from './browser-ports.ts';
+import { createWorkshopProbe } from './workshop-probe.ts';
+import { subscriptionMediaType } from './service-contract.ts';
+import { runPreview, type PreviewState, type VersionState } from './preview.ts';
 import {
   evaluateWorkshop,
   parseServiceOrigin,
   type WorkshopFetch,
   type WorkshopFields,
   type WorkshopView,
-} from "./workshop.ts"
+} from './workshop.ts';
 
-export type WorkshopNotice = "copied" | "copy-failed" | "paste-failed"
+export type WorkshopNotice = 'copied' | 'copy-failed' | 'paste-failed';
 
 export type SavedPreviewFile = {
-  body: string
-  mediaType: string
-  filename: string
-}
+  body: string;
+  mediaType: string;
+  filename: string;
+};
 
 export type WorkshopSessionEnv = {
-  pageHttps: boolean
+  pageHttps: boolean;
   /** Console origin to try when Conversion Service origin is empty. */
-  consoleOrigin?: string
+  consoleOrigin?: string;
   /** Browser UA for iOS-only one-click import. clash:// ignores this. */
-  userAgent?: string
-}
+  userAgent?: string;
+};
 
 export type WorkshopSessionPorts = {
-  fetchImpl?: WorkshopFetch
-  writeClipboard?: (text: string) => Promise<void>
-  readClipboard?: () => Promise<string>
-  saveFile?: (file: SavedPreviewFile) => void
-  notify?: (notice: WorkshopNotice) => void
-}
+  fetchImpl?: WorkshopFetch;
+  writeClipboard?: (text: string) => Promise<void>;
+  readClipboard?: () => Promise<string>;
+  saveFile?: (file: SavedPreviewFile) => void;
+  notify?: (notice: WorkshopNotice) => void;
+};
 
 export type WorkshopSessionView = WorkshopView & {
-  fields: WorkshopFields
-  configSelection: ConfigSelectionId
-  version: VersionState
-  preview: PreviewState
-  previewReady: boolean
-  serviceCollapsible: boolean
-}
+  fields: WorkshopFields;
+  configSelection: ConfigSelectionId;
+  version: VersionState;
+  preview: PreviewState;
+  previewReady: boolean;
+  serviceCollapsible: boolean;
+};
 
 export type WorkshopSessionActions = {
-  patch: (partial: Partial<WorkshopFields>) => void
-  setSource: (index: number, value: string) => void
-  setSourceFromPaste: (index: number, raw: string) => void
-  clearSources: () => void
-  pasteSourcesFromClipboard: () => Promise<void>
-  addSource: () => void
-  removeSource: (index: number) => void
-  selectConfig: (id: ConfigSelectionId) => void
-  editCustomConfigUrl: (value: string) => void
-  blurOrigin: () => void
-  preview: () => Promise<void>
-  copy: (url?: string) => Promise<void>
-  download: () => void
-}
+  patch: (partial: Partial<WorkshopFields>) => void;
+  setSource: (index: number, value: string) => void;
+  setSourceFromPaste: (index: number, raw: string) => void;
+  clearSources: () => void;
+  pasteSourcesFromClipboard: () => Promise<void>;
+  addSource: () => void;
+  removeSource: (index: number) => void;
+  selectConfig: (id: ConfigSelectionId) => void;
+  editCustomConfigUrl: (value: string) => void;
+  blurOrigin: () => void;
+  preview: () => Promise<void>;
+  copy: (url?: string) => Promise<void>;
+  download: () => void;
+};
 
 export type WorkshopSession = {
-  getView: () => WorkshopSessionView
-  subscribe: (listener: () => void) => () => void
-  actions: WorkshopSessionActions
-}
+  getView: () => WorkshopSessionView;
+  subscribe: (listener: () => void) => () => void;
+  actions: WorkshopSessionActions;
+};
 
 export function createWorkshopSession(options: {
-  initialFields: WorkshopFields
-  env: WorkshopSessionEnv
-  ports?: WorkshopSessionPorts
+  initialFields: WorkshopFields;
+  env: WorkshopSessionEnv;
+  ports?: WorkshopSessionPorts;
 }): WorkshopSession {
-  const { env } = options
-  const ports = options.ports ?? {}
-  const fetchImpl: WorkshopFetch =
-    ports.fetchImpl ?? ((url, init) => fetch(url, init))
-  const consoleOrigin = parseServiceOrigin(env.consoleOrigin ?? "")
+  const { env } = options;
+  const ports = options.ports ?? {};
+  const fetchImpl: WorkshopFetch = ports.fetchImpl ?? ((url, init) => fetch(url, init));
+  const consoleOrigin = parseServiceOrigin(env.consoleOrigin ?? '');
 
-  const listeners = new Set<() => void>()
-  let fields = withSourceFloor(options.initialFields)
-  let pickingCustom = false
-  let preview: PreviewState = { status: "idle" }
-  let previewSeq = 0
-  let view: WorkshopSessionView | null = null
+  const listeners = new Set<() => void>();
+  let fields = withSourceFloor(options.initialFields);
+  let pickingCustom = false;
+  let preview: PreviewState = { status: 'idle' };
+  let previewSeq = 0;
+  let view: WorkshopSessionView | null = null;
 
   const emit = () => {
-    view = null
+    view = null;
     for (const listener of [...listeners]) {
-      listener()
+      listener();
     }
-  }
+  };
 
   const probe = createWorkshopProbe({
     consoleOrigin,
     fetchImpl,
     fieldOrigin: () => parseServiceOrigin(fields.serviceOrigin),
     adoptOrigin: (origin) => {
-      setFields({ ...fields, serviceOrigin: origin })
+      setFields({ ...fields, serviceOrigin: origin });
     },
     notify: emit,
-  })
+  });
 
   /** Every conversion-field change invalidates Preview and re-aims the probe. */
   function setFields(next: WorkshopFields) {
-    fields = withSourceFloor(next)
-    previewSeq += 1
-    preview = { status: "idle" }
-    probe.ensure(fields.serviceOrigin)
-    emit()
+    fields = withSourceFloor(next);
+    previewSeq += 1;
+    preview = { status: 'idle' };
+    probe.ensure(fields.serviceOrigin);
+    emit();
   }
 
   const getView = (): WorkshopSessionView => {
     if (view !== null) {
-      return view
+      return view;
     }
     const jobView = evaluateWorkshop(fields, {
-      userAgent: env.userAgent ?? "",
-    })
-    const configSelection = configSelectionId(
-      configPresetOf(fields.configUrl),
-      pickingCustom
-    )
+      userAgent: env.userAgent ?? '',
+    });
+    const configSelection = configSelectionId(configPresetOf(fields.configUrl), pickingCustom);
     view = {
       ...jobView,
       fields,
       configSelection,
       version: probe.versionFor(jobView.canonicalOrigin),
       preview,
-      previewReady:
-        jobView.assembled.previewable && preview.status !== "loading",
-      serviceCollapsible:
-        jobView.canonicalOrigin !== null && !jobView.tokenInvalid,
-    }
-    return view
-  }
+      previewReady: jobView.assembled.previewable && preview.status !== 'loading',
+      serviceCollapsible: jobView.canonicalOrigin !== null && !jobView.tokenInvalid,
+    };
+    return view;
+  };
 
   const actions: WorkshopSessionActions = {
     patch: (partial) => {
-      setFields({ ...fields, ...partial })
+      setFields({ ...fields, ...partial });
     },
     setSource: (index, value) => {
       if (index < 0 || index >= fields.sources.length) {
-        return
+        return;
       }
-      const sources = fields.sources.slice()
-      sources[index] = value
-      setFields({ ...fields, sources })
+      const sources = fields.sources.slice();
+      sources[index] = value;
+      setFields({ ...fields, sources });
     },
     setSourceFromPaste: (index, raw) => {
       if (index < 0 || index >= fields.sources.length) {
-        return
+        return;
       }
-      const pieces = sourcePiecesFromPaste(raw)
+      const pieces = sourcePiecesFromPaste(raw);
       if (pieces.length <= 1) {
-        const sources = fields.sources.slice()
-        sources[index] = pieces[0] ?? ""
-        setFields({ ...fields, sources })
-        return
+        const sources = fields.sources.slice();
+        sources[index] = pieces[0] ?? '';
+        setFields({ ...fields, sources });
+        return;
       }
-      const sources = fields.sources.slice()
-      sources.splice(index, 1, ...pieces)
-      setFields({ ...fields, sources })
+      const sources = fields.sources.slice();
+      sources.splice(index, 1, ...pieces);
+      setFields({ ...fields, sources });
     },
     clearSources: () => {
-      setFields({ ...fields, sources: [""] })
+      setFields({ ...fields, sources: [''] });
     },
     pasteSourcesFromClipboard: async () => {
-      const read = ports.readClipboard ?? readClipboardInBrowser
-      let text: string
+      const read = ports.readClipboard ?? readClipboardInBrowser;
+      let text: string;
       try {
-        text = await read()
+        text = await read();
       } catch {
-        ports.notify?.("paste-failed")
-        return
+        ports.notify?.('paste-failed');
+        return;
       }
-      const pieces = sourcePiecesFromPaste(text)
+      const pieces = sourcePiecesFromPaste(text);
       setFields({
         ...fields,
-        sources: pieces.length > 0 ? pieces : [""],
-      })
+        sources: pieces.length > 0 ? pieces : [''],
+      });
     },
     addSource: () => {
-      setFields({ ...fields, sources: [...fields.sources, ""] })
+      setFields({ ...fields, sources: [...fields.sources, ''] });
     },
     removeSource: (index) => {
-      if (
-        fields.sources.length <= 1 ||
-        index < 0 ||
-        index >= fields.sources.length
-      ) {
-        return
+      if (fields.sources.length <= 1 || index < 0 || index >= fields.sources.length) {
+        return;
       }
       setFields({
         ...fields,
         sources: fields.sources.filter((_, item) => item !== index),
-      })
+      });
     },
     selectConfig: (id) => {
-      if (id === "custom") {
-        pickingCustom = true
-        emit()
-        return
+      if (id === 'custom') {
+        pickingCustom = true;
+        emit();
+        return;
       }
-      pickingCustom = false
+      pickingCustom = false;
       setFields({
         ...fields,
-        configUrl: id === "none" ? "" : acl4ssrConfigUrl(id),
-      })
+        configUrl: id === 'none' ? '' : acl4ssrConfigUrl(id),
+      });
     },
     editCustomConfigUrl: (value) => {
-      pickingCustom = configPresetOf(value).kind === "custom"
-      setFields({ ...fields, configUrl: value })
+      pickingCustom = configPresetOf(value).kind === 'custom';
+      setFields({ ...fields, configUrl: value });
     },
     blurOrigin: () => {
-      const canonical = parseServiceOrigin(fields.serviceOrigin)
+      const canonical = parseServiceOrigin(fields.serviceOrigin);
       if (canonical !== null && canonical !== fields.serviceOrigin) {
-        setFields({ ...fields, serviceOrigin: canonical })
+        setFields({ ...fields, serviceOrigin: canonical });
       }
     },
     preview: async () => {
-      const current = getView()
+      const current = getView();
       if (
         current.assembled.url === null ||
         !current.assembled.previewable ||
-        preview.status === "loading"
+        preview.status === 'loading'
       ) {
-        return
+        return;
       }
-      previewSeq += 1
-      const seq = previewSeq
-      preview = { status: "loading" }
-      emit()
+      previewSeq += 1;
+      const seq = previewSeq;
+      preview = { status: 'loading' };
+      emit();
       const outcome = await runPreview({
         url: current.assembled.url,
         target: fields.target,
         pageHttps: env.pageHttps,
         fetchImpl,
-      })
+      });
       if (seq !== previewSeq) {
-        return
+        return;
       }
-      preview = outcome
-      emit()
+      preview = outcome;
+      emit();
     },
     copy: async (url) => {
-      const text = url ?? getView().assembled.url
+      const text = url ?? getView().assembled.url;
       if (text === null || text.length === 0) {
-        return
+        return;
       }
-      const write = ports.writeClipboard ?? writeClipboardInBrowser
+      const write = ports.writeClipboard ?? writeClipboardInBrowser;
       try {
-        await write(text)
-        ports.notify?.("copied")
+        await write(text);
+        ports.notify?.('copied');
       } catch {
-        ports.notify?.("copy-failed")
+        ports.notify?.('copy-failed');
       }
     },
     download: () => {
-      if (preview.status !== "done" || preview.httpStatus !== 200) {
-        return
+      if (preview.status !== 'done' || preview.httpStatus !== 200) {
+        return;
       }
-      const save = ports.saveFile ?? saveFileInBrowser
+      const save = ports.saveFile ?? saveFileInBrowser;
       save({
         body: preview.body,
         mediaType: subscriptionMediaType(fields.target),
         filename: preview.filename,
-      })
+      });
     },
-  }
+  };
 
-  probe.ensure(fields.serviceOrigin)
+  probe.ensure(fields.serviceOrigin);
 
   return {
     getView,
     subscribe: (listener) => {
-      listeners.add(listener)
+      listeners.add(listener);
       return () => {
-        listeners.delete(listener)
-      }
+        listeners.delete(listener);
+      };
     },
     actions,
-  }
+  };
 }
 
 function sourcePiecesFromPaste(raw: string): string[] {
   return raw
     .split(/\r\n|\n|\|/)
     .map((piece) => piece.trim())
-    .filter((piece) => piece.length > 0)
+    .filter((piece) => piece.length > 0);
 }
 
 function withSourceFloor(fields: WorkshopFields): WorkshopFields {
-  return fields.sources.length > 0 ? fields : { ...fields, sources: [""] }
+  return fields.sources.length > 0 ? fields : { ...fields, sources: [''] };
 }

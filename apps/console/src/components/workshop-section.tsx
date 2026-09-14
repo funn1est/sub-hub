@@ -1,8 +1,8 @@
-import * as React from "react"
-import { CircleAlertIcon } from "lucide-react"
+import * as React from 'react';
+import { CircleAlertIcon } from 'lucide-react';
 
-import { Alert, AlertTitle } from "@/components/ui/alert.tsx"
-import { Badge } from "@/components/ui/badge.tsx"
+import { Alert, AlertTitle } from '@/components/ui/alert.tsx';
+import { Badge } from '@/components/ui/badge.tsx';
 import {
   Card,
   CardAction,
@@ -10,10 +10,10 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card.tsx"
-import { Spinner } from "@/components/ui/spinner.tsx"
-import { t } from "@/lib/i18n.ts"
-import type { VersionState } from "@/lib/preview.ts"
+} from '@/components/ui/card.tsx';
+import { Spinner } from '@/components/ui/spinner.tsx';
+import { t } from '@/lib/i18n.ts';
+import type { VersionState } from '@/lib/preview.ts';
 
 export function SectionCard({
   icon,
@@ -22,11 +22,11 @@ export function SectionCard({
   action,
   children,
 }: {
-  icon: React.ReactNode
-  title: string
-  description?: string
-  action?: React.ReactNode
-  children: React.ReactNode
+  icon: React.ReactNode;
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
     <Card>
@@ -36,7 +36,7 @@ export function SectionCard({
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
-  )
+  );
 }
 
 export function SectionHeading({
@@ -45,10 +45,10 @@ export function SectionHeading({
   description,
   descriptionClassName,
 }: {
-  icon: React.ReactNode
-  title: string
-  description?: string
-  descriptionClassName?: string
+  icon: React.ReactNode;
+  title: string;
+  description?: string;
+  descriptionClassName?: string;
 }) {
   return (
     <div className="flex items-start gap-3">
@@ -58,69 +58,51 @@ export function SectionHeading({
       <div className="flex min-w-0 flex-col gap-1">
         <CardTitle>{title}</CardTitle>
         {description ? (
-          <CardDescription className={descriptionClassName}>
-            {description}
-          </CardDescription>
+          <CardDescription className={descriptionClassName}>{description}</CardDescription>
         ) : null}
       </div>
     </div>
-  )
+  );
 }
 
-export function VersionBadge({
-  state,
-  copy,
-}: {
-  state: VersionState
-  copy: ReturnType<typeof t>
-}) {
-  if (state.status === "idle") {
-    return null
+export function VersionBadge({ state, copy }: { state: VersionState; copy: ReturnType<typeof t> }) {
+  if (state.status === 'idle') {
+    return null;
   }
-  if (state.status === "checking") {
+  if (state.status === 'checking') {
     return (
       <Badge variant="outline">
         <Spinner />
         <span className="sr-only">{copy.versionChecking}</span>
       </Badge>
-    )
+    );
   }
-  if (state.status === "ok") {
+  if (state.status === 'ok') {
     return (
-      <Badge
-        variant="secondary"
-        className="max-w-full truncate"
-        aria-label={copy.versionOk}
-      >
+      <Badge variant="secondary" className="max-w-full truncate" aria-label={copy.versionOk}>
         {state.body}
       </Badge>
-    )
+    );
   }
-  return <Badge variant="destructive">{copy.versionIssue}</Badge>
+  return <Badge variant="destructive">{copy.versionIssue}</Badge>;
 }
 
-export function VersionAlert({
-  state,
-  copy,
-}: {
-  state: VersionState
-  copy: ReturnType<typeof t>
-}) {
-  if (state.status === "other") {
+export function VersionAlert({ state, copy }: { state: VersionState; copy: ReturnType<typeof t> }) {
+  if (state.status === 'other') {
     return (
       <Alert>
         <CircleAlertIcon />
         <AlertTitle>{copy.versionOther}</AlertTitle>
       </Alert>
-    )
+    );
   }
-  if (state.status === "unreachable") {
+  if (state.status === 'unreachable') {
     return (
       <Alert>
         <CircleAlertIcon />
         <AlertTitle>{copy.versionUnreachable}</AlertTitle>
       </Alert>
-    )
+    );
   }
-  return null
+  return null;
 }

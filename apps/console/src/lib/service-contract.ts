@@ -11,355 +11,330 @@
  * `clash` and `mihomo` are wire aliases for the same Client Format Adapter.
  */
 
-export const TARGETS = [
-  "clash",
-  "mihomo",
-  "quanx",
-  "singbox",
-  "loon",
-  "egern",
-  "surge",
-] as const
+export const TARGETS = ['clash', 'mihomo', 'quanx', 'singbox', 'loon', 'egern', 'surge'] as const;
 
-export type Target = (typeof TARGETS)[number]
+export type Target = (typeof TARGETS)[number];
 
 /** HTTP 414 when GET/HEAD request-target length is greater than this. */
-export const GET_TARGET_LIMIT_BYTES = 8192
+export const GET_TARGET_LIMIT_BYTES = 8192;
 
 export const QUERY_KEYS = [
-  "target",
-  "url",
-  "config",
-  "append_info",
-  "insert",
-  "expand",
-  "filename",
-] as const
+  'target',
+  'url',
+  'config',
+  'append_info',
+  'insert',
+  'expand',
+  'filename',
+] as const;
 
 export const KNOWN_SERVICE_ERRORS = [
-  "Invalid target!",
-  "Invalid request!",
-  "No nodes were found!",
-  "Resource limit exceeded!",
-  "Unauthorized!",
-  "Not Found",
-  "Method Not Allowed",
-  "URI Too Long",
-  "Bad Gateway",
-  "Gateway Timeout",
-  "Internal Server Error",
-] as const
+  'Invalid target!',
+  'Invalid request!',
+  'No nodes were found!',
+  'Resource limit exceeded!',
+  'Unauthorized!',
+  'Not Found',
+  'Method Not Allowed',
+  'URI Too Long',
+  'Bad Gateway',
+  'Gateway Timeout',
+  'Internal Server Error',
+] as const;
 
-export type KnownServiceError = (typeof KNOWN_SERVICE_ERRORS)[number]
+export type KnownServiceError = (typeof KNOWN_SERVICE_ERRORS)[number];
 
-const KNOWN_ERROR_SET = new Set<string>(KNOWN_SERVICE_ERRORS)
-const QUERY_KEY_SET = new Set<string>(QUERY_KEYS)
+const KNOWN_ERROR_SET = new Set<string>(KNOWN_SERVICE_ERRORS);
+const QUERY_KEY_SET = new Set<string>(QUERY_KEYS);
 
-export const SKIPPED_HEADER = "x-subconverter-skipped"
-export const USERINFO_HEADER = "subscription-userinfo"
+export const SKIPPED_HEADER = 'x-subconverter-skipped';
+export const USERINFO_HEADER = 'subscription-userinfo';
 
 export const EXPOSED_HEADERS = [
-  "content-disposition",
-  "profile-update-interval",
+  'content-disposition',
+  'profile-update-interval',
   USERINFO_HEADER,
-  "x-subconverter-result",
-  "x-subconverter-omitted-rules",
+  'x-subconverter-result',
+  'x-subconverter-omitted-rules',
   SKIPPED_HEADER,
-] as const
+] as const;
 
-export const VERSION_PATH = "/version"
-export const VERSION_BODY = /^sub-hub v\d+\.\d+\.\d+ backend$/
+export const VERSION_PATH = '/version';
+export const VERSION_BODY = /^sub-hub v\d+\.\d+\.\d+ backend$/;
 
 export function isTarget(value: string): value is Target {
-  return (TARGETS as readonly string[]).includes(value)
+  return (TARGETS as readonly string[]).includes(value);
 }
 
 export function isKnownServiceError(body: string): body is KnownServiceError {
-  return KNOWN_ERROR_SET.has(body)
+  return KNOWN_ERROR_SET.has(body);
 }
 
 export function isQueryKey(key: string): boolean {
-  return QUERY_KEY_SET.has(key)
+  return QUERY_KEY_SET.has(key);
 }
 
 /** HTTP `query.rs`: ASCII `http://` prefix is rejected. */
 export function isHttpSource(source: string): boolean {
-  return source.slice(0, 7).toLowerCase() === "http://"
+  return source.slice(0, 7).toLowerCase() === 'http://';
 }
 
 export function fallbackDownloadName(target: Target): string {
   switch (target) {
-    case "clash":
-    case "mihomo":
-      return "sub-hub-mihomo.yaml"
-    case "quanx":
-      return "sub-hub-quanx.conf"
-    case "singbox":
-      return "sub-hub-singbox.json"
-    case "loon":
-      return "sub-hub-loon.conf"
-    case "egern":
-      return "sub-hub-egern.yaml"
-    case "surge":
-      return "sub-hub-surge.conf"
+    case 'clash':
+    case 'mihomo':
+      return 'sub-hub-mihomo.yaml';
+    case 'quanx':
+      return 'sub-hub-quanx.conf';
+    case 'singbox':
+      return 'sub-hub-singbox.json';
+    case 'loon':
+      return 'sub-hub-loon.conf';
+    case 'egern':
+      return 'sub-hub-egern.yaml';
+    case 'surge':
+      return 'sub-hub-surge.conf';
   }
 }
 
 /** HTTP `subscription_response_for`: sing-box is JSON, every other target is text. */
 export function subscriptionMediaType(target: Target): string {
   switch (target) {
-    case "singbox":
-      return "application/json;charset=utf-8"
-    case "clash":
-    case "mihomo":
-    case "quanx":
-    case "loon":
-    case "egern":
-    case "surge":
-      return "text/plain;charset=utf-8"
+    case 'singbox':
+      return 'application/json;charset=utf-8';
+    case 'clash':
+    case 'mihomo':
+    case 'quanx':
+    case 'loon':
+    case 'egern':
+    case 'surge':
+      return 'text/plain;charset=utf-8';
   }
 }
 
 export type SkipCounts = {
-  parse: number
-  capability: number
-  name: number
-}
+  parse: number;
+  capability: number;
+  name: number;
+};
 
 /** HTTP `query.rs`: `+` is literal, not space. Rejects NUL / CR / LF. */
 export function percentDecodeValue(raw: string): string | null {
-  const input = new TextEncoder().encode(raw)
-  const decoded = new Uint8Array(input.length)
-  let out = 0
-  let index = 0
+  const input = new TextEncoder().encode(raw);
+  const decoded = new Uint8Array(input.length);
+  let out = 0;
+  let index = 0;
   while (index < input.length) {
     if (input[index] === 0x25) {
-      const high = hexValue(input[index + 1])
-      const low = hexValue(input[index + 2])
+      const high = hexValue(input[index + 1]);
+      const low = hexValue(input[index + 2]);
       if (high === undefined || low === undefined) {
-        return null
+        return null;
       }
-      decoded[out] = (high << 4) | low
-      out += 1
-      index += 3
+      decoded[out] = (high << 4) | low;
+      out += 1;
+      index += 3;
     } else {
-      decoded[out] = input[index]
-      out += 1
-      index += 1
+      decoded[out] = input[index];
+      out += 1;
+      index += 1;
     }
   }
-  const slice = decoded.subarray(0, out)
+  const slice = decoded.subarray(0, out);
   if (slice.some((byte) => byte === 0 || byte === 0x0d || byte === 0x0a)) {
-    return null
+    return null;
   }
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(slice)
+    return new TextDecoder('utf-8', { fatal: true }).decode(slice);
   } catch {
-    return null
+    return null;
   }
 }
 
 function hexValue(byte: number | undefined): number | undefined {
   if (byte === undefined) {
-    return undefined
+    return undefined;
   }
   if (byte >= 0x30 && byte <= 0x39) {
-    return byte - 0x30
+    return byte - 0x30;
   }
   if (byte >= 0x61 && byte <= 0x66) {
-    return byte - 0x61 + 10
+    return byte - 0x61 + 10;
   }
   if (byte >= 0x41 && byte <= 0x46) {
-    return byte - 0x41 + 10
+    return byte - 0x41 + 10;
   }
-  return undefined
+  return undefined;
 }
 
 export function parseSkippedHeader(value: string | null): SkipCounts | null {
   if (value === null || value.length === 0) {
-    return null
+    return null;
   }
-  const match = /^parse=(\d+);capability=(\d+);name=(\d+)$/.exec(value)
+  const match = /^parse=(\d+);capability=(\d+);name=(\d+)$/.exec(value);
   if (match === null) {
-    return null
+    return null;
   }
   return {
     parse: Number(match[1]),
     capability: Number(match[2]),
     name: Number(match[3]),
-  }
+  };
 }
 
 export type OmittedRules = {
-  omittedUrlRegex: number
-}
+  omittedUrlRegex: number;
+};
 
 /**
  * Bytes and unix expiry from Conversion `subscription-userinfo`.
  * Missing `expire` is `null`. `expire=0` stays `0` (Conversion re-emits it).
  */
 export type SubscriptionUserInfo = {
-  upload: number
-  download: number
-  total: number
-  expire: number | null
-}
+  upload: number;
+  download: number;
+  total: number;
+  expire: number | null;
+};
 
 /**
  * Conversion Service `subscription-userinfo` grammar from HTTP `userinfo.rs`.
  * `expire` is optional on the wire. A missing key is `null`. `expire=0` is `0`.
  */
-export function parseSubscriptionUserInfo(
-  value: string | null
-): SubscriptionUserInfo | null {
+export function parseSubscriptionUserInfo(value: string | null): SubscriptionUserInfo | null {
   if (value === null) {
-    return null
+    return null;
   }
-  const trimmed = value.replace(/^[\t ]+|[\t ]+$/g, "")
-  if (trimmed.length === 0 || trimmed.includes(",")) {
-    return null
+  const trimmed = value.replace(/^[\t ]+|[\t ]+$/g, '');
+  if (trimmed.length === 0 || trimmed.includes(',')) {
+    return null;
   }
-  const body = trimmed.endsWith(";") ? trimmed.slice(0, -1) : trimmed
-  if (body.replace(/[\t ]+$/g, "").endsWith(";")) {
-    return null
+  const body = trimmed.endsWith(';') ? trimmed.slice(0, -1) : trimmed;
+  if (body.replace(/[\t ]+$/g, '').endsWith(';')) {
+    return null;
   }
 
   const values: {
-    upload?: number
-    download?: number
-    total?: number
-    expire?: number
-  } = {}
-  for (const pair of body.split(";")) {
-    const item = pair.replace(/^[\t ]+|[\t ]+$/g, "")
-    const eq = item.indexOf("=")
+    upload?: number;
+    download?: number;
+    total?: number;
+    expire?: number;
+  } = {};
+  for (const pair of body.split(';')) {
+    const item = pair.replace(/^[\t ]+|[\t ]+$/g, '');
+    const eq = item.indexOf('=');
     if (eq <= 0) {
-      return null
+      return null;
     }
-    const key = item.slice(0, eq).replace(/^[\t ]+|[\t ]+$/g, "")
-    const number = item.slice(eq + 1).replace(/^[\t ]+|[\t ]+$/g, "")
-    if (
-      key.length === 0 ||
-      number.length === 0 ||
-      number.length > 19 ||
-      !/^[0-9]+$/.test(number)
-    ) {
-      return null
+    const key = item.slice(0, eq).replace(/^[\t ]+|[\t ]+$/g, '');
+    const number = item.slice(eq + 1).replace(/^[\t ]+|[\t ]+$/g, '');
+    if (key.length === 0 || number.length === 0 || number.length > 19 || !/^[0-9]+$/.test(number)) {
+      return null;
     }
-    const parsed = Number(number)
+    const parsed = Number(number);
     if (!Number.isSafeInteger(parsed)) {
-      return null
+      return null;
     }
-    const slot = key.toLowerCase()
-    if (
-      slot !== "upload" &&
-      slot !== "download" &&
-      slot !== "total" &&
-      slot !== "expire"
-    ) {
-      return null
+    const slot = key.toLowerCase();
+    if (slot !== 'upload' && slot !== 'download' && slot !== 'total' && slot !== 'expire') {
+      return null;
     }
     if (values[slot] !== undefined) {
-      return null
+      return null;
     }
-    values[slot] = parsed
+    values[slot] = parsed;
   }
-  if (
-    values.upload === undefined ||
-    values.download === undefined ||
-    values.total === undefined
-  ) {
-    return null
+  if (values.upload === undefined || values.download === undefined || values.total === undefined) {
+    return null;
   }
   return {
     upload: values.upload,
     download: values.download,
     total: values.total,
     expire: values.expire === undefined ? null : values.expire,
-  }
+  };
 }
 
 /** HTTP `insert_lossy_headers`: `lossy` + `URL-REGEX=<uint>`. Other tokens stay raw. */
 export function parseOmittedRulesHeader(
   result: string | null,
-  omitted: string | null
+  omitted: string | null,
 ): OmittedRules | null {
-  if (result !== "lossy" || omitted === null) {
-    return null
+  if (result !== 'lossy' || omitted === null) {
+    return null;
   }
-  const match = /^URL-REGEX=(\d+)$/.exec(omitted)
+  const match = /^URL-REGEX=(\d+)$/.exec(omitted);
   if (match === null) {
-    return null
+    return null;
   }
-  return { omittedUrlRegex: Number(match[1]) }
+  return { omittedUrlRegex: Number(match[1]) };
 }
 
-export type AccessTokenParse = { ok: true; token: string } | { ok: false }
+export type AccessTokenParse = { ok: true; token: string } | { ok: false };
 
 export function parseAccessToken(raw: string): AccessTokenParse {
   if (raw.length === 0) {
-    return { ok: true, token: "" }
+    return { ok: true, token: '' };
   }
 
-  const bytes = new TextEncoder().encode(raw)
+  const bytes = new TextEncoder().encode(raw);
   if (bytes.length < 1 || bytes.length > 128) {
-    return { ok: false }
+    return { ok: false };
   }
   if (!/^[A-Za-z0-9._~-]+$/.test(raw)) {
-    return { ok: false }
+    return { ok: false };
   }
-  return { ok: true, token: raw }
+  return { ok: true, token: raw };
 }
 
 export type SubGetEncodeInput = {
-  accessToken: string
-  target: Target
-  sources: string[]
-  configUrl: string
-  appendInfo: boolean
-  expand?: boolean
-  filename?: string
-}
+  accessToken: string;
+  target: Target;
+  sources: string[];
+  configUrl: string;
+  appendInfo: boolean;
+  expand?: boolean;
+  filename?: string;
+};
 
 /** HTTP `query.rs`: download-name stem. Empty is omit. */
 export function parseFilenameStem(raw: string): string | null {
-  const bytes = new TextEncoder().encode(raw)
-  if (raw.length === 0 || bytes.length > 64 || raw === "." || raw === "..") {
-    return null
+  const bytes = new TextEncoder().encode(raw);
+  if (raw.length === 0 || bytes.length > 64 || raw === '.' || raw === '..') {
+    return null;
   }
-  if (raw.startsWith(" ") || raw.endsWith(" ")) {
-    return null
+  if (raw.startsWith(' ') || raw.endsWith(' ')) {
+    return null;
   }
   for (let index = 0; index < raw.length; index += 1) {
-    const code = raw.charCodeAt(index)
+    const code = raw.charCodeAt(index);
     if (code < 32 || code === 127) {
-      return null
+      return null;
     }
-    if ('/\\:*?"<>|'.includes(raw[index] ?? "")) {
-      return null
+    if ('/\\:*?"<>|'.includes(raw[index] ?? '')) {
+      return null;
     }
   }
-  return raw
+  return raw;
 }
 
 export function encodeSubGetTarget(input: SubGetEncodeInput): string {
-  const path =
-    input.accessToken.length > 0 ? `/sub/${input.accessToken}` : "/sub"
+  const path = input.accessToken.length > 0 ? `/sub/${input.accessToken}` : '/sub';
   const queryParts = [
     `target=${input.target}`,
-    `url=${encodeURIComponent(input.sources.join("|"))}`,
-  ]
+    `url=${encodeURIComponent(input.sources.join('|'))}`,
+  ];
   if (input.configUrl.length > 0) {
-    queryParts.push(`config=${encodeURIComponent(input.configUrl)}`)
+    queryParts.push(`config=${encodeURIComponent(input.configUrl)}`);
   }
   if (!input.appendInfo) {
-    queryParts.push("append_info=false")
+    queryParts.push('append_info=false');
   }
   if (input.expand === true) {
-    queryParts.push("expand=true")
+    queryParts.push('expand=true');
   }
   if (input.filename !== undefined && input.filename.length > 0) {
-    queryParts.push(`filename=${encodeURIComponent(input.filename)}`)
+    queryParts.push(`filename=${encodeURIComponent(input.filename)}`);
   }
-  return `${path}?${queryParts.join("&")}`
+  return `${path}?${queryParts.join('&')}`;
 }

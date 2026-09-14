@@ -6,187 +6,177 @@ import {
   parseAccessToken,
   parseFilenameStem,
   type Target,
-} from "./service-contract.ts"
+} from './service-contract.ts';
 
 /** Workshop picker identity. `mihomo` is the clash wire alias, not a job value. */
-export type ClientTarget = Exclude<Target, "mihomo">
+export type ClientTarget = Exclude<Target, 'mihomo'>;
 
 export const CLIENT_TARGETS: readonly ClientTarget[] = TARGETS.filter(
-  (target): target is ClientTarget => target !== "mihomo"
-)
+  (target): target is ClientTarget => target !== 'mihomo',
+);
 
 export function isClientTarget(value: string): value is ClientTarget {
-  return (CLIENT_TARGETS as readonly string[]).includes(value)
+  return (CLIENT_TARGETS as readonly string[]).includes(value);
 }
 
 /** persist-only: stored `mihomo` becomes the clash picker identity. */
 export function clientTargetOf(target: Target): ClientTarget {
-  return target === "mihomo" ? "clash" : target
+  return target === 'mihomo' ? 'clash' : target;
 }
 
 /** Conversion fields the Workshop job assembles and previews. */
 export type WorkshopFields = {
-  serviceOrigin: string
-  accessToken: string
-  sources: string[]
-  target: ClientTarget
-  configUrl: string
-  appendInfo: boolean
+  serviceOrigin: string;
+  accessToken: string;
+  sources: string[];
+  target: ClientTarget;
+  configUrl: string;
+  appendInfo: boolean;
   /** When true, Subscription URL includes expand=true (inline remotes). */
-  expand: boolean
+  expand: boolean;
   /** Download-name stem. Empty omits filename=. */
-  filename: string
-}
+  filename: string;
+};
 
 /** Shared input attrs for origin / source / config URL fields. */
 export const urlField = {
-  inputMode: "url" as const,
-  autoCapitalize: "none" as const,
-  autoCorrect: "off" as const,
+  inputMode: 'url' as const,
+  autoCapitalize: 'none' as const,
+  autoCorrect: 'off' as const,
   spellCheck: false,
-}
+};
 
 /** Injected Workshop fetch port. Preview, version-probe, and session share it. */
 export type WorkshopFetch = (
   url: string,
-  init?: { signal?: AbortSignal }
+  init?: { signal?: AbortSignal },
 ) => Promise<{
-  status: number
-  text: () => Promise<string>
-  headers: { get: (name: string) => string | null }
-}>
+  status: number;
+  text: () => Promise<string>;
+  headers: { get: (name: string) => string | null };
+}>;
 
 export function clashInstallUrl(subscriptionUrl: string): string {
-  return `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`
+  return `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`;
 }
 
 export function surgeInstallUrl(subscriptionUrl: string): string {
-  return `surge:///install-config?url=${encodeURIComponent(subscriptionUrl)}`
+  return `surge:///install-config?url=${encodeURIComponent(subscriptionUrl)}`;
 }
 
 export function loonInstallUrl(subscriptionUrl: string): string {
-  return `loon://import?sub=${encodeURIComponent(subscriptionUrl)}`
+  return `loon://import?sub=${encodeURIComponent(subscriptionUrl)}`;
 }
 
-export function egernInstallUrl(
-  subscriptionUrl: string,
-  name?: string
-): string {
-  const href = `egern:/profiles/new?url=${encodeURIComponent(subscriptionUrl)}`
-  const trimmed = name?.trim() ?? ""
-  return trimmed.length > 0
-    ? `${href}&name=${encodeURIComponent(trimmed)}`
-    : href
+export function egernInstallUrl(subscriptionUrl: string, name?: string): string {
+  const href = `egern:/profiles/new?url=${encodeURIComponent(subscriptionUrl)}`;
+  const trimmed = name?.trim() ?? '';
+  return trimmed.length > 0 ? `${href}&name=${encodeURIComponent(trimmed)}` : href;
 }
 
-export function singboxInstallUrl(
-  subscriptionUrl: string,
-  name = "sub-hub"
-): string {
-  return `sing-box://import-remote-profile?url=${encodeURIComponent(subscriptionUrl)}#${encodeURIComponent(name)}`
+export function singboxInstallUrl(subscriptionUrl: string, name = 'sub-hub'): string {
+  return `sing-box://import-remote-profile?url=${encodeURIComponent(subscriptionUrl)}#${encodeURIComponent(name)}`;
 }
 
 /** iPhone / iPad (including CriOS). Macintosh desktop-site iPad is not iOS. */
 export function isIosPhoneUserAgent(userAgent: string): boolean {
-  return /iPhone|iPad/.test(userAgent)
+  return /iPhone|iPad/.test(userAgent);
 }
 
 export type WorkshopDisplay = {
-  userAgent: string
-}
+  userAgent: string;
+};
 
 export type AssembledTarget = {
-  target: ClientTarget
-  url: string
-  getTarget: string
-  overLimit: boolean
-}
+  target: ClientTarget;
+  url: string;
+  getTarget: string;
+  overLimit: boolean;
+};
 
 export type Assembled = {
-  url: string | null
-  getTarget: string | null
-  overLimit: boolean
-  previewable: boolean
-  clashInstall: boolean
-  surgeInstall: boolean
-  loonInstall: boolean
-  egernInstall: boolean
-  singboxInstall: boolean
-  siblings: AssembledTarget[]
-}
+  url: string | null;
+  getTarget: string | null;
+  overLimit: boolean;
+  previewable: boolean;
+  clashInstall: boolean;
+  surgeInstall: boolean;
+  loonInstall: boolean;
+  egernInstall: boolean;
+  singboxInstall: boolean;
+  siblings: AssembledTarget[];
+};
 
 export type WorkshopView = {
-  assembled: Assembled
-  canonicalOrigin: string | null
-  originInvalid: boolean
-  tokenInvalid: boolean
-  configInvalid: boolean
-  filenameInvalid: boolean
-  sourceInvalid: boolean[]
-}
+  assembled: Assembled;
+  canonicalOrigin: string | null;
+  originInvalid: boolean;
+  tokenInvalid: boolean;
+  configInvalid: boolean;
+  filenameInvalid: boolean;
+  sourceInvalid: boolean[];
+};
 
 export function parseServiceOrigin(raw: string): string | null {
-  const trimmed = raw.trim()
+  const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    return null
+    return null;
   }
 
-  let url: URL
+  let url: URL;
   try {
-    url = new URL(trimmed)
+    url = new URL(trimmed);
   } catch {
-    return null
+    return null;
   }
 
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return null
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return null;
   }
-  if (url.username !== "" || url.password !== "") {
-    return null
+  if (url.username !== '' || url.password !== '') {
+    return null;
   }
-  if (url.search !== "" || url.hash !== "") {
-    return null
+  if (url.search !== '' || url.hash !== '') {
+    return null;
   }
-  if (url.pathname !== "" && url.pathname !== "/") {
-    return null
+  if (url.pathname !== '' && url.pathname !== '/') {
+    return null;
   }
 
-  return url.origin
+  return url.origin;
 }
 
 export function parseHttpsResourceUrl(raw: string): string | null {
-  const trimmed = raw.trim()
+  const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    return null
+    return null;
   }
 
-  let url: URL
+  let url: URL;
   try {
-    url = new URL(trimmed)
+    url = new URL(trimmed);
   } catch {
-    return null
+    return null;
   }
 
-  if (url.protocol !== "https:") {
-    return null
+  if (url.protocol !== 'https:') {
+    return null;
   }
-  if (url.username !== "" || url.password !== "") {
-    return null
+  if (url.username !== '' || url.password !== '') {
+    return null;
   }
-  if (url.hash !== "") {
-    return null
+  if (url.hash !== '') {
+    return null;
   }
-  return url.href
+  return url.href;
 }
 
 function nonemptySources(sources: readonly string[]): string[] {
-  return sources
-    .map((source) => source.trim())
-    .filter((source) => source.length > 0)
+  return sources.map((source) => source.trim()).filter((source) => source.length > 0);
 }
 
 function sourceRowInvalid(source: string): boolean {
-  return source.includes("|") || isHttpSource(source.trim())
+  return source.includes('|') || isHttpSource(source.trim());
 }
 
 const emptyAssembled: Assembled = {
@@ -200,28 +190,25 @@ const emptyAssembled: Assembled = {
   egernInstall: false,
   singboxInstall: false,
   siblings: [],
-}
+};
 
 /** Field chrome and assemble share one Workshop job diagnosis. */
 export function evaluateWorkshop(
   input: WorkshopFields,
-  display: WorkshopDisplay = { userAgent: "" }
+  display: WorkshopDisplay = { userAgent: '' },
 ): WorkshopView {
-  const origin = parseServiceOrigin(input.serviceOrigin)
-  const token = parseAccessToken(input.accessToken)
-  const sources = nonemptySources(input.sources)
-  const config = input.configUrl.trim()
-  const originInvalid = input.serviceOrigin.trim().length > 0 && origin === null
-  const tokenInvalid = !token.ok
-  const configInvalid =
-    config.length > 0 && parseHttpsResourceUrl(config) === null
-  const filename = input.filename ?? ""
-  const filenameInvalid =
-    filename.length > 0 && parseFilenameStem(filename) === null
-  const sourceInvalid = input.sources.map(sourceRowInvalid)
+  const origin = parseServiceOrigin(input.serviceOrigin);
+  const token = parseAccessToken(input.accessToken);
+  const sources = nonemptySources(input.sources);
+  const config = input.configUrl.trim();
+  const originInvalid = input.serviceOrigin.trim().length > 0 && origin === null;
+  const tokenInvalid = !token.ok;
+  const configInvalid = config.length > 0 && parseHttpsResourceUrl(config) === null;
+  const filename = input.filename ?? '';
+  const filenameInvalid = filename.length > 0 && parseFilenameStem(filename) === null;
+  const sourceInvalid = input.sources.map(sourceRowInvalid);
   const sourcesOk =
-    sources.length > 0 &&
-    !sources.some((source) => source.includes("|") || isHttpSource(source))
+    sources.length > 0 && !sources.some((source) => source.includes('|') || isHttpSource(source));
   const assembled =
     origin !== null && token.ok && sourcesOk && !configInvalid && !filenameInvalid
       ? assembledFrom({
@@ -235,7 +222,7 @@ export function evaluateWorkshop(
           filename,
           iosPhone: isIosPhoneUserAgent(display.userAgent),
         })
-      : emptyAssembled
+      : emptyAssembled;
   return {
     assembled,
     canonicalOrigin: origin,
@@ -244,19 +231,19 @@ export function evaluateWorkshop(
     configInvalid,
     filenameInvalid,
     sourceInvalid,
-  }
+  };
 }
 
 function assembledFrom(input: {
-  origin: string
-  token: string
-  sources: string[]
-  target: ClientTarget
-  configUrl: string
-  appendInfo: boolean
-  expand: boolean
-  filename: string
-  iosPhone: boolean
+  origin: string;
+  token: string;
+  sources: string[];
+  target: ClientTarget;
+  configUrl: string;
+  appendInfo: boolean;
+  expand: boolean;
+  filename: string;
+  iosPhone: boolean;
 }): Assembled {
   const row = (target: ClientTarget): AssembledTarget => {
     const getTarget = encodeSubGetTarget({
@@ -267,29 +254,26 @@ function assembledFrom(input: {
       appendInfo: input.appendInfo,
       expand: input.expand,
       filename: input.filename,
-    })
+    });
     return {
       target,
       url: `${input.origin}${getTarget}`,
       getTarget,
-      overLimit:
-        new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES,
-    }
-  }
-  const primary = row(input.target)
-  const installable = !primary.overLimit
+      overLimit: new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES,
+    };
+  };
+  const primary = row(input.target);
+  const installable = !primary.overLimit;
   return {
     url: primary.url,
     getTarget: primary.getTarget,
     overLimit: primary.overLimit,
     previewable: installable,
-    clashInstall: installable && input.target === "clash",
-    surgeInstall: installable && input.iosPhone && input.target === "surge",
-    loonInstall: installable && input.iosPhone && input.target === "loon",
-    egernInstall: installable && input.iosPhone && input.target === "egern",
-    singboxInstall: installable && input.iosPhone && input.target === "singbox",
-    siblings: CLIENT_TARGETS.filter((target) => target !== input.target).map(
-      row
-    ),
-  }
+    clashInstall: installable && input.target === 'clash',
+    surgeInstall: installable && input.iosPhone && input.target === 'surge',
+    loonInstall: installable && input.iosPhone && input.target === 'loon',
+    egernInstall: installable && input.iosPhone && input.target === 'egern',
+    singboxInstall: installable && input.iosPhone && input.target === 'singbox',
+    siblings: CLIENT_TARGETS.filter((target) => target !== input.target).map(row),
+  };
 }

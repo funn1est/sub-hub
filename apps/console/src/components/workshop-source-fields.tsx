@@ -1,21 +1,16 @@
-import {
-  ClipboardPasteIcon,
-  EraserIcon,
-  PlusIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { ClipboardPasteIcon, EraserIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 
-import { Button } from "@/components/ui/button.tsx"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field.tsx"
+import { Button } from '@/components/ui/button.tsx';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.tsx';
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
-} from "@/components/ui/input-group.tsx"
-import { t } from "@/lib/i18n.ts"
-import { urlField, type WorkshopFields } from "@/lib/workshop.ts"
-import type { WorkshopSessionActions } from "@/lib/workshop-session.ts"
+} from '@/components/ui/input-group.tsx';
+import { t } from '@/lib/i18n.ts';
+import { urlField, type WorkshopFields } from '@/lib/workshop.ts';
+import type { WorkshopSessionActions } from '@/lib/workshop-session.ts';
 
 export function SourceFields({
   fields,
@@ -23,15 +18,15 @@ export function SourceFields({
   copy,
   actions,
 }: {
-  fields: WorkshopFields
-  sourceInvalid: boolean[]
-  copy: ReturnType<typeof t>
-  actions: WorkshopSessionActions
+  fields: WorkshopFields;
+  sourceInvalid: boolean[];
+  copy: ReturnType<typeof t>;
+  actions: WorkshopSessionActions;
 }) {
   return (
     <FieldGroup>
       {fields.sources.map((source, index) => {
-        const invalid = sourceInvalid[index] === true
+        const invalid = sourceInvalid[index] === true;
         return (
           <Field key={index} data-invalid={invalid || undefined}>
             <FieldLabel htmlFor={`source-${index}`} className="sr-only">
@@ -49,16 +44,14 @@ export function SourceFields({
                 enterKeyHint="next"
                 aria-invalid={invalid || undefined}
                 {...urlField}
-                onChange={(event) =>
-                  actions.setSource(index, event.target.value)
-                }
+                onChange={(event) => actions.setSource(index, event.target.value)}
                 onPaste={(event) => {
-                  const text = event.clipboardData.getData("text")
-                  if (!text.includes("\n") && !text.includes("|")) {
-                    return
+                  const text = event.clipboardData.getData('text');
+                  if (!text.includes('\n') && !text.includes('|')) {
+                    return;
                   }
-                  event.preventDefault()
-                  actions.setSourceFromPaste(index, text)
+                  event.preventDefault();
+                  actions.setSourceFromPaste(index, text);
                 }}
               />
               {fields.sources.length > 1 ? (
@@ -74,7 +67,7 @@ export function SourceFields({
               ) : null}
             </InputGroup>
           </Field>
-        )
+        );
       })}
       <div className="flex gap-2">
         <Button
@@ -91,7 +84,7 @@ export function SourceFields({
           variant="outline"
           className="flex-1"
           onClick={() => {
-            void actions.pasteSourcesFromClipboard()
+            void actions.pasteSourcesFromClipboard();
           }}
         >
           <ClipboardPasteIcon data-icon="inline-start" />
@@ -108,5 +101,5 @@ export function SourceFields({
         {copy.addSource}
       </Button>
     </FieldGroup>
-  )
+  );
 }
