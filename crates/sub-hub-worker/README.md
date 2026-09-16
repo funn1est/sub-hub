@@ -10,41 +10,17 @@ you want a public URL.
 ## Runtime boundary
 
 The Cloudflare remote adapter accepts only HTTPS destinations on port 443. An
-initial URL using another port receives `400`; a redirect to another port
-receives `502`. This restriction is specific to the Cloudflare adapter and does
-not apply to the native host.
+initial URL or a redirect to another port receives `400`. This restriction is
+specific to the Cloudflare adapter and does not apply to the native host.
 
 The hostname of the inbound request is always treated as a self-target. Remote
 subscription and config URLs must not point at that host.
 
 ## Access token
 
-`SUB_HUB_ACCESS_TOKEN` is an optional Cloudflare **Secret** under the
-**Settings** tab section **Runtime variables and secrets**. Add it with
-**+ Add variable** → **Add environment variable**: **Key**
-`SUB_HUB_ACCESS_TOKEN`, check **Secret**. After save, **Value** is
-**Value encrypted**. It is never a Wrangler `[vars]` value, never an
-unchecked **Secret** row, and never a committed `.dev.vars` file. The
-Deploy-to-Cloudflare button does **not** collect this secret. Do not add
-a `.dev.vars.example` prompt; that value would not become a Runtime
-secret. Workers Builds **Build** variables also do not reach the isolate. The blob is a comma- or newline-separated list of
-at most eight equivalent tokens. Each token is 1–128 bytes from
-`A–Z a–z 0–9 - . _ ~`. Any configured token authorizes `GET`/`HEAD /sub/<token>`.
-`GET /sub` then returns `401 Unauthorized!`. `GET /version` stays public.
-If the secret is **unset**, Worker `GET /sub` stays anonymous and
-`GET /sub/<token>` returns `404` `Not Found`. That is host behavior, not a
-packaging leftover. Native still refuses a non-loopback bind with an empty
-token list. `pnpm run deploy` generates a token when `wrangler secret list`
-shows the name absent; Dashboard Git / Workers Builds does **not** put the
-secret — set it after the first successful build if you want `/sub/<token>`.
-
-After save, **Value** is **Value encrypted**. Keep the full list in a
-password manager or an uncommitted file. The Dashboard field can only
-**replace** that blob; it is not a viewer. Do not add
-`SUB_HUB_ACCESS_TOKEN` with **Secret** unchecked — that row is visible in
-the Dashboard and shadows the **Secret**.
-
-`pnpm run deploy` will:
+Dashboard Secret steps live in the repository-root
+[Runtime variables and secrets](../../README.md#runtime-variables-and-secrets).
+This crate's `pnpm run deploy` helper will:
 
 - put the list you pass with `--tokens-file` or `--from-env`;
 - leave an existing secret unchanged;
@@ -52,14 +28,19 @@ the Dashboard and shadows the **Secret**.
   32-character hex token, put it with the same deploy, and print it once.
 
 It never treats an ambient `SUB_HUB_ACCESS_TOKEN` as a put. If it cannot tell
-whether the secret exists, it aborts instead of generating.
+whether the secret exists, it aborts instead of generating. Dashboard Git /
+Workers Builds does **not** put the secret.
 
 ```sh
 pnpm run deploy -- --tokens-file tokens.txt
 pnpm run deploy -- --replace
 ```
 
-A present-but-empty or malformed secret makes every request return `500`.
+If the secret is **unset**, Worker `GET /sub` stays anonymous and
+`GET /sub/<token>` returns `404` `Not Found`. That is host behavior, not a
+packaging leftover. Native still refuses a non-loopback bind with an empty
+token list. A present-but-empty or malformed secret makes every request
+return `500`.
 
 Do not log complete request URLs. Query strings commonly contain credentials.
 Wrangler enables Workers Logs with `invocation_logs = false` so Fetch
@@ -225,22 +206,17 @@ image is older than the pins in the repository-root `mise.toml`. Do not add
 | `NODE_VERSION` | `24.19.0` |
 | `PNPM_VERSION` | `11.22.0` |
 
-After the first successful build, open **Settings** → **Runtime variables
-and secrets**, click **+ Add variable**, and add `SUB_HUB_ACCESS_TOKEN`
-with **Secret** checked (no Workers Builds rebuild). Optional rows with
-**Secret** unchecked: `SUB_HUB_SELF_HOSTS` (extra DNS aliases) and
-`SUB_HUB_CORS_ORIGINS` (separate Console origin only). The deploy helper
-uses `--keep-vars` so later pushes keep that **Secret**. Console-only Git
-is a second Worker whose root is `apps/console`. A local `pnpm run deploy`
-remains the simpler publish.
+After the first successful build, add `SUB_HUB_ACCESS_TOKEN` as in the
+repository-root
+[Runtime variables and secrets](../../README.md#runtime-variables-and-secrets).
+Workers Builds does **not** put the secret. Later pushes keep it via
+`--keep-vars`. Console-only Git is a second Worker whose root is
+`apps/console`. A local `pnpm run deploy` remains the simpler publish.
 
-The repository-root `wrangler.toml` and `package.json` `build` / `deploy`
-scripts are the Deploy-to-Cloudflare contract when the clone root is the
-whole repository. Layout `all` publish uses that root `wrangler.toml` so
-the wizard can rename the Worker. Cloudflare requires that Git URL to be
-public. Do not change the Dashboard **Root directory** in the table above
-to `.` unless you also change the script paths. Do not add a
-`.dev.vars.example` or `package.json` `cloudflare.bindings` token prompt.
+Layout `all` publish uses the repository-root `wrangler.toml` so the
+wizard can rename the Worker. Do not change the Dashboard **Root
+directory** in the table above to `.` unless you also change the script
+paths.
 
 ## Maintainer preview gate
 
