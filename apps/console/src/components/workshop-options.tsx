@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Settings2Icon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button.tsx';
@@ -24,12 +25,18 @@ import {
 import { InputGroup, InputGroupInput } from '@/components/ui/input-group.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx';
-import { t, targetHint } from '@/lib/i18n.ts';
+import { capabilityHint, t, targetHint } from '@/lib/i18n.ts';
 import type { Locale } from '@/lib/persist.ts';
 import { type ConfigChoice, type ConfigChoiceGroup } from '@/lib/workshop-config.ts';
 import type { WorkshopSessionActions } from '@/lib/workshop-session.ts';
 import { CLIENT_TARGETS, isClientTarget, urlField, type WorkshopFields } from '@/lib/workshop.ts';
 import { SectionCard } from '@/components/workshop-section.tsx';
+
+function moreOptionsRevealed(fields: WorkshopFields, filenameInvalid: boolean): boolean {
+  return (
+    filenameInvalid || !fields.appendInfo || !fields.expand || fields.filename.trim().length > 0
+  );
+}
 
 export function WorkshopOptions({
   fields,
@@ -52,6 +59,11 @@ export function WorkshopOptions({
   locale: Locale;
   actions: WorkshopSessionActions;
 }) {
+  const [moreOpen, setMoreOpen] = React.useState(() =>
+    moreOptionsRevealed(fields, filenameInvalid),
+  );
+  const moreExpanded = moreOpen || filenameInvalid;
+
   return (
     <SectionCard icon={<Settings2Icon />} title={copy.options}>
       <FieldGroup>
@@ -76,7 +88,10 @@ export function WorkshopOptions({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <FieldDescription>{targetHint(locale, fields.target)}</FieldDescription>
+          <FieldDescription className="flex flex-col gap-1">
+            <span>{targetHint(locale, fields.target)}</span>
+            <span>{capabilityHint(locale, fields.target)}</span>
+          </FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="config-preset">{copy.config}</FieldLabel>
@@ -156,44 +171,66 @@ export function WorkshopOptions({
             </InputGroup>
           </Field>
         ) : null}
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor="append-info">{copy.appendInfo}</FieldLabel>
-            <FieldDescription>{copy.appendInfoHint}</FieldDescription>
-          </FieldContent>
-          <Switch
-            id="append-info"
-            checked={fields.appendInfo}
-            onCheckedChange={(checked) => actions.patch({ appendInfo: checked })}
-          />
-        </Field>
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor="expand">{copy.expand}</FieldLabel>
-            <FieldDescription>{copy.expandHint}</FieldDescription>
-          </FieldContent>
-          <Switch
-            id="expand"
-            checked={fields.expand}
-            onCheckedChange={(checked) => actions.patch({ expand: checked })}
-          />
-        </Field>
-        <Field data-invalid={filenameInvalid || undefined}>
-          <FieldLabel htmlFor="filename">{copy.filename}</FieldLabel>
-          <InputGroup>
-            <InputGroupInput
-              id="filename"
-              value={fields.filename}
-              enterKeyHint="done"
-              aria-invalid={filenameInvalid || undefined}
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              onChange={(event) => actions.patch({ filename: event.target.value })}
+        <details
+          className="flex flex-col gap-5"
+          open={moreExpanded}
+          onToggle={(event) => {
+            if (filenameInvalid) {
+              setMoreOpen(true);
+              return;
+            }
+            setMoreOpen(event.currentTarget.open);
+          }}
+        >
+          <summary
+            className="cursor-pointer text-sm font-medium text-muted-foreground"
+            onClick={(event) => {
+              if (filenameInvalid) {
+                event.preventDefault();
+              }
+            }}
+          >
+            {copy.moreOptions}
+          </summary>
+          <Field orientation="horizontal">
+            <FieldContent>
+              <FieldLabel htmlFor="append-info">{copy.appendInfo}</FieldLabel>
+              <FieldDescription>{copy.appendInfoHint}</FieldDescription>
+            </FieldContent>
+            <Switch
+              id="append-info"
+              checked={fields.appendInfo}
+              onCheckedChange={(checked) => actions.patch({ appendInfo: checked })}
             />
-          </InputGroup>
-          <FieldDescription>{copy.filenameHint}</FieldDescription>
-        </Field>
+          </Field>
+          <Field orientation="horizontal">
+            <FieldContent>
+              <FieldLabel htmlFor="expand">{copy.expand}</FieldLabel>
+              <FieldDescription>{copy.expandHint}</FieldDescription>
+            </FieldContent>
+            <Switch
+              id="expand"
+              checked={fields.expand}
+              onCheckedChange={(checked) => actions.patch({ expand: checked })}
+            />
+          </Field>
+          <Field data-invalid={filenameInvalid || undefined}>
+            <FieldLabel htmlFor="filename">{copy.filename}</FieldLabel>
+            <InputGroup>
+              <InputGroupInput
+                id="filename"
+                value={fields.filename}
+                enterKeyHint="done"
+                aria-invalid={filenameInvalid || undefined}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => actions.patch({ filename: event.target.value })}
+              />
+            </InputGroup>
+            <FieldDescription>{copy.filenameHint}</FieldDescription>
+          </Field>
+        </details>
       </FieldGroup>
     </SectionCard>
   );

@@ -124,6 +124,35 @@ describe('locale key alignment', () => {
   });
 });
 
+describe('workshop copy density', () => {
+  it('keeps the access-token hint to the Secret name, not a Dashboard walkthrough', () => {
+    expect(messages.en.accessTokenHint).toContain('SUB_HUB_ACCESS_TOKEN');
+    expect(messages.en.accessTokenHint).toContain('anonymous /sub');
+    expect(messages.zh.accessTokenHint).toContain('SUB_HUB_ACCESS_TOKEN');
+    expect(messages.en.accessTokenHint).not.toMatch(/Runtime variables|Settings →|Add variable/);
+    expect(messages.zh.accessTokenHint).not.toMatch(/Runtime variables|添加变量/);
+  });
+
+  it('states expand without a mid-sentence colon', () => {
+    expect(messages.en.expandHint).toContain('expand=true');
+    expect(messages.en.expandHint).not.toMatch(/On by default:/);
+    expect(messages.zh.expandHint).toContain('expand=true');
+    expect(messages.zh.expandHint).not.toMatch(/默认打开：/);
+  });
+
+  it('names the folded extra switches', async () => {
+    expect(messages.en.moreOptions).toBe('More options');
+    expect(messages.zh.moreOptions).toBe('更多选项');
+    const options = await readFile(
+      resolve(import.meta.dirname, '../components/workshop-options.tsx'),
+      'utf8',
+    );
+    expect(options).toMatch(/copy\.moreOptions/);
+    expect(options).toMatch(/<details/);
+    expect(options).toMatch(/moreOpen \|\| filenameInvalid/);
+  });
+});
+
 describe('AGPL source offer', () => {
   it('names AGPL and the GitHub source URL in both locales', async () => {
     expect(SOURCE_REPO).toBe('https://github.com/funn1est/sub-hub');

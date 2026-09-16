@@ -10,19 +10,16 @@ import { t } from '@/lib/i18n.ts';
 import type { Locale } from '@/lib/persist.ts';
 import { previewProfile } from '@/lib/preview-copy.ts';
 import type { PreviewState } from '@/lib/preview.ts';
-import type { ClientTarget } from '@/lib/workshop.ts';
 
 export function PreviewCard({
   locale,
   preview,
   copy,
-  target,
   onDownload,
 }: {
   locale: Locale;
   preview: PreviewState;
   copy: ReturnType<typeof t>;
-  target: ClientTarget;
   onDownload: () => void;
 }) {
   if (preview.status === 'idle') {
@@ -67,7 +64,7 @@ export function PreviewCard({
     );
   }
 
-  const profile = previewProfile(locale, preview, target);
+  const profile = previewProfile(locale, preview);
 
   return (
     <Card>
@@ -108,13 +105,12 @@ export function PreviewCard({
               <AlertDescription>{profile.omitted}</AlertDescription>
             </Alert>
           ) : null}
-          {profile.capability !== undefined ? (
-            <p className="text-sm text-muted-foreground">{profile.capability}</p>
+          {preview.httpStatus === 200 ? (
+            <Alert>
+              <ShieldAlertIcon />
+              <AlertTitle>{copy.secretWarning}</AlertTitle>
+            </Alert>
           ) : null}
-          <Alert>
-            <ShieldAlertIcon />
-            <AlertTitle>{copy.secretWarning}</AlertTitle>
-          </Alert>
           <details className="rounded-lg border bg-muted/30">
             <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
               {copy.body}

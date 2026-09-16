@@ -80,7 +80,7 @@ describe('preview profile card copy', () => {
 });
 
 describe('previewProfile', () => {
-  it('reads traffic from the GET record and keeps capability on ok', () => {
+  it('reads traffic from the GET record on ok', () => {
     const profile = previewProfile(
       'en',
       done({
@@ -92,12 +92,10 @@ describe('previewProfile', () => {
           expire: null,
         },
       }),
-      'clash',
     );
     expect(profile.error).toBeNull();
     expect(profile.traffic?.summary).toBe('2.00 KiB used of 10.0 MiB');
     expect(profile.traffic?.expire).toBeUndefined();
-    expect(profile.capability).toMatch(/Clash-family/);
   });
 
   it('nests a dated expire under traffic', () => {
@@ -112,7 +110,6 @@ describe('previewProfile', () => {
           expire: 1_893_456_000,
         },
       }),
-      'clash',
     );
     expect(profile.error).toBeNull();
     expect(profile.traffic?.expire).toMatch(/^Expires /);
@@ -130,7 +127,6 @@ describe('previewProfile', () => {
           expire: 0,
         },
       }),
-      'clash',
     );
     expect(profile.error).toBeNull();
     expect(profile.traffic?.summary).toBe('3 B used of 3 B');
@@ -138,10 +134,9 @@ describe('previewProfile', () => {
   });
 
   it('omits traffic when the GET has no subscription-userinfo', () => {
-    const profile = previewProfile('en', done({ body: 'mode: rule\n' }), 'clash');
+    const profile = previewProfile('en', done({ body: 'mode: rule\n' }));
     expect(profile.error).toBeNull();
     expect(profile.traffic).toBeUndefined();
-    expect(profile.capability).toBeDefined();
   });
 
   it('keeps skip counts on the 400 that Conversion attaches them to', () => {
@@ -153,14 +148,12 @@ describe('previewProfile', () => {
         kind: { kind: 'known-error', body: 'No nodes were found!' },
         skipped: { parse: 0, capability: 1, name: 0 },
       }),
-      'quanx',
     );
     expect(profile.error).toEqual({
       heading: 'No nodes were found',
       wire: 'No nodes were found!',
     });
     expect(profile.skipped).toBe('Skipped 1 node: 1 this client cannot import.');
-    expect(profile.capability).toMatch(/Hysteria2/);
     expect(profile.traffic).toBeUndefined();
   });
 
@@ -172,17 +165,15 @@ describe('previewProfile', () => {
         httpStatus: 502,
         kind: { kind: 'http' },
       }),
-      'clash',
     );
     expect(profile.error).toEqual({
       heading: `${messages.en.status} 502`,
       wire: null,
     });
     expect(profile.skipped).toBeUndefined();
-    expect(profile.capability).toBeUndefined();
   });
 
-  it('omits capability on a known-error GET that never converted', () => {
+  it('localizes a known-error GET that never converted', () => {
     const profile = previewProfile(
       'zh',
       done({
@@ -190,13 +181,11 @@ describe('previewProfile', () => {
         httpStatus: 502,
         kind: { kind: 'known-error', body: 'Bad Gateway' },
       }),
-      'clash',
     );
     expect(profile.error).toEqual({
       heading: '网关错误',
       wire: 'Bad Gateway',
     });
-    expect(profile.capability).toBeUndefined();
   });
 
   it('phrases skip and omitted counts on ok', () => {
@@ -207,7 +196,6 @@ describe('previewProfile', () => {
         skipped: { parse: 1, capability: 0, name: 0 },
         omitted: { omittedUrlRegex: 3 },
       }),
-      'clash',
     );
     expect(profile.error).toBeNull();
     expect(profile.skipped).toBe('Skipped 1 node: 1 could not be read.');

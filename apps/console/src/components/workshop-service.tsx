@@ -120,11 +120,11 @@ export function WorkshopService({
             <VersionAlert state={view.version} copy={copy} />
           </FieldGroup>
         </CardContent>
-      ) : (
+      ) : view.version.status === 'other' || view.version.status === 'unreachable' ? (
         <CardContent>
           <VersionAlert state={view.version} copy={copy} />
         </CardContent>
-      )}
+      ) : null}
     </Card>
   );
 }

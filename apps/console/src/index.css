@@ -157,33 +157,3 @@ html.theme-switching *::after {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
-
-.console-shell-bg {
-  pointer-events: none;
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image:
-    radial-gradient(
-      ellipse 80% 50% at 50% -10%,
-      color-mix(in oklch, var(--foreground) 8%, transparent),
-      transparent 60%
-    ),
-    radial-gradient(
-      ellipse 45% 35% at 100% 0%,
-      color-mix(in oklch, var(--foreground) 5%, transparent),
-      transparent 55%
-    );
-}
-
-.console-shell-bg::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(color-mix(in oklch, var(--border) 80%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklch, var(--border) 80%, transparent) 1px, transparent 1px);
-  background-size: 4rem 4rem;
-  mask-image: linear-gradient(to bottom, black, transparent 42%);
-  opacity: 0.7;
-}
