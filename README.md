@@ -117,8 +117,9 @@ cargo build --locked --release -p sub-hub-native
 ```
 
 CI launches that release binary on a loopback port and checks `/version` plus
-one local VLESS conversion for every released target (`clash`, `mihomo`,
-`quanx`, `singbox`, `loon`, `egern`). The fixture does not fetch an external
+one local conversion for every published target (`clash`, `mihomo`, `quanx`,
+`singbox`, `loon`, `egern`, `surge`). The fixture is VLESS except `surge`
+(Shadowsocks; Surge skips VLESS). The fixture does not fetch an external
 subscription. A workspace version bump on `main` publishes the same
 release executable for linux-amd64, windows-amd64, and macos-arm64.
 
