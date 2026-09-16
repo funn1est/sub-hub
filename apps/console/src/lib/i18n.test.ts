@@ -149,6 +149,7 @@ describe('workshop copy density', () => {
     );
     expect(options).toMatch(/copy\.moreOptions/);
     expect(options).toMatch(/<details/);
+    expect(options).toMatch(/moreOpen \|\| filenameInvalid/);
   });
 });
 

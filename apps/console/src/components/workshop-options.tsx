@@ -32,8 +32,10 @@ import type { WorkshopSessionActions } from '@/lib/workshop-session.ts';
 import { CLIENT_TARGETS, isClientTarget, urlField, type WorkshopFields } from '@/lib/workshop.ts';
 import { SectionCard } from '@/components/workshop-section.tsx';
 
-function moreOptionsRevealed(fields: WorkshopFields): boolean {
-  return !fields.appendInfo || !fields.expand || fields.filename.trim().length > 0;
+function moreOptionsRevealed(fields: WorkshopFields, filenameInvalid: boolean): boolean {
+  return (
+    filenameInvalid || !fields.appendInfo || !fields.expand || fields.filename.trim().length > 0
+  );
 }
 
 export function WorkshopOptions({
@@ -57,7 +59,10 @@ export function WorkshopOptions({
   locale: Locale;
   actions: WorkshopSessionActions;
 }) {
-  const [moreOpen, setMoreOpen] = React.useState(() => moreOptionsRevealed(fields));
+  const [moreOpen, setMoreOpen] = React.useState(() =>
+    moreOptionsRevealed(fields, filenameInvalid),
+  );
+  const moreExpanded = moreOpen || filenameInvalid;
 
   return (
     <SectionCard icon={<Settings2Icon />} title={copy.options}>
@@ -168,10 +173,23 @@ export function WorkshopOptions({
         ) : null}
         <details
           className="flex flex-col gap-5"
-          open={moreOpen}
-          onToggle={(event) => setMoreOpen(event.currentTarget.open)}
+          open={moreExpanded}
+          onToggle={(event) => {
+            if (filenameInvalid) {
+              setMoreOpen(true);
+              return;
+            }
+            setMoreOpen(event.currentTarget.open);
+          }}
         >
-          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+          <summary
+            className="cursor-pointer text-sm font-medium text-muted-foreground"
+            onClick={(event) => {
+              if (filenameInvalid) {
+                event.preventDefault();
+              }
+            }}
+          >
             {copy.moreOptions}
           </summary>
           <Field orientation="horizontal">
