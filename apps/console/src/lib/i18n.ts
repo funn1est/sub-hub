@@ -38,8 +38,7 @@ export const SOURCE_REPO = 'https://github.com/funn1est/sub-hub';
 export const messages = {
   en: {
     title: 'Sub Hub Console',
-    tagline:
-      'Assemble sources, preview the Conversion Service response, and emit a Subscription URL.',
+    tagline: 'Assemble a Subscription URL and preview the Conversion Service response.',
     language: 'Language',
     theme: 'Theme',
     themeSystem: 'System',
@@ -51,7 +50,7 @@ export const messages = {
     serviceOriginHint: 'Absolute http(s) origin, for example http://127.0.0.1:25500',
     accessToken: 'Access token',
     accessTokenHint:
-      'Optional. On the Conversion Service, Settings → Runtime variables and secrets → + Add variable. Key SUB_HUB_ACCESS_TOKEN, check Secret. Empty stays on anonymous /sub. Never placed in the Console address bar.',
+      'Optional. Set SUB_HUB_ACCESS_TOKEN as a Secret on the Conversion Service. Empty uses anonymous /sub. Never put in the Console address bar.',
     showToken: 'Show token',
     hideToken: 'Hide token',
     versionChecking: 'Checking /version…',
@@ -62,7 +61,7 @@ export const messages = {
       'This origin did not allow the Console to read /version. Set SUB_HUB_CORS_ORIGINS on the Conversion Service to this Console origin.',
     sources: 'Sources',
     sourcesDescription:
-      'Ordered rows. Each row is one share URI or one https:// subscription URL. Duplicates are kept.',
+      'One share URI or https:// subscription URL per row, in order. Duplicates are kept.',
     sourceN: 'Source',
     addSource: 'Add source',
     clearSources: 'Clear',
@@ -140,10 +139,11 @@ export const messages = {
       'On by default for a single remote source. Turning this off sends append_info=false. Mihomo still sends profile-update-interval: 24.',
     expand: 'Expand remotes',
     expandHint:
-      'On by default: writes expand=true and inlines HTTPS subscriptions and Online Rule Sets. Off omits the key so the Conversion Service leaves client remote refs when the target can name them.',
+      'On by default. Writes expand=true and inlines HTTPS subscriptions and Online Rule Sets. Off omits the key so the Conversion Service leaves client remote refs when the target can name them.',
     filename: 'Download name',
     filenameHint:
       'Optional stem. The Conversion Service appends the target extension (yaml / conf / json). Empty omits filename=.',
+    moreOptions: 'More options',
     subscription: 'Subscription URL',
     subscriptionDescription: 'The importable URL a client fetches. Preview uses this exact URL.',
     subscriptionTargets: 'Other clients',
@@ -184,7 +184,7 @@ export const messages = {
   },
   zh: {
     title: 'Sub Hub Console',
-    tagline: '组装源与选项、预览 Conversion Service 响应，并导出 Subscription URL。',
+    tagline: '组装 Subscription URL，并预览 Conversion Service 响应。',
     language: '语言',
     theme: '主题',
     themeSystem: '跟随系统',
@@ -196,7 +196,7 @@ export const messages = {
     serviceOriginHint: '绝对 http(s) origin，例如 http://127.0.0.1:25500',
     accessToken: 'Access token',
     accessTokenHint:
-      '可选。在 Conversion Service 的 设置 → Runtime variables and secrets 点 + 添加变量。左侧 密钥 填 SUB_HUB_ACCESS_TOKEN，勾选 密钥。留空则匿名 /sub。不会进入 Console 地址栏。',
+      '可选。在 Conversion Service 上把 SUB_HUB_ACCESS_TOKEN 设为 Secret。留空则匿名 /sub。不会进入 Console 地址栏。',
     showToken: '显示 token',
     hideToken: '隐藏 token',
     versionChecking: '正在检查 /version…',
@@ -206,7 +206,7 @@ export const messages = {
     versionUnreachable:
       '这个 origin 未允许 Console 读取 /version。请在 Conversion Service 上把本 Console origin 写入 SUB_HUB_CORS_ORIGINS。',
     sources: '源',
-    sourcesDescription: '按顺序，每行一条 share URI 或一个 https:// 订阅 URL。重复会保留。',
+    sourcesDescription: '按顺序，每行一条 share URI 或一个 https:// 订阅 URL。重复保留。',
     sourceN: '源',
     addSource: '添加源',
     clearSources: '清空',
@@ -284,10 +284,11 @@ export const messages = {
       '单个远端源时默认开启。关闭时发送 append_info=false。Mihomo 仍会发送 profile-update-interval: 24。',
     expand: '规则展开',
     expandHint:
-      '默认打开：发送 expand=true，把 HTTPS 订阅和 Online Rule Set 抓下来内联。关闭则不写这个键，能写远端引用的 target 不抓、不内联。',
+      '默认打开。发送 expand=true，把 HTTPS 订阅和 Online Rule Set 抓下来内联。关闭则不写这个键，能写远端引用的 target 不抓、不内联。',
     filename: '下载文件名',
     filenameHint:
       '可选词干。Conversion Service 会按 target 补扩展名（yaml / conf / json）。留空则不发送 filename=。',
+    moreOptions: '更多选项',
     subscription: 'Subscription URL',
     subscriptionDescription: '客户端导入的转换 URL。Preview 会 GET 同一条 URL。',
     subscriptionTargets: '其他客户端',

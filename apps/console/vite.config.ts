@@ -15,8 +15,7 @@ export default defineConfig({
       manifest: {
         name: 'Sub Hub Console',
         short_name: 'Sub Hub',
-        description:
-          'Assemble sources, preview the Conversion Service response, and emit a Subscription URL.',
+        description: 'Assemble a Subscription URL and preview the Conversion Service response.',
         theme_color: '#0a0a0a',
         background_color: '#ffffff',
         display: 'standalone',

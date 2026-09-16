@@ -24,7 +24,7 @@ import {
 import { InputGroup, InputGroupInput } from '@/components/ui/input-group.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx';
-import { t, targetHint } from '@/lib/i18n.ts';
+import { capabilityHint, t, targetHint } from '@/lib/i18n.ts';
 import type { Locale } from '@/lib/persist.ts';
 import { type ConfigChoice, type ConfigChoiceGroup } from '@/lib/workshop-config.ts';
 import type { WorkshopSessionActions } from '@/lib/workshop-session.ts';
@@ -76,7 +76,10 @@ export function WorkshopOptions({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <FieldDescription>{targetHint(locale, fields.target)}</FieldDescription>
+          <FieldDescription className="flex flex-col gap-1">
+            <span>{targetHint(locale, fields.target)}</span>
+            <span>{capabilityHint(locale, fields.target)}</span>
+          </FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="config-preset">{copy.config}</FieldLabel>
@@ -156,44 +159,52 @@ export function WorkshopOptions({
             </InputGroup>
           </Field>
         ) : null}
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor="append-info">{copy.appendInfo}</FieldLabel>
-            <FieldDescription>{copy.appendInfoHint}</FieldDescription>
-          </FieldContent>
-          <Switch
-            id="append-info"
-            checked={fields.appendInfo}
-            onCheckedChange={(checked) => actions.patch({ appendInfo: checked })}
-          />
-        </Field>
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldLabel htmlFor="expand">{copy.expand}</FieldLabel>
-            <FieldDescription>{copy.expandHint}</FieldDescription>
-          </FieldContent>
-          <Switch
-            id="expand"
-            checked={fields.expand}
-            onCheckedChange={(checked) => actions.patch({ expand: checked })}
-          />
-        </Field>
-        <Field data-invalid={filenameInvalid || undefined}>
-          <FieldLabel htmlFor="filename">{copy.filename}</FieldLabel>
-          <InputGroup>
-            <InputGroupInput
-              id="filename"
-              value={fields.filename}
-              enterKeyHint="done"
-              aria-invalid={filenameInvalid || undefined}
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              onChange={(event) => actions.patch({ filename: event.target.value })}
+        <details
+          className="flex flex-col gap-5"
+          defaultOpen={!fields.appendInfo || !fields.expand || fields.filename.trim().length > 0}
+        >
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+            {copy.moreOptions}
+          </summary>
+          <Field orientation="horizontal">
+            <FieldContent>
+              <FieldLabel htmlFor="append-info">{copy.appendInfo}</FieldLabel>
+              <FieldDescription>{copy.appendInfoHint}</FieldDescription>
+            </FieldContent>
+            <Switch
+              id="append-info"
+              checked={fields.appendInfo}
+              onCheckedChange={(checked) => actions.patch({ appendInfo: checked })}
             />
-          </InputGroup>
-          <FieldDescription>{copy.filenameHint}</FieldDescription>
-        </Field>
+          </Field>
+          <Field orientation="horizontal">
+            <FieldContent>
+              <FieldLabel htmlFor="expand">{copy.expand}</FieldLabel>
+              <FieldDescription>{copy.expandHint}</FieldDescription>
+            </FieldContent>
+            <Switch
+              id="expand"
+              checked={fields.expand}
+              onCheckedChange={(checked) => actions.patch({ expand: checked })}
+            />
+          </Field>
+          <Field data-invalid={filenameInvalid || undefined}>
+            <FieldLabel htmlFor="filename">{copy.filename}</FieldLabel>
+            <InputGroup>
+              <InputGroupInput
+                id="filename"
+                value={fields.filename}
+                enterKeyHint="done"
+                aria-invalid={filenameInvalid || undefined}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => actions.patch({ filename: event.target.value })}
+              />
+            </InputGroup>
+            <FieldDescription>{copy.filenameHint}</FieldDescription>
+          </Field>
+        </details>
       </FieldGroup>
     </SectionCard>
   );

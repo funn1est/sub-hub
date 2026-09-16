@@ -93,8 +93,7 @@ export function App() {
 
   return (
     <ThemeProvider theme={theme}>
-      <div className="console-shell relative isolate">
-        <div className="console-shell-bg" aria-hidden />
+      <div className="console-shell">
         <ConsoleChromeBar
           locale={locale}
           theme={theme}

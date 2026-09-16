@@ -1,15 +1,13 @@
-import { capabilityHint, knownErrorTitle, messages } from './i18n.ts';
+import { knownErrorTitle, messages } from './i18n.ts';
 import type { Locale } from './persist.ts';
 import type { PreviewDone } from './preview.ts';
 import type { SkipCounts, SubscriptionUserInfo } from './service-contract.ts';
-import type { ClientTarget } from './workshop.ts';
 
 export type PreviewProfile = {
   error: { heading: string; wire: string | null } | null;
   traffic?: { summary: string; expire?: string };
   skipped?: string;
   omitted?: string;
-  capability?: string;
 };
 
 export function formatByteCount(bytes: number, locale: Locale): string {
@@ -108,11 +106,7 @@ function previewError(locale: Locale, preview: PreviewDone): PreviewProfile['err
   return null;
 }
 
-export function previewProfile(
-  locale: Locale,
-  preview: PreviewDone,
-  target: ClientTarget,
-): PreviewProfile {
+export function previewProfile(locale: Locale, preview: PreviewDone): PreviewProfile {
   return {
     error: previewError(locale, preview),
     traffic:
@@ -128,10 +122,6 @@ export function previewProfile(
     omitted:
       preview.omitted !== null
         ? omittedSummary(locale, preview.omitted.omittedUrlRegex)
-        : undefined,
-    capability:
-      preview.kind.kind === 'ok' || preview.skipped !== null || preview.omitted !== null
-        ? capabilityHint(locale, target)
         : undefined,
   };
 }

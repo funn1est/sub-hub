@@ -67,9 +67,11 @@ export function WorkshopSubscription({
             </Alert>
           ) : null}
           {assembled.siblings.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium">{copy.subscriptionTargets}</p>
-              <ul className="flex flex-col gap-px overflow-hidden rounded-lg bg-muted/60 p-1">
+            <details className="rounded-lg border bg-muted/30">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+                {copy.subscriptionTargets}
+              </summary>
+              <ul className="flex flex-col gap-px p-1">
                 {assembled.siblings.map((sibling) => (
                   <li
                     key={sibling.target}
@@ -94,7 +96,7 @@ export function WorkshopSubscription({
                   </li>
                 ))}
               </ul>
-            </div>
+            </details>
           ) : null}
         </FieldGroup>
       </CardContent>
