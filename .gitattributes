@@ -1,3 +1,6 @@
-*.rs text eol=lf
-*.sh text eol=lf
-crates/sub-hub-conversion/tests/golden/*.yaml text eol=lf
+# Checkout and commit text as LF on every OS (overrides core.autocrlf).
+* text=auto eol=lf
+
+*.png binary
+*.woff2 binary
+*.wasm binary

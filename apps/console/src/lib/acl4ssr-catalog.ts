@@ -59,7 +59,6 @@ export function acl4ssrListed(): readonly Acl4ssrPreset[] {
   return ACL4SSR_FAMILIES.flatMap((family) => ACL4SSR_PRESETS[family] as readonly Acl4ssrPreset[]);
 }
 
-/** Workshop combobox / session selection id for ACL4SSR config presets. */
 export type ConfigSelectionId = 'none' | 'custom' | Acl4ssrConfigFile;
 
 export type ConfigPreset =

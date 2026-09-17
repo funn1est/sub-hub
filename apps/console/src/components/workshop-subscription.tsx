@@ -16,6 +16,15 @@ import {
 } from '@/lib/workshop.ts';
 import { SectionHeading } from '@/components/workshop-section.tsx';
 
+function installLink(
+  enabled: boolean,
+  url: string | null,
+  toHref: (url: string) => string,
+  label: string,
+): { href: string; label: string } | null {
+  return enabled && url !== null ? { href: toHref(url), label } : null;
+}
+
 export function WorkshopSubscription({
   view,
   actions,
@@ -28,12 +37,13 @@ export function WorkshopSubscription({
   const assembled = view.assembled;
   const previewEnabled = view.previewReady;
   const url = assembled.url;
-  const clashInstallHref = assembled.clashInstall && url !== null ? clashInstallUrl(url) : null;
-  const surgeInstallHref = assembled.surgeInstall && url !== null ? surgeInstallUrl(url) : null;
-  const loonInstallHref = assembled.loonInstall && url !== null ? loonInstallUrl(url) : null;
-  const egernInstallHref = assembled.egernInstall && url !== null ? egernInstallUrl(url) : null;
-  const singboxInstallHref =
-    assembled.singboxInstall && url !== null ? singboxInstallUrl(url) : null;
+  const installLinks = [
+    installLink(assembled.clashInstall, url, clashInstallUrl, copy.clashInstall),
+    installLink(assembled.surgeInstall, url, surgeInstallUrl, copy.surgeInstall),
+    installLink(assembled.loonInstall, url, loonInstallUrl, copy.loonInstall),
+    installLink(assembled.egernInstall, url, egernInstallUrl, copy.egernInstall),
+    installLink(assembled.singboxInstall, url, singboxInstallUrl, copy.singboxInstall),
+  ].filter((item) => item !== null);
 
   return (
     <Card>
@@ -117,31 +127,16 @@ export function WorkshopSubscription({
         >
           {copy.preview}
         </Button>
-        {clashInstallHref !== null ? (
-          <Button nativeButton={false} variant="outline" render={<a href={clashInstallHref} />}>
-            {copy.clashInstall}
+        {installLinks.map((item) => (
+          <Button
+            key={item.label}
+            nativeButton={false}
+            variant="outline"
+            render={<a href={item.href} />}
+          >
+            {item.label}
           </Button>
-        ) : null}
-        {surgeInstallHref !== null ? (
-          <Button nativeButton={false} variant="outline" render={<a href={surgeInstallHref} />}>
-            {copy.surgeInstall}
-          </Button>
-        ) : null}
-        {loonInstallHref !== null ? (
-          <Button nativeButton={false} variant="outline" render={<a href={loonInstallHref} />}>
-            {copy.loonInstall}
-          </Button>
-        ) : null}
-        {egernInstallHref !== null ? (
-          <Button nativeButton={false} variant="outline" render={<a href={egernInstallHref} />}>
-            {copy.egernInstall}
-          </Button>
-        ) : null}
-        {singboxInstallHref !== null ? (
-          <Button nativeButton={false} variant="outline" render={<a href={singboxInstallHref} />}>
-            {copy.singboxInstall}
-          </Button>
-        ) : null}
+        ))}
       </CardFooter>
     </Card>
   );

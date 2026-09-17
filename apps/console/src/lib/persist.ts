@@ -9,7 +9,6 @@ export const PERSIST_KEY = 'sub-hub.console.v1';
 export type Locale = 'zh' | 'en';
 export type Theme = 'system' | 'light' | 'dark';
 
-/** Workshop conversion record plus Console chrome. */
 export type PersistedWorkshop = WorkshopFields & {
   locale: Locale;
   theme: Theme;

@@ -67,7 +67,7 @@ describe('targetHint', () => {
       'Imported by: Clash Verge Rev, FlClash, Clash Meta for Android, Stash, OpenClash, Karing, Hiddify. Mihomo YAML (clash is the compatibility name).',
     );
     expect(zh).toBe(
-      '以下客户端导入此文档：Clash Verge Rev, FlClash, Clash Meta for Android, Stash, OpenClash, Karing, Hiddify。Mihomo YAML（clash 是兼容名）。',
+      '这些客户端导入：Clash Verge Rev, FlClash, Clash Meta for Android, Stash, OpenClash, Karing, Hiddify。Mihomo YAML（clash 是兼容名）。',
     );
     expect(en).not.toMatch(/Shadowrocket/i);
     expect(zh).not.toMatch(/Shadowrocket/i);
@@ -75,7 +75,7 @@ describe('targetHint', () => {
 
   it('names Surfboard on surge in en and zh', () => {
     expect(targetHint('en', 'surge')).toBe('Imported by: Surge, Surfboard.');
-    expect(targetHint('zh', 'surge')).toBe('以下客户端导入此文档：Surge, Surfboard。');
+    expect(targetHint('zh', 'surge')).toBe('这些客户端导入：Surge, Surfboard。');
   });
 
   it('never names Shadowrocket on any Workshop client', () => {
@@ -138,6 +138,12 @@ describe('workshop copy density', () => {
     expect(messages.en.expandHint).not.toMatch(/On by default:/);
     expect(messages.zh.expandHint).toContain('expand=true');
     expect(messages.zh.expandHint).not.toMatch(/默认打开：/);
+  });
+
+  it('names the expand switch as remotes, not rules', () => {
+    expect(messages.en.expand).toBe('Expand remotes');
+    expect(messages.zh.expand).toBe('展开远端');
+    expect(messages.zh.expand).not.toMatch(/规则/);
   });
 
   it('names the folded extra switches', async () => {

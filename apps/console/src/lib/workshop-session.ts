@@ -1,15 +1,3 @@
-/**
- * Workshop session: one deployer's live sitting at the Workshop.
- *
- * Owns WorkshopFields plus the in-progress job state. That includes assembled
- * diagnosis, config selection, and Preview and version-probe lifecycles that
- * drop stale results. The session exposes one view plus actions. fetch,
- * clipboard write, file save, and notify are injected ports. Console chrome
- * locale, theme, and the chrome bar stay outside with App. Empty Conversion
- * Service origin may adopt a Console origin through the version-probe
- * lifecycle.
- */
-
 import {
   acl4ssrConfigUrl,
   configPresetOf,
@@ -121,7 +109,6 @@ export function createWorkshopSession(options: {
     notify: emit,
   });
 
-  /** Every conversion-field change invalidates Preview and re-aims the probe. */
   function setFields(next: WorkshopFields) {
     fields = withSourceFloor(next);
     previewSeq += 1;

@@ -20,7 +20,6 @@ type ConsoleChromeBarProps = {
   onThemeChange: (theme: Theme) => void;
 };
 
-/** Console chrome: product title plus locale/theme. App owns the state. */
 export function ConsoleChromeBar({
   locale,
   theme,

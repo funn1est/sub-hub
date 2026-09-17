@@ -1,10 +1,7 @@
 /**
- * GET Conversion Service contract adapter used by the Workshop.
- *
  * HTTP (`sub-hub-http`) plus `testdata/subscription-url/cases.json` are the
- * spelling authority. This module encodes a Subscription URL, percent-decodes
- * paste input, and parses Keep-pass skip headers Preview consumes. It does not
- * emit skip headers. Do not generate TypeScript from Rust DTOs.
+ * spelling authority. Do not generate TypeScript from Rust DTOs. This module
+ * does not emit skip headers.
  *
  * `append_info` captures `subscription-userinfo` on a single remote source.
  * It does not control `profile-update-interval` (Mihomo always sends `24`).
@@ -186,10 +183,7 @@ export type OmittedRules = {
   omittedUrlRegex: number;
 };
 
-/**
- * Bytes and unix expiry from Conversion `subscription-userinfo`.
- * Missing `expire` is `null`. `expire=0` stays `0` (Conversion re-emits it).
- */
+/** HTTP `userinfo.rs`. Missing expire is null. expire=0 stays 0. */
 export type SubscriptionUserInfo = {
   upload: number;
   download: number;
@@ -197,10 +191,6 @@ export type SubscriptionUserInfo = {
   expire: number | null;
 };
 
-/**
- * Conversion Service `subscription-userinfo` grammar from HTTP `userinfo.rs`.
- * `expire` is optional on the wire. A missing key is `null`. `expire=0` is `0`.
- */
 export function parseSubscriptionUserInfo(value: string | null): SubscriptionUserInfo | null {
   if (value === null) {
     return null;

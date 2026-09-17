@@ -1,4 +1,3 @@
-/** Clipboard write with an execCommand fallback for browsers that reject the Clipboard API. */
 export async function writeTextWithFallback(
   text: string,
   ports: {

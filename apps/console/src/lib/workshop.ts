@@ -24,7 +24,6 @@ export function clientTargetOf(target: Target): ClientTarget {
   return target === 'mihomo' ? 'clash' : target;
 }
 
-/** Conversion fields the Workshop job assembles and previews. */
 export type WorkshopFields = {
   serviceOrigin: string;
   accessToken: string;
@@ -32,13 +31,10 @@ export type WorkshopFields = {
   target: ClientTarget;
   configUrl: string;
   appendInfo: boolean;
-  /** When true, Subscription URL includes expand=true (inline remotes). */
   expand: boolean;
-  /** Download-name stem. Empty omits filename=. */
   filename: string;
 };
 
-/** Shared input attrs for origin / source / config URL fields. */
 export const urlField = {
   inputMode: 'url' as const,
   autoCapitalize: 'none' as const,
@@ -46,7 +42,6 @@ export const urlField = {
   spellCheck: false,
 };
 
-/** Injected Workshop fetch port. Preview, version-probe, and session share it. */
 export type WorkshopFetch = (
   url: string,
   init?: { signal?: AbortSignal },
@@ -192,7 +187,6 @@ const emptyAssembled: Assembled = {
   siblings: [],
 };
 
-/** Field chrome and assemble share one Workshop job diagnosis. */
 export function evaluateWorkshop(
   input: WorkshopFields,
   display: WorkshopDisplay = { userAgent: '' },
@@ -204,7 +198,7 @@ export function evaluateWorkshop(
   const originInvalid = input.serviceOrigin.trim().length > 0 && origin === null;
   const tokenInvalid = !token.ok;
   const configInvalid = config.length > 0 && parseHttpsResourceUrl(config) === null;
-  const filename = input.filename ?? '';
+  const filename = input.filename;
   const filenameInvalid = filename.length > 0 && parseFilenameStem(filename) === null;
   const sourceInvalid = input.sources.map(sourceRowInvalid);
   const sourcesOk =

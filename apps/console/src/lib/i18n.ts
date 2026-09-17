@@ -32,20 +32,19 @@ const ERROR_TITLES: Record<Locale, Record<KnownServiceError, string>> = {
   },
 };
 
-/** Corresponding source for the AGPL network Console. */
 export const SOURCE_REPO = 'https://github.com/funn1est/sub-hub';
 
 export const messages = {
   en: {
     title: 'Sub Hub Console',
-    tagline: 'Assemble a Subscription URL and preview the Conversion Service response.',
+    tagline: 'Assemble a Subscription URL. Preview the Conversion Service response.',
     language: 'Language',
     theme: 'Theme',
     themeSystem: 'System',
     themeLight: 'Light',
     themeDark: 'Dark',
     service: 'Conversion Service',
-    serviceDescription: 'The origin the Console calls. This is not a Subscription URL.',
+    serviceDescription: 'The origin the Console calls, not a Subscription URL.',
     serviceOrigin: 'Origin',
     serviceOriginHint: 'Absolute http(s) origin, for example http://127.0.0.1:25500',
     accessToken: 'Access token',
@@ -76,7 +75,7 @@ export const messages = {
     config: 'Remote config',
     configNone: 'Nodes only (PROXY/AUTO)',
     configFamilies: {
-      online: 'Online · recommended start',
+      online: 'Online · start here',
       mini: 'Mini',
       full: 'Full',
       classic: 'Classic / other',
@@ -85,7 +84,7 @@ export const messages = {
     configUrl: 'Config URL',
     configSearch: 'Search…',
     configHint:
-      'Empty omits config= and emits only nodes plus default groups. No ads or China split. Pick a listed preset for routing, or a custom HTTPS URL.',
+      'Empty omits config= and emits only nodes plus default groups, no ads or China split. Pick a listed preset or a custom HTTPS URL.',
     configEmpty: 'No matching config.',
     configEffects: {
       adsChinaSplit: 'Ads and China split',
@@ -136,7 +135,7 @@ export const messages = {
     },
     appendInfo: 'Append subscription-userinfo',
     appendInfoHint:
-      'On by default for a single remote source. Turning this off sends append_info=false. Mihomo still sends profile-update-interval: 24.',
+      'On by default for one remote source. Turning this off sends append_info=false. Mihomo still sends profile-update-interval: 24.',
     expand: 'Expand remotes',
     expandHint:
       'On by default. Writes expand=true and inlines HTTPS subscriptions and Online Rule Sets. Off omits the key so the Conversion Service leaves client remote refs when the target can name them.',
@@ -145,7 +144,7 @@ export const messages = {
       'Optional stem. The Conversion Service appends the target extension (yaml / conf / json). Empty omits filename=.',
     moreOptions: 'More options',
     subscription: 'Subscription URL',
-    subscriptionDescription: 'The importable URL a client fetches. Preview uses this exact URL.',
+    subscriptionDescription: 'What a client imports. Preview GETs this URL.',
     subscriptionTargets: 'Other clients',
     copyUrl: 'Copy URL',
     copied: 'Copied',
@@ -162,7 +161,7 @@ export const messages = {
     egernInstall: 'Open in Egern',
     singboxInstall: 'Open in sing-box',
     secretWarning:
-      'Preview bodies contain node credentials. They stay in memory only and are not written to localStorage.',
+      'Preview bodies contain node credentials. They stay in memory, not localStorage.',
     truncated: 'Truncated in view. Download still uses the full fetched body.',
     skipped: 'Skipped nodes',
     omitted: 'Omitted rules',
@@ -184,7 +183,7 @@ export const messages = {
   },
   zh: {
     title: 'Sub Hub Console',
-    tagline: '组装 Subscription URL，并预览 Conversion Service 响应。',
+    tagline: '组装 Subscription URL。预览 Conversion Service 响应。',
     language: '语言',
     theme: '主题',
     themeSystem: '跟随系统',
@@ -221,7 +220,7 @@ export const messages = {
     config: '远端配置',
     configNone: '仅节点列表（PROXY/AUTO）',
     configFamilies: {
-      online: 'Online · 推荐起步',
+      online: 'Online · 起步',
       mini: 'Mini',
       full: 'Full',
       classic: 'Classic / 其他',
@@ -230,7 +229,7 @@ export const messages = {
     configUrl: '配置 URL',
     configSearch: '搜索…',
     configHint:
-      '留空则不发送 config=，只输出节点和默认分组，没有广告和分流。选列表中的预设做分流，或填写自定义 HTTPS URL。',
+      '留空则不发送 config=，只输出节点和默认分组，没有广告和分流。选列表中的预设，或填写自定义 HTTPS URL。',
     configEmpty: '没有匹配的配置。',
     configEffects: {
       adsChinaSplit: '广告与分流',
@@ -282,7 +281,7 @@ export const messages = {
     appendInfo: '附加 subscription-userinfo',
     appendInfoHint:
       '单个远端源时默认开启。关闭时发送 append_info=false。Mihomo 仍会发送 profile-update-interval: 24。',
-    expand: '规则展开',
+    expand: '展开远端',
     expandHint:
       '默认打开。发送 expand=true，把 HTTPS 订阅和 Online Rule Set 抓下来内联。关闭则不写这个键，能写远端引用的 target 不抓、不内联。',
     filename: '下载文件名',
@@ -290,7 +289,7 @@ export const messages = {
       '可选词干。Conversion Service 会按 target 补扩展名（yaml / conf / json）。留空则不发送 filename=。',
     moreOptions: '更多选项',
     subscription: 'Subscription URL',
-    subscriptionDescription: '客户端导入的转换 URL。Preview 会 GET 同一条 URL。',
+    subscriptionDescription: '客户端导入的 URL。Preview 会 GET 同一条。',
     subscriptionTargets: '其他客户端',
     copyUrl: '复制 URL',
     copied: '已复制',
@@ -305,7 +304,7 @@ export const messages = {
     loonInstall: '在 Loon 中打开',
     egernInstall: '在 Egern 中打开',
     singboxInstall: '在 sing-box 中打开',
-    secretWarning: 'Preview 正文含有节点凭据。只留在内存中，不会写入 localStorage。',
+    secretWarning: 'Preview 正文含有节点凭据。只留在内存里，不写入 localStorage。',
     truncated: '页内展示已截断。下载仍使用完整 fetch 正文。',
     skipped: '已跳过的节点',
     omitted: '省略的规则',
@@ -341,9 +340,7 @@ export function targetHint(locale: Locale, target: ClientTarget): string {
   const list = targetConsumers(target).join(', ');
   const extra = target === 'clash' ? messages[locale].client.clash.wireNote : undefined;
   if (locale === 'zh') {
-    return extra !== undefined
-      ? `以下客户端导入此文档：${list}。${extra}`
-      : `以下客户端导入此文档：${list}。`;
+    return extra !== undefined ? `这些客户端导入：${list}。${extra}` : `这些客户端导入：${list}。`;
   }
   return extra !== undefined ? `Imported by: ${list}. ${extra}` : `Imported by: ${list}.`;
 }
