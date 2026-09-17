@@ -406,13 +406,31 @@ pub(crate) fn serialize_bounded<T: Serialize>(
     Ok(sink.into_inner())
 }
 
+/// Serializes a document as pretty JSON plus a trailing newline, stopping when
+/// the inclusive byte limit would be crossed.
+pub(crate) fn serialize_pretty_json<T: Serialize>(
+    value: &T,
+    limit_bytes: usize,
+) -> Result<Vec<u8>, AdapterRenderError> {
+    let mut sink = BoundedVec::new(limit_bytes);
+    let serialization = serde_json::to_writer_pretty(&mut sink, value);
+    if sink.overflowed {
+        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
+    }
+    serialization.map_err(|_| AdapterRenderError::Internal)?;
+    if sink.write_all(b"\n").is_err() {
+        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
+    }
+    Ok(sink.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
 
     use serde::{Serialize, Serializer, ser::Error as _};
 
-    use super::{AdapterRenderError, BoundedVec, serialize_bounded};
+    use super::{AdapterRenderError, BoundedVec, serialize_bounded, serialize_pretty_json};
     use crate::render::MAX_OUTPUT_BYTES;
 
     #[test]
@@ -444,6 +462,28 @@ mod tests {
         assert_eq!(
             serialize_bounded(&FailsToSerialize, 1_024),
             Err(AdapterRenderError::Internal)
+        );
+        assert_eq!(
+            serialize_pretty_json(&FailsToSerialize, 1_024),
+            Err(AdapterRenderError::Internal)
+        );
+    }
+
+    #[test]
+    fn pretty_json_includes_trailing_newline_and_counts_it_toward_the_limit() {
+        #[derive(Serialize)]
+        struct Tiny {
+            n: u8,
+        }
+        let value = Tiny { n: 1 };
+        let expected = "{\n  \"n\": 1\n}\n";
+        let body = serialize_pretty_json(&value, expected.len()).expect("fits");
+        assert_eq!(body, expected.as_bytes());
+        assert_eq!(
+            serialize_pretty_json(&value, expected.len() - 1),
+            Err(AdapterRenderError::OutputTooLarge {
+                limit_bytes: expected.len() - 1
+            })
         );
     }
 
