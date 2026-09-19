@@ -310,6 +310,49 @@ fn fallback_and_load_balance_are_normalized_and_geoip_cn_is_omitted() {
 }
 
 #[test]
+fn match_final_direct_sets_route_final() {
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "overwrite_original_rules=true\n",
+        "custom_proxy_group=PROXY`select`.*\n",
+        "ruleset=DIRECT,[]FINAL\n",
+    );
+    let output = render_acl4ssr_target(
+        OutputTarget::Singbox,
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha",
+        config.as_bytes(),
+        &[],
+    )
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("\"final\": \"direct\""));
+    assert!(!text.contains("\"final\": \"PROXY\""));
+}
+
+#[test]
+fn match_final_second_group_sets_route_final() {
+    let config = concat!(
+        "[custom]\n",
+        "enable_rule_generator=true\n",
+        "overwrite_original_rules=true\n",
+        "custom_proxy_group=First`select`.*\n",
+        "custom_proxy_group=Second`select`.*\n",
+        "ruleset=Second,[]FINAL\n",
+    );
+    let output = render_acl4ssr_target(
+        OutputTarget::Singbox,
+        "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha",
+        config.as_bytes(),
+        &[],
+    )
+    .expect("ok");
+    let text = std::str::from_utf8(output.as_bytes()).expect("utf8");
+    assert!(text.contains("\"final\": \"Second\""));
+    assert!(!text.contains("\"final\": \"First\""));
+}
+
+#[test]
 fn group_named_direct_is_internal() {
     let config = concat!(
         "[custom]\n",
