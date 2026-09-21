@@ -151,7 +151,6 @@ export function resolveDeployConfig({ flags, env, roots = { repoRoot, workerRoot
     consoleDist: path.join(roots.repoRoot, "apps", "console", "dist"),
     consoleWrangler: path.join(roots.repoRoot, "apps", "console", "wrangler.toml"),
     workerRoot: roots.workerRoot,
-    workerOnlyConfig: path.join(roots.workerRoot, "wrangler.worker.toml"),
   };
 }
 
