@@ -50,7 +50,7 @@ impl HttpResponse {
     }
 
     /// HEAD suppress: drop document bytes, keep headers.
-    pub fn suppress_body(&mut self) {
+    fn suppress_body(&mut self) {
         self.body.clear();
     }
 
