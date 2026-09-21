@@ -39,23 +39,10 @@ function toastNotice(locale: Locale, notice: WorkshopNotice) {
   toast.add({ type: 'error', title: copy.copyFailed });
 }
 
-function createNotifyPort(initial: Locale) {
-  let locale = initial;
-  return {
-    setLocale(next: Locale) {
-      locale = next;
-    },
-    notify(notice: WorkshopNotice) {
-      toastNotice(locale, notice);
-    },
-  };
-}
-
 export function App() {
   const [workshopPersist] = React.useState(() => createPersist());
   const locale = useStore(workshopPersist, (state) => state.locale);
   const theme = useStore(workshopPersist, (state) => state.theme);
-  const [notifyPort] = React.useState(() => createNotifyPort(workshopPersist.getState().locale));
   const [session] = React.useState(() =>
     createWorkshopSession({
       initialFields: workshopFieldsOf(workshopPersist.getState()),
@@ -67,7 +54,7 @@ export function App() {
         userAgent: navigator.userAgent,
       },
       ports: {
-        notify: notifyPort.notify,
+        notify: (notice) => toastNotice(workshopPersist.getState().locale, notice),
       },
     }),
   );
@@ -77,10 +64,6 @@ export function App() {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({ immediate: true });
-
-  React.useEffect(() => {
-    notifyPort.setLocale(locale);
-  }, [locale, notifyPort]);
 
   React.useEffect(() => {
     workshopPersist.setState(view.fields);
