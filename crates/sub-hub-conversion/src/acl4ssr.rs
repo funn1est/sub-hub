@@ -11,8 +11,8 @@ mod policy_compile;
 
 use std::fmt;
 
-use ini::{Config, Directive, RuleSource, TargetRef};
-use policy_compile::{RuleEntry, compile_acl4ssr_policy};
+use ini::{Config, Directive, RuleSource};
+use policy_compile::{RuleEntry, compile_acl4ssr_policy, policy_member};
 
 use crate::{
     OutputTarget, UniqueFlightFillV1,
@@ -63,6 +63,47 @@ impl PreparedAcl4SsrV1 {
         self,
         target: OutputTarget,
     ) -> Result<crate::RenderedConfig, Acl4SsrRenderError> {
+        let mut remote_rule_sets = Vec::new();
+        let mut rules = Vec::new();
+        let mut rs_index = 0_usize;
+        for directive in &self.config.directives {
+            match directive {
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::Remote(url),
+                } => {
+                    rs_index += 1;
+                    remote_rule_sets.push(crate::policy::RemoteRuleSetRefV1::new(
+                        format!("rs-{rs_index}"),
+                        url.declared.clone(),
+                        policy_member(target),
+                    ));
+                }
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::GeoIpCn,
+                } => rules.push(crate::policy::CompiledRuleV1::new(
+                    crate::policy::RuleMatcherV1::GeoIpCn,
+                    policy_member(target),
+                )),
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::Final,
+                } => rules.push(crate::policy::CompiledRuleV1::new(
+                    crate::policy::RuleMatcherV1::Match,
+                    policy_member(target),
+                )),
+            }
+        }
+        self.render_compiled(target, rules, remote_rule_sets)
+    }
+
+    fn render_compiled(
+        self,
+        target: OutputTarget,
+        rules: Vec<crate::policy::CompiledRuleV1>,
+        remote_rule_sets: Vec<crate::policy::RemoteRuleSetRefV1>,
+    ) -> Result<crate::RenderedConfig, Acl4SsrRenderError> {
         let group_names = self
             .config
             .groups
@@ -76,57 +117,6 @@ impl PreparedAcl4SsrV1 {
             .iter()
             .map(|node| node.name().as_str())
             .collect::<Vec<_>>();
-        let mut remote_rule_sets = Vec::new();
-        let mut rules = Vec::new();
-        let mut rs_index = 0_usize;
-        for directive in &self.config.directives {
-            match directive {
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::Remote(url),
-                } => {
-                    rs_index += 1;
-                    let policy_target = match target {
-                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
-                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => {
-                            crate::policy::PolicyMemberV1::Group(name.clone())
-                        }
-                    };
-                    remote_rule_sets.push(crate::policy::RemoteRuleSetRefV1::new(
-                        format!("rs-{rs_index}"),
-                        url.declared.clone(),
-                        policy_target,
-                    ));
-                }
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::GeoIpCn,
-                } => rules.push(crate::policy::CompiledRuleV1::new(
-                    crate::policy::RuleMatcherV1::GeoIpCn,
-                    match target {
-                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
-                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => {
-                            crate::policy::PolicyMemberV1::Group(name.clone())
-                        }
-                    },
-                )),
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::Final,
-                } => rules.push(crate::policy::CompiledRuleV1::new(
-                    crate::policy::RuleMatcherV1::Match,
-                    match target {
-                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
-                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => {
-                            crate::policy::PolicyMemberV1::Group(name.clone())
-                        }
-                    },
-                )),
-            }
-        }
         let policy = compile_acl4ssr_policy(
             &self.config.groups,
             &node_names,
@@ -432,32 +422,7 @@ fn render(
         &mut bound.parsed_rule_sets,
         occurrence_count,
     )?;
-    let prepared = bound.prepared;
-
-    let group_names = prepared
-        .config
-        .groups
-        .iter()
-        .map(|group| group.name.as_str())
-        .collect::<Vec<_>>();
-    let occupied = occupy_named_sources(prepared.parsed_subscription, &group_names)
-        .map_err(|_| Acl4SsrRenderError::Internal)?;
-    let nodes = crate::render::accepted_nodes(occupied.named());
-    let node_names = nodes
-        .iter()
-        .map(|node| node.name().as_str())
-        .collect::<Vec<_>>();
-    let policy = compile_acl4ssr_policy(
-        &prepared.config.groups,
-        &node_names,
-        rules,
-        occupied.unexpanded(),
-        Vec::new(),
-    )?;
-    match render_named_policy(occupied.named(), &policy, target, MAX_OUTPUT_BYTES) {
-        Ok(document) => Ok(document),
-        Err(error) => Err(Acl4SsrRenderError::from(error)),
-    }
+    bound.prepared.render_compiled(target, rules, Vec::new())
 }
 
 impl From<ConversionRenderError> for Acl4SsrRenderError {
