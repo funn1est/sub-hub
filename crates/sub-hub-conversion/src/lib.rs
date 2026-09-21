@@ -21,7 +21,7 @@ mod render;
 mod singbox;
 
 #[cfg(test)]
-pub mod node_name_tests;
+mod node_name_tests;
 
 mod subscription_source;
 
@@ -41,7 +41,8 @@ pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 pub(crate) use acl4ssr::{
     Acl4SsrPreparationError, Acl4SsrRenderError, PreparedAcl4SsrRuleSetsV1, PreparedAcl4SsrV1,
 };
-pub use render::{ConversionRenderError, RenderedConfig};
+pub use render::RenderedConfig;
+pub(crate) use render::ConversionRenderError;
 pub use skip::SkipCountsV1;
 pub(crate) use subscription_prepare::{
     PreparedSubscriptionV1, SubscriptionPreparationError, SubscriptionSourceV1,
