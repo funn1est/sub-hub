@@ -13,7 +13,7 @@ use crate::{
         hysteria2_singbox_ports, keep_named, keep_tagged, map_compiled_rules, plain_group_tag,
         plain_node_tag, policy_member_token, probe_url_or_default, reality_public_key_base64,
         reality_short_id_hex, reject_when_empty, render_fingerprint, render_host_plain,
-        shadowsocks_method, shadowsocks_password, walk_group_members,
+        serialize_pretty_json, shadowsocks_method, shadowsocks_password, walk_group_members,
     },
 };
 
@@ -27,11 +27,6 @@ pub(crate) fn render_singbox_from_policy_v1(
     let (kept, valid_tags, node_outbounds) = keep_tagged(named_nodes, encode_node)?;
     let valid = valid_tags.iter().map(String::as_str).collect::<Vec<_>>();
     let group_outbounds = render_groups(policy, &valid)?;
-    let first_group = policy
-        .groups()
-        .first()
-        .ok_or(AdapterRenderError::Internal)?;
-    let final_tag = plain_group_tag(first_group.name())?.to_owned();
 
     let mut outbounds = node_outbounds;
     outbounds.extend(group_outbounds);
@@ -44,7 +39,7 @@ pub(crate) fn render_singbox_from_policy_v1(
         tag: "reject",
     }));
 
-    let (route_rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
+    let (route_rules, omitted_url_regex, final_outbound) = render_rules(policy.rules(), &valid)?;
     let document = Document {
         log: Log {
             disabled: false,
@@ -68,11 +63,11 @@ pub(crate) fn render_singbox_from_policy_v1(
         outbounds,
         route: Route {
             rules: route_rules,
-            final_outbound: final_tag,
+            final_outbound,
             default_domain_resolver: "local",
         },
     };
-    let bytes = serialize_pretty(&document, limit_bytes)?;
+    let bytes = serialize_pretty_json(&document, limit_bytes)?;
     Ok(RenderedTargetV1::from_parts(
         bytes,
         &kept,
@@ -370,8 +365,9 @@ fn urltest_outbound(
 fn render_rules(
     rules: &[CompiledRuleV1],
     valid_nodes: &[&str],
-) -> Result<(Vec<RouteRule>, u8), AdapterRenderError> {
-    map_compiled_rules(rules, |rule| {
+) -> Result<(Vec<RouteRule>, u8, String), AdapterRenderError> {
+    let mut final_outbound = None;
+    let (route_rules, omitted_url_regex) = map_compiled_rules(rules, |rule| {
         let Some(outbound) = policy_member_token(
             rule.target(),
             "direct",
@@ -408,24 +404,21 @@ fn render_rules(
                 outbound,
                 ..RouteRule::empty()
             },
-            RuleMatcherV1::UrlRegex(_) | RuleMatcherV1::GeoIpCn | RuleMatcherV1::Match => {
+            RuleMatcherV1::Match => {
+                final_outbound = Some(outbound);
+                return Ok(None);
+            }
+            RuleMatcherV1::UrlRegex(_) | RuleMatcherV1::GeoIpCn => {
                 return Ok(None);
             }
         };
         Ok(Some(route))
-    })
-}
-
-fn serialize_pretty(
-    document: &Document<'_>,
-    limit_bytes: usize,
-) -> Result<Vec<u8>, AdapterRenderError> {
-    let mut body = serde_json::to_vec_pretty(document).map_err(|_| AdapterRenderError::Internal)?;
-    body.push(b'\n');
-    if body.len() > limit_bytes {
-        return Err(AdapterRenderError::OutputTooLarge { limit_bytes });
-    }
-    Ok(body)
+    })?;
+    Ok((
+        route_rules,
+        omitted_url_regex,
+        final_outbound.ok_or(AdapterRenderError::Internal)?,
+    ))
 }
 
 #[derive(Serialize)]

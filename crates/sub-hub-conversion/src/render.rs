@@ -11,8 +11,8 @@ pub(crate) use spelling::{
     hysteria2_singbox_ports, is_reserved_tag, is_safe_field, plain_group_tag, plain_node_tag,
     policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
     reject_when_empty, render_fingerprint, render_host_bracketed, render_host_plain,
-    reserved_group_tag, reserved_node_tag, serialize_bounded, shadowsocks_method,
-    shadowsocks_password, shared_probe_url, walk_group_members,
+    reserved_group_tag, reserved_node_tag, serialize_bounded, serialize_pretty_json,
+    shadowsocks_method, shadowsocks_password, shared_probe_url, walk_group_members,
 };
 
 use std::fmt;
