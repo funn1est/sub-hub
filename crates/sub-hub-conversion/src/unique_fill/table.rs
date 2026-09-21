@@ -7,7 +7,6 @@ use crate::{
     subscription_prepare::prefix_preparation_error_v1,
 };
 
-/// Index into the session-wide Unique URL ledger.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SessionUrlIndex(usize);
 
@@ -17,7 +16,6 @@ impl SessionUrlIndex {
     }
 }
 
-/// Index into one stage's first-seen unique list (body / hop order).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct StageUniqueIndex(usize);
 
@@ -31,9 +29,6 @@ impl StageUniqueIndex {
     }
 }
 
-/// Session-wide first-seen canonical URLs. The fill plan indexes into this
-/// ledger; capacity is enforced here, not in a duplicate URL store on the plan.
-/// Identity is [`Url`] equality (serialization), not a second string copy.
 #[derive(Clone, Default)]
 pub(crate) struct UniqueUrls {
     urls: Vec<Url>,
@@ -52,13 +47,10 @@ impl UniqueUrls {
         self.urls.is_empty()
     }
 
-    /// Infallible read for an index this ledger issued.
     pub(crate) fn url(&self, index: SessionUrlIndex) -> &Url {
         &self.urls[index.get()]
     }
 
-    /// Insert `url` if new, refusing to grow past `cap`. Existing URLs reuse
-    /// their index without consuming capacity.
     pub(crate) fn try_insert(&mut self, url: &Url, cap: usize) -> Result<SessionUrlIndex, ()> {
         if let Some(index) = self.urls.iter().position(|existing| existing == url) {
             return Ok(SessionUrlIndex(index));
@@ -71,18 +63,11 @@ impl UniqueUrls {
     }
 }
 
-/// Unique-flight fill: bind occurrence URLs, yield first-seen unique URLs.
-///
-/// The Unique-flight fill session holds this plan and the session
-/// [`UniqueUrls`] ledger. Occurrence→identity mapping and body zip live here;
-/// URL strings live only on the ledger.
 pub(crate) struct UniqueFlightFillV1 {
-    /// Session-ledger indices for this stage's first-seen unique URLs, in fetch order.
     stage_unique: Vec<SessionUrlIndex>,
     flight_by_occurrence: Vec<Option<StageUniqueIndex>>,
 }
 
-/// Decoded-byte walk over Unique-flight occurrences.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DecodedBudget {
     Within,
@@ -91,7 +76,6 @@ pub(crate) enum DecodedBudget {
 }
 
 impl UniqueFlightFillV1 {
-    /// `None` occurrence is not a remote flight (a direct subscription source).
     #[must_use]
     #[cfg(test)]
     pub fn bind_optional<'a, I>(ledger: &mut UniqueUrls, occurrence_canonical: I) -> Self
@@ -285,7 +269,6 @@ impl UniqueFlightFillV1 {
 }
 
 impl UniqueFlightFillV1 {
-    /// Every occurrence is a remote URL (Config, or a remote-only plan).
     #[must_use]
     #[cfg(test)]
     pub fn bind_remote<'a, I>(ledger: &mut UniqueUrls, occurrence_urls: I) -> Self
@@ -295,8 +278,6 @@ impl UniqueFlightFillV1 {
         Self::bind_optional(ledger, occurrence_urls.into_iter().map(Some))
     }
 
-    /// First-seen occurrence values, aligned with [`Self::unique_urls`].
-    /// `None` is occurrence/fill alignment failure (caller bug).
     #[must_use]
     #[cfg(test)]
     pub fn unique_from_occurrences<T: Clone>(
@@ -306,7 +287,6 @@ impl UniqueFlightFillV1 {
         self.unique_values(occurrence_values)
     }
 
-    /// Unique bodies in first-seen order, zipped back onto declaration sources and prepared.
     #[must_use]
     pub fn prepare_subscription<B: AsRef<[u8]>>(
         &self,
@@ -322,7 +302,6 @@ impl UniqueFlightFillV1 {
         }
     }
 
-    /// First-seen decoded sizes aligned with this stage's unique flights.
     #[must_use]
     pub fn unique_decoded_bytes(&self, prepared: &PreparedSubscriptionV1) -> Option<Vec<usize>> {
         let accounts =
@@ -334,7 +313,6 @@ impl UniqueFlightFillV1 {
         Some(sizes)
     }
 
-    /// Error already visible on the declaration prefix before `failed_unique_index`.
     pub fn prefix_error_before_unique_failure(
         &self,
         sources: &[String],
@@ -419,7 +397,6 @@ impl fmt::Debug for UniqueFlightFillV1 {
     }
 }
 
-/// Zip of first-seen bodies onto declaration sources. `Misaligned` is a caller bug.
 #[derive(Debug)]
 pub(crate) enum UniqueFlightPrepare {
     Ready(PreparedSubscriptionV1),
@@ -427,12 +404,9 @@ pub(crate) enum UniqueFlightPrepare {
     Misaligned,
 }
 
-/// Prefix adjudication for Unique-flight fill when a later unique URL fails.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum UniqueFlightPrefix {
-    /// Occurrence/body alignment failure (caller bug).
     Misaligned,
-    /// The loaded prefix does not beat the later Unique-flight failure.
     Continue,
     Error(SubscriptionPreparationError),
 }

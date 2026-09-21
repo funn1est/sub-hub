@@ -1,12 +1,7 @@
-//! Outbound accept: lexical HTTPS destination policy for occurrence URLs and
-//! every followed redirect. Native DNS + operator-local destination refusal
-//! stays a host adapter.
-
 use url::{Host, Url};
 
 use crate::{MAX_GET_TARGET_BYTES, SelfHosts, self_hosts::is_canonical_dns_name};
 
-/// Closed Outbound accept rejection. Policy is lexical HTTPS; Port is the host gate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum OutboundReject {
     Policy,

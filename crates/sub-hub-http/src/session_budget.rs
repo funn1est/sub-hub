@@ -1,26 +1,13 @@
-//! Conversion Service session budget. Unique-flight fill owns unique-remote
-//! and decoded-byte caps (`start` receives both once from [`SessionBudget::production`]).
-//! `BrokerSession` consumes concurrency, attempt, and deadline caps; it does
-//! not expose unique/decoded getters.
-
-/// Unique-remote cap Unique-flight fill receives at start.
 pub(crate) const MAX_UNIQUE_REMOTE_RESOURCES: usize = 40;
-/// Concurrent unique fetches while a session still has a full attempt budget.
 pub(crate) const MAX_ACTIVE_RESOURCES: usize = 4;
-/// Decoded bytes accounted across Unique flights in one session.
 pub(crate) const MAX_TOTAL_DECODED_BYTES: usize = 16 * 1024 * 1024;
-/// Fetch attempts including redirects in one session.
 pub(crate) const MAX_SESSION_ATTEMPTS: usize = 48;
 /// One fetch plus three followed redirects.
 pub(crate) const ATTEMPTS_PER_RESOURCE: usize = 4;
-/// Followed redirects per unique resource.
 pub(crate) const MAX_REDIRECTS: usize = 3;
-/// Wall-clock budget for the whole Unique-flight fill, in milliseconds.
 pub(crate) const SESSION_DEADLINE_MILLIS: u64 = 30_000;
-/// Wall-clock budget for one unique resource, in milliseconds.
 pub(crate) const FETCH_DEADLINE_MILLIS: u64 = 10_000;
 
-/// Named Conversion Service fetch policy. `BrokerSession` executes it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SessionBudget {
     pub unique_remote_resources: usize,

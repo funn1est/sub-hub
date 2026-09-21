@@ -1,6 +1,3 @@
-//! Unique-resource hop loop. Follows redirects and re-runs Outbound accept.
-//! Internal seam: batch scheduling does not live here.
-
 use super::{BrokerSession, RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResource};
 use crate::{MAX_GET_TARGET_BYTES, remote_https::is_followed_redirect};
 use sub_hub_conversion::UniqueFlightHostFailure;
