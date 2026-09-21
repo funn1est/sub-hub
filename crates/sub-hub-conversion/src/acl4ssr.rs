@@ -1,11 +1,3 @@
-//! ACL4SSR INI frontend: staged prepare/render behind Unique-flight session.
-//!
-//! The pipeline stages live in submodules — [`ini`] (parsing and reference
-//! resolution) and [`policy_compile`] (Rule Set materialization and policy
-//! compilation). This root module owns the staged types and closed error
-//! enums. Target dispatch and the named-node render tail live in
-//! [`crate::render`].
-
 mod ini;
 mod policy_compile;
 
@@ -33,20 +25,12 @@ impl PreparedAcl4SsrV1 {
         &self.requests
     }
 
-    /// Next Rule Set occurrence URL still waiting for Outbound accept.
     #[must_use]
     #[cfg(test)]
     pub(crate) fn next_rule_set_url(&self, pushed: usize) -> Option<&str> {
         self.requests.get(pushed).map(Acl4SsrRuleSetRequestV1::url)
     }
 
-    /// Batch bind for crate tests. Session pushes incrementally, then
-    /// [`Self::finish_rule_sets`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Acl4SsrRenderError::RuleSetAlignment`] when `canonical_urls`
-    /// is not declaration-aligned.
     #[cfg(test)]
     pub fn bind_rule_sets(
         self,
@@ -58,7 +42,6 @@ impl PreparedAcl4SsrV1 {
         self.finish_rule_sets(fill)
     }
 
-    /// Keep-pass without fetching Rule Set bodies: emit remote refs for HTTPS lists.
     pub fn render_unexpanded_v1(
         self,
         target: OutputTarget,
@@ -140,12 +123,6 @@ impl PreparedAcl4SsrV1 {
         }
     }
 
-    /// Completes Rule Set bind once `fill` is declaration-aligned.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Acl4SsrRenderError::RuleSetAlignment`] when the pushed count
-    /// is not declaration-aligned.
     pub(crate) fn finish_rule_sets(
         self,
         fill: UniqueFlightFillV1,
@@ -169,15 +146,6 @@ pub(crate) struct PreparedAcl4SsrRuleSetsV1 {
 }
 
 impl PreparedAcl4SsrRuleSetsV1 {
-    /// Consumes the bound stages and renders the document for `target`.
-    ///
-    /// `unique_rule_set_bodies` must contain one body per first-seen broker flight. Parsed typed
-    /// entries are cached per flight and replayed at every declaration occurrence.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
-    /// or serialization failures. No partial document is returned.
     pub fn render_v1(
         self,
         target: OutputTarget,
@@ -203,7 +171,6 @@ impl PreparedAcl4SsrRuleSetsV1 {
         )
     }
 
-    /// How many declaration occurrences are covered by the first `unique_loaded` flights.
     #[must_use]
     pub(crate) fn covered_occurrence_count(&self, unique_loaded: usize) -> usize {
         self.fill.covered_occurrence_count(unique_loaded)
@@ -220,24 +187,14 @@ impl PreparedAcl4SsrRuleSetsV1 {
         self.fill.flight_count()
     }
 
-    /// Canonical URLs in declaration order.
     #[must_use]
     #[cfg(test)]
     pub(crate) fn occurrence_urls(&self, ledger: &crate::unique_fill::UniqueUrls) -> Vec<String> {
         self.fill.occurrence_urls(ledger)
     }
 
-    /// Grammar and budget check for a loaded unique prefix.
-    ///
-    /// When `decoded_crossing_occurrence` is `Some`, the host has already hit its
-    /// decoded-byte cap at that declaration; this method still reports an earlier
+    /// When `decoded_crossing_occurrence` is `Some`, this still reports an earlier
     /// Rule Set grammar error if one exists in the prefix.
-    ///
-    /// # Errors
-    ///
-    /// Same closed Rule Set grammar and budget errors as final rendering would
-    /// observe in this prefix, or [`Acl4SsrRenderError::ConversionLimit`] when
-    /// the host reported a decoded-byte crossing.
     pub fn check_loaded_prefix(
         &mut self,
         unique_rule_set_bodies: &[&[u8]],
@@ -250,16 +207,6 @@ impl PreparedAcl4SsrRuleSetsV1 {
         self.validate_loaded_unique_prefix_v1(unique_rule_set_bodies)
     }
 
-    /// Grammar check plus Conversion Service decoded-byte budget for a loaded unique prefix.
-    ///
-    /// `already_accounted_unique` is the first-seen unique prefix already included in
-    /// `already_decoded_bytes`. Fill loads Unique flights in that same first-seen order.
-    ///
-    /// # Errors
-    ///
-    /// Same closed errors as [`Self::check_loaded_prefix`], or
-    /// [`Acl4SsrRenderError::ConversionLimit`] when the decoded-byte cap is crossed
-    /// or saturates.
     pub fn check_loaded_prefix_with_decoded_budget(
         &mut self,
         unique_rule_set_bodies: &[&[u8]],
@@ -380,11 +327,6 @@ impl fmt::Display for Acl4SsrRenderError {
 impl std::error::Error for Acl4SsrRenderError {}
 
 impl Acl4SsrRenderError {
-    /// Keep-pass closed failure. Other variants stay Rule Set stage errors.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err(self)` when this error is a Rule Set stage failure.
     #[cfg(test)]
     pub const fn keep_pass(self) -> Result<ConversionRenderError, Self> {
         match self {

@@ -49,7 +49,6 @@ impl HttpResponse {
         self
     }
 
-    /// HEAD suppress: drop document bytes, keep headers.
     pub fn suppress_body(&mut self) {
         self.body.clear();
     }
@@ -214,7 +213,6 @@ pub(crate) fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_rege
         .insert("x-subconverter-omitted-rules", omitted);
 }
 
-/// Maps one Unique-flight fill ending onto GET.
 pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
     let (status, body, allow): (StatusCode, &[u8], Option<&'static str>) = match error {
         ApplicationError::InvalidTarget => (StatusCode::BAD_REQUEST, b"Invalid target!", None),

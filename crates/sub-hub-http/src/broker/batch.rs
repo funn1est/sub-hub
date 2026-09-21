@@ -1,7 +1,3 @@
-//! Unique-flight batch scheduler. Concurrent when the session still has a full
-//! attempt budget; otherwise one-at-a-time in declaration order. Redirect
-//! follow lives in [`super::follow`].
-
 use futures::{StreamExt, stream::FuturesUnordered};
 use sub_hub_conversion::UniqueFlightHostFailure;
 
@@ -111,7 +107,6 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
     }
 }
 
-/// Bodies for uniques `0..end`. `None` if a slot in that range is empty.
 fn dense_bodies_prefix(
     loaded: Vec<Option<super::RemoteResponse>>,
     end: usize,
