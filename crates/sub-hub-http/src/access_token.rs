@@ -49,8 +49,6 @@ impl AccessTokens {
         Self { tokens: Vec::new() }
     }
 
-    /// Parses a **present** dashboard or environment blob.
-    ///
     /// # Errors
     ///
     /// Returns [`AccessTokenError`] when the blob is invalid.

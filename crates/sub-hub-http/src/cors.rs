@@ -27,8 +27,6 @@ impl CorsOrigins {
         }
     }
 
-    /// Parses a **present** environment or dashboard blob.
-    ///
     /// # Errors
     ///
     /// Returns [`CorsOriginError`] when the blob is invalid.
