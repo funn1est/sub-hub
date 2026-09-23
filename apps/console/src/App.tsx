@@ -52,13 +52,6 @@ function createSession() {
       notify: (notice) => toastNotice(session.getView().locale, notice),
     },
   });
-  session.subscribe(() => {
-    const view = session.getView();
-    writePersisted(
-      window.localStorage,
-      composePersisted(view.fields, { locale: view.locale, theme: view.theme }),
-    );
-  });
   return session;
 }
 
@@ -70,6 +63,16 @@ export function App() {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({ immediate: true });
+
+  React.useEffect(() => {
+    return session.subscribe(() => {
+      const next = session.getView();
+      writePersisted(
+        window.localStorage,
+        composePersisted(next.fields, { locale: next.locale, theme: next.theme }),
+      );
+    });
+  }, [session]);
 
   React.useEffect(() => {
     document.documentElement.lang = view.locale === 'zh' ? 'zh-CN' : 'en';
