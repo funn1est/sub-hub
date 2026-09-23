@@ -13,16 +13,64 @@ import {
   VERSION_PATH,
   encodeSubGetTarget,
   fallbackDownloadName,
-  isQueryKey,
   isTarget,
   parseFilenameStem,
   parseSkippedHeader,
   parseSubscriptionUserInfo,
-  percentDecodeValue,
   subscriptionMediaType,
   type Target,
 } from './service-contract.ts';
 import { filenameFromDisposition, parseSkippedFromHeaders } from './preview.ts';
+
+/** HTTP `query.rs`: `+` is literal, not space. Rejects NUL / CR / LF. */
+function percentDecodeValue(raw: string): string | null {
+  const input = new TextEncoder().encode(raw);
+  const decoded = new Uint8Array(input.length);
+  let out = 0;
+  let index = 0;
+  while (index < input.length) {
+    if (input[index] === 0x25) {
+      const high = hexValue(input[index + 1]);
+      const low = hexValue(input[index + 2]);
+      if (high === undefined || low === undefined) {
+        return null;
+      }
+      decoded[out] = (high << 4) | low;
+      out += 1;
+      index += 3;
+    } else {
+      decoded[out] = input[index];
+      out += 1;
+      index += 1;
+    }
+  }
+  const slice = decoded.subarray(0, out);
+  if (slice.some((byte) => byte === 0 || byte === 0x0d || byte === 0x0a)) {
+    return null;
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(slice);
+  } catch {
+    return null;
+  }
+}
+
+function hexValue(byte: number | undefined): number | undefined {
+  if (byte === undefined) {
+    return undefined;
+  }
+  if (byte >= 0x30 && byte <= 0x39) {
+    return byte - 0x30;
+  }
+  if (byte >= 0x61 && byte <= 0x66) {
+    return byte - 0x61 + 10;
+  }
+  if (byte >= 0x41 && byte <= 0x46) {
+    return byte - 0x41 + 10;
+  }
+  return undefined;
+}
+
 type GoldenContract = {
   targets: string[];
   queryKeys: string[];
@@ -58,8 +106,8 @@ describe('Conversion Service GET contract', () => {
     expect(isTarget('clash')).toBe(true);
     expect(isTarget('clashmeta')).toBe(false);
     expect(QUERY_KEYS).toEqual(contract.queryKeys);
-    expect(isQueryKey('insert')).toBe(true);
-    expect(isQueryKey('filename')).toBe(true);
+    expect(QUERY_KEYS).toContain('insert');
+    expect(QUERY_KEYS).toContain('filename');
     expect(GET_TARGET_LIMIT_BYTES).toBe(contract.getTargetLimitBytes);
     expect(KNOWN_SERVICE_ERRORS).toEqual(contract.errors);
     expect(SKIPPED_HEADER).toBe(contract.skippedHeader);

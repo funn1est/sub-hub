@@ -74,8 +74,6 @@ export function acl4ssrConfigLabel(file: Acl4ssrConfigFile): string {
   return file.endsWith('.ini') ? file.slice(0, -'.ini'.length) : file;
 }
 
-export const ACL4SSR_ONLINE_URL = acl4ssrConfigUrl('ACL4SSR_Online.ini');
-
 const ACL4SSR_PRESET_BY_URL = new Map<string, ConfigPreset>();
 for (const preset of acl4ssrListed()) {
   ACL4SSR_PRESET_BY_URL.set(acl4ssrConfigUrl(preset.file), {
