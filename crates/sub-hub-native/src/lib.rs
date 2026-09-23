@@ -181,6 +181,7 @@ pub struct NativeRemoteAdapter {
 
 impl NativeRemoteAdapter {
     #[must_use]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self::with_resolver(SystemResolver)
     }
