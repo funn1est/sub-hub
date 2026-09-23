@@ -10,6 +10,7 @@ import {
   writeClipboardInBrowser,
 } from './browser-ports.ts';
 import { createWorkshopProbe } from './workshop-probe.ts';
+import type { ConsoleChrome, Locale, Theme } from './persist.ts';
 import { subscriptionMediaType } from './service-contract.ts';
 import { runPreview, type PreviewState, type VersionState } from './preview.ts';
 import {
@@ -46,6 +47,8 @@ export type WorkshopSessionPorts = {
 
 export type WorkshopSessionView = WorkshopView & {
   fields: WorkshopFields;
+  locale: Locale;
+  theme: Theme;
   configSelection: ConfigSelectionId;
   version: VersionState;
   preview: PreviewState;
@@ -55,6 +58,8 @@ export type WorkshopSessionView = WorkshopView & {
 
 export type WorkshopSessionActions = {
   patch: (partial: Partial<WorkshopFields>) => void;
+  setLocale: (locale: Locale) => void;
+  setTheme: (theme: Theme) => void;
   setSource: (index: number, value: string) => void;
   setSourceFromPaste: (index: number, raw: string) => void;
   clearSources: () => void;
@@ -77,6 +82,7 @@ export type WorkshopSession = {
 
 export function createWorkshopSession(options: {
   initialFields: WorkshopFields;
+  initialChrome?: ConsoleChrome;
   env: WorkshopSessionEnv;
   ports?: WorkshopSessionPorts;
 }): WorkshopSession {
@@ -87,6 +93,7 @@ export function createWorkshopSession(options: {
 
   const listeners = new Set<() => void>();
   let fields = withSourceFloor(options.initialFields);
+  let chrome: ConsoleChrome = options.initialChrome ?? { locale: 'en', theme: 'system' };
   let pickingCustom = false;
   let preview: PreviewState = { status: 'idle' };
   let previewSeq = 0;
@@ -117,6 +124,11 @@ export function createWorkshopSession(options: {
     emit();
   }
 
+  function setChrome(next: ConsoleChrome) {
+    chrome = next;
+    emit();
+  }
+
   const getView = (): WorkshopSessionView => {
     if (view !== null) {
       return view;
@@ -128,6 +140,8 @@ export function createWorkshopSession(options: {
     view = {
       ...jobView,
       fields,
+      locale: chrome.locale,
+      theme: chrome.theme,
       configSelection,
       version: probe.versionFor(jobView.canonicalOrigin),
       preview,
@@ -140,6 +154,12 @@ export function createWorkshopSession(options: {
   const actions: WorkshopSessionActions = {
     patch: (partial) => {
       setFields({ ...fields, ...partial });
+    },
+    setLocale: (locale) => {
+      setChrome({ ...chrome, locale });
+    },
+    setTheme: (theme) => {
+      setChrome({ ...chrome, theme });
     },
     setSource: (index, value) => {
       if (index < 0 || index >= fields.sources.length) {

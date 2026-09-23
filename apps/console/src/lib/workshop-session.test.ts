@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { acl4ssrConfigUrl } from './acl4ssr-catalog.ts';
+import type { ConsoleChrome } from './persist.ts';
 import {
   createWorkshopSession,
   type SavedPreviewFile,
@@ -64,6 +65,7 @@ function flush(): Promise<void> {
 
 function makeSession(input: {
   fields?: Partial<WorkshopFields>;
+  chrome?: ConsoleChrome;
   fetch?: (url: string) => FakeResponse | Promise<FakeResponse>;
   ports?: WorkshopSessionPorts;
   consoleOrigin?: string;
@@ -73,6 +75,7 @@ function makeSession(input: {
   const calls: string[] = [];
   const session = createWorkshopSession({
     initialFields: fields(input.fields),
+    initialChrome: input.chrome,
     env: {
       pageHttps: false,
       consoleOrigin: input.consoleOrigin,
@@ -510,5 +513,28 @@ describe('createWorkshopSession', () => {
     expect(view().fields.target).toBe('loon');
     expect(view().fields.configUrl).toBe('https://config.example/acl.ini');
     expect(view().sourceInvalid).toEqual([true]);
+  });
+
+  it('does not reset a finished Preview when locale or theme changes', async () => {
+    const { session, view } = makeSession({
+      fields: { serviceOrigin: ORIGIN },
+      chrome: { locale: 'en', theme: 'system' },
+      fetch: (url) =>
+        url.endsWith('/version') ? response(200, VERSION_OK) : response(200, 'proxies: []'),
+    });
+    await session.actions.preview();
+    expect(view().preview.status).toBe('done');
+    expect(view().locale).toBe('en');
+    expect(view().theme).toBe('system');
+
+    session.actions.setLocale('zh');
+    session.actions.setTheme('dark');
+    expect(view().locale).toBe('zh');
+    expect(view().theme).toBe('dark');
+    expect(view().preview.status).toBe('done');
+    expect(view().fields.serviceOrigin).toBe(ORIGIN);
+
+    session.actions.patch({ filename: 'out.yaml' });
+    expect(view().preview.status).toBe('idle');
   });
 });
