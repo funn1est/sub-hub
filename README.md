@@ -311,29 +311,29 @@ Dashboard leak.
 
 ### Cloudflare Git
 
-Connect the repo as one Worker (Workers Builds, root
-`crates/sub-hub-worker`). That publish includes the Web Console. The
+The Deploy-to-Cloudflare button at the top of this file uses the
 repository-root `wrangler.toml` and `package.json` `build` / `deploy`
-scripts are the button contract when the clone root is the whole
-repository (the Deploy-to-Cloudflare button at the top of this file). The build
-image has Node but not Rust; use `sh scripts/install-workers-toolchain.sh`
-as the Build command and `sh scripts/workers-builds-deploy.sh` as the
-Deploy command. Those scripts install Rust 1.97.1,
-`wasm32-unknown-unknown`, and `worker-build` 0.8.5, build the Console,
-and run `wrangler deploy --keep-vars`. The Worker name in the dashboard
-must match `wrangler.toml` (`sub-hub`).
+scripts. Workers Builds is a different path. Do not use `pnpm run deploy`
+here (`CI=true` makes it refuse).
 
-Workers Builds does not run `mise`. Set `NODE_VERSION` and `PNPM_VERSION`
-under **Build variables and secrets** (not **Runtime variables and
-secrets**) to the pins in the repository-root
-`mise.toml` if the image is older. Do not add `.node-version` or `.nvmrc`.
-After the first successful build, add rows as in
-[Runtime variables and secrets](#runtime-variables-and-secrets). Workers
-Builds does not put `SUB_HUB_ACCESS_TOKEN`. Do not use `pnpm run deploy`
-on Workers Builds (`CI=true` makes it refuse). Conversion-only Git uses
-`sh scripts/workers-builds-deploy.sh worker`. Console-only Git is a second
-Worker with root `apps/console`. A local `pnpm run deploy` remains the
-simpler publish.
+| Field | Value |
+| --- | --- |
+| Worker name | `sub-hub` (must match `wrangler.toml`) |
+| Root directory | `crates/sub-hub-worker` |
+| Build command | `sh scripts/install-workers-toolchain.sh` |
+| Deploy command | `sh scripts/workers-builds-deploy.sh` (all). Conversion only: `sh scripts/workers-builds-deploy.sh worker` |
+| Non-production deploy | `sh scripts/workers-builds-deploy.sh preview` (add `worker` for Conversion only) |
+
+Do not change the Dashboard **Root directory** in the table above to `.`
+unless you also change the script paths. Workers Builds does not run
+`mise`. Set `NODE_VERSION` and `PNPM_VERSION` under **Build variables
+and secrets** (not **Runtime variables and secrets**) to the pins in the
+repository-root `mise.toml` if the image is older. Do not add
+`.node-version` or `.nvmrc`. After the first successful build, add rows
+as in [Runtime variables and secrets](#runtime-variables-and-secrets).
+Workers Builds does not put `SUB_HUB_ACCESS_TOKEN`. Console-only Git is
+a second Worker with root `apps/console`. A local `pnpm run deploy`
+remains the simpler publish.
 
 ## Web Console
 
