@@ -257,26 +257,26 @@ token。第一次构建成功后，可以在这里添加绑定。未设置
 
 1. 打开 Worker 的 **设置**。
 2. 在 **Runtime variables and secrets** 点 **+ 添加变量**。
-3. 在 **添加环境变量** 里：左侧 **密钥** 填 `SUB_HUB_ACCESS_TOKEN`，**值**
-   填你选的 token，勾选右侧 **密钥**，然后点 **添加 1 个变量**（数字随条数
+3. 在 **添加环境变量** 里：左侧 **Key** 填 `SUB_HUB_ACCESS_TOKEN`，**值**
+   填你选的 token，勾选右侧 **Secret**，然后点 **添加 1 个变量**（数字随条数
    变化）。
-4. 保存后该行 **类型** 为 **密钥**，**名称** 为 `SUB_HUB_ACCESS_TOKEN`，
-   **值** 为 **值已加密**。
+4. 保存后该行 **类型** 为 **Secret**，**名称** 为 `SUB_HUB_ACCESS_TOKEN`，
+   **值** 为 **Value encrypted**。
 
-| **名称** | **密钥**（勾选） | 何时设置 |
+| **名称** | **Secret**（勾选） | 何时设置 |
 | --- | --- | --- |
 | `SUB_HUB_ACCESS_TOKEN` | 勾选 | 可选。对外可访问的 Worker 设置后，转换必须走 `GET /sub/<token>`。未设置：`GET /sub` 保持匿名，`GET /sub/<token>` 返回 `404` `Not Found`。token 不对：`401` `Unauthorized!`。已出现但为空或格式不合法：`500`。 |
 | `SUB_HUB_SELF_HOSTS` | 不勾选 | 仅当这个 Worker 还有额外 DNS 别名（自定义域名加上 `*.workers.dev`）。只填主机名。只有一个主机名时不需要。 |
 | `SUB_HUB_CORS_ORIGINS` | 不勾选 | 仅当 Web Console 是另一个 origin。同 origin Console（layout `all`）不需要。 |
 
-不要在未勾选 **密钥** 的情况下添加 `SUB_HUB_ACCESS_TOKEN`。那一行会在
-Dashboard 里可见，并盖住同 **名称** 的 **密钥**。删掉那一行。
+不要在未勾选 **Secret** 的情况下添加 `SUB_HUB_ACCESS_TOKEN`。那一行会在
+Dashboard 里可见，并盖住同 **名称** 的 **Secret**。删掉那一行。
 
 这次改动 **不用**再跑 Workers Builds。表单按钮是 **添加 1 个变量**，不是
 重新构建。`wrangler secret put` 效果相同。之后的 git 发布带
-`--keep-vars`，会保留这条 **密钥**。
+`--keep-vars`，会保留这条 **Secret**。
 
-保存后 **值** 显示 **值已加密**。Dashboard 和 Wrangler 只能整份替换。把
+保存后 **值** 显示 **Value encrypted**。Dashboard 和 Wrangler 只能整份替换。把
 列表放进密码管理器。本仓库不记录 binding 的值。Workers Logs 关闭
 `invocation_logs`，因此不会存 Fetch 调用消息（method + URL）。token
 仍会出现在你复制给客户端的 Subscription URL 路径（`GET /sub/<token>`）
