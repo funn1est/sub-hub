@@ -4,13 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { KNOWN_SERVICE_ERRORS } from './service-contract.ts';
 import { CLIENT_TARGETS } from './workshop.ts';
-import {
-  SOURCE_REPO,
-  capabilityHint,
-  knownErrorTitle,
-  messages,
-  targetHint,
-} from './i18n.ts';
+import { SOURCE_REPO, capabilityHint, knownErrorTitle, messages, targetHint } from './i18n.ts';
 
 describe('known Conversion Service errors', () => {
   it('has a distinct zh and en title for every exact English body', async () => {
