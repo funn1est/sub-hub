@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   composePersisted,
-  createConsolePersist,
   defaultLocale,
   parsePersisted,
   PERSIST_KEY,
+  readPersisted,
   serializePersisted,
   workshopFieldsOf,
+  writePersisted,
   type PersistedWorkshop,
 } from './persist.ts';
 
@@ -31,9 +32,6 @@ function memoryStorage(initial: Iterable<readonly [string, string]> = []) {
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => {
       data.set(key, value);
-    },
-    removeItem: (key: string) => {
-      data.delete(key);
     },
   };
 }
@@ -61,7 +59,7 @@ describe('persist', () => {
     expect(JSON.parse(raw)).toEqual(sample);
 
     const storage = memoryStorage([[PERSIST_KEY, raw]]);
-    const loaded = createConsolePersist(storage).getState();
+    const loaded = readPersisted(storage);
     expect(loaded.accessToken).toBe('deployer-token_1');
     expect(loaded).toEqual(sample);
     expect(loaded).not.toHaveProperty('previewBody');
@@ -79,17 +77,15 @@ describe('persist', () => {
         'vless://u@h:443#F',
       ],
     };
-    const loaded = createConsolePersist(
-      memoryStorage([[PERSIST_KEY, serializePersisted(six)]]),
-    ).getState();
+    const loaded = readPersisted(memoryStorage([[PERSIST_KEY, serializePersisted(six)]]));
     expect(loaded.sources).toEqual(six.sources);
   });
 
   it('falls back to defaults when the stored blob is missing or invalid', () => {
-    const empty = createConsolePersist(memoryStorage(), {
+    const empty = readPersisted(memoryStorage(), {
       locale: 'en',
       serviceOrigin: 'http://127.0.0.1:25500',
-    }).getState();
+    });
     expect(empty).toEqual({
       locale: 'en',
       theme: 'system',
@@ -103,7 +99,7 @@ describe('persist', () => {
       filename: '',
     });
 
-    const junk = createConsolePersist(memoryStorage([[PERSIST_KEY, 'not-json']])).getState();
+    const junk = readPersisted(memoryStorage([[PERSIST_KEY, 'not-json']]));
     expect(junk.target).toBe('clash');
     expect(junk.sources).toEqual(['']);
     expect(junk.accessToken).toBe('');
@@ -113,9 +109,7 @@ describe('persist', () => {
   it('treats a missing filename field as empty', () => {
     const { filename, ...withoutFilename } = sample;
     expect(filename).toBe('');
-    const loaded = createConsolePersist(
-      memoryStorage([[PERSIST_KEY, JSON.stringify(withoutFilename)]]),
-    ).getState();
+    const loaded = readPersisted(memoryStorage([[PERSIST_KEY, JSON.stringify(withoutFilename)]]));
     expect(loaded.filename).toBe('');
   });
 
@@ -125,26 +119,23 @@ describe('persist', () => {
 
   it('rewrites a hydrated mihomo blob to clash on the next persist write', () => {
     const storage = memoryStorage([[PERSIST_KEY, JSON.stringify({ ...sample, target: 'mihomo' })]]);
-    const store = createConsolePersist(storage);
-    expect(store.getState().target).toBe('clash');
+    const loaded = readPersisted(storage);
+    expect(loaded.target).toBe('clash');
     expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? '').target).toBe('mihomo');
-    store.setState(workshopFieldsOf(store.getState()));
+    writePersisted(storage, loaded);
     expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? '').target).toBe('clash');
   });
 
   it('treats a missing expand field as the default on', () => {
     const { expand, ...withoutExpand } = sample;
     expect(expand).toBe(false);
-    const loaded = createConsolePersist(
-      memoryStorage([[PERSIST_KEY, JSON.stringify(withoutExpand)]]),
-    ).getState();
+    const loaded = readPersisted(memoryStorage([[PERSIST_KEY, JSON.stringify(withoutExpand)]]));
     expect(loaded.expand).toBe(true);
   });
 
   it("writes a flat PersistedWorkshop blob, not Zustand's {state, version} wrapper", () => {
     const storage = memoryStorage();
-    const store = createConsolePersist(storage);
-    store.setState(sample);
+    writePersisted(storage, sample);
     const raw = storage.data.get(PERSIST_KEY);
     expect(raw).toBeDefined();
     const parsed = JSON.parse(raw ?? 'null') as unknown;
@@ -153,10 +144,9 @@ describe('persist', () => {
     expect(parsed).not.toHaveProperty('version');
   });
 
-  it('strips a preview body when setState includes one', () => {
+  it('strips a preview body when the written snapshot includes one', () => {
     const storage = memoryStorage();
-    const store = createConsolePersist(storage);
-    store.setState({
+    writePersisted(storage, {
       ...sample,
       previewBody: 'vless://uuid:password@secret.example:443',
     } as PersistedWorkshop & { previewBody: string });
@@ -190,9 +180,8 @@ describe('persist', () => {
     const classic =
       'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR.ini';
     const storage = memoryStorage();
-    const store = createConsolePersist(storage);
-    store.setState({ ...sample, configUrl: classic });
+    writePersisted(storage, { ...sample, configUrl: classic });
     expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? '').configUrl).toBe(classic);
-    expect(workshopFieldsOf(createConsolePersist(storage).getState()).configUrl).toBe(classic);
+    expect(workshopFieldsOf(readPersisted(storage)).configUrl).toBe(classic);
   });
 });

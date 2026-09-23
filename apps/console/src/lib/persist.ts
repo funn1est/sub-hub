@@ -1,6 +1,3 @@
-import { persist, type PersistStorage } from 'zustand/middleware';
-import { createStore } from 'zustand/vanilla';
-
 import { isTarget } from './service-contract.ts';
 import { clientTargetOf, type WorkshopFields } from './workshop.ts';
 
@@ -43,7 +40,6 @@ export function composePersisted(fields: WorkshopFields, chrome: ConsoleChrome):
 type StorageLike = {
   getItem: (key: string) => string | null;
   setItem?: (key: string, value: string) => void;
-  removeItem?: (key: string) => void;
 };
 
 const THEMES: readonly Theme[] = ['system', 'light', 'dark'];
@@ -126,43 +122,15 @@ export function parsePersisted(
   };
 }
 
-/** Zustand persist I/O. On-disk blob stays `serializePersisted` JSON, not `{state, version}`. */
-export function createConsolePersist(
+export function readPersisted(
   storage: StorageLike,
   fallback: Partial<PersistedWorkshop> = {},
-) {
-  return createStore<PersistedWorkshop>()(
-    persist(() => defaultPersisted(fallback), {
-      name: PERSIST_KEY,
-      storage: workshopPersistStorage(storage, fallback),
-      partialize: (state) =>
-        composePersisted(workshopFieldsOf(state), {
-          locale: state.locale,
-          theme: state.theme,
-        }),
-    }),
-  );
+): PersistedWorkshop {
+  return parsePersisted(storage.getItem(PERSIST_KEY), fallback);
 }
 
-function workshopPersistStorage(
-  storage: StorageLike,
-  fallback: Partial<PersistedWorkshop>,
-): PersistStorage<PersistedWorkshop> {
-  return {
-    getItem: (name) => {
-      const raw = storage.getItem(name);
-      if (raw === null) {
-        return null;
-      }
-      return { state: parsePersisted(raw, fallback) };
-    },
-    setItem: (name, value) => {
-      storage.setItem?.(name, serializePersisted(value.state));
-    },
-    removeItem: (name) => {
-      storage.removeItem?.(name);
-    },
-  };
+export function writePersisted(storage: StorageLike, state: PersistedWorkshop): void {
+  storage.setItem?.(PERSIST_KEY, serializePersisted(state));
 }
 
 function isTheme(value: unknown): value is Theme {
