@@ -67,11 +67,16 @@ Shadowsocks、Trojan、v2rayN JSON v2 VMess、Hysteria2 `hysteria2://` /
 HTTPS 订阅留给客户端。`expand=true` 内联远程。Web Console 开关默认打开
 并写入 `expand=true`。省略 `expand` 时 `singbox` 仍会内联。可选的
 `filename` 是下载名词干（1–64 字节），服务按 target 补扩展名。
+`append_info`（省略或 `true`）在单个远端源上捕获
+`subscription-userinfo`；`append_info=false` 不写该头。`insert` 只接受
+省略或 `false`（否则 400）。
 
 没有 POST 转换、capabilities 或管理 API。配置 token 后 `GET /version`
 仍公开。不支持或无效的节点会被跳过；源和 config 错误会使请求失败。只要
 有节点被跳过，`GET`/`HEAD` `/sub` 会加上 `x-subconverter-skipped`（若响应
-还不是 `lossy`，再加 `x-subconverter-result: partial`）。远程拉取有界。
+还不是 `lossy`，再加 `x-subconverter-result: partial`）。省略的
+URL-REGEX 规则会加上 `x-subconverter-omitted-rules` 和
+`x-subconverter-result: lossy`。远程拉取有界。
 可选的 `SUB_HUB_ACCESS_TOKEN` 最多容纳八个等价 path token，配置后保护
 `GET`/`HEAD /sub/:token`。
 

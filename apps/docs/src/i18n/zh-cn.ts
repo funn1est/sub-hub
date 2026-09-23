@@ -65,6 +65,7 @@ export const zhCn: Copy = {
     "缺省或空的 config= 走 PROXY/AUTO（select：AUTO + 节点 + Direct，url-test AUTO，MATCH → PROXY）。",
     "expand 是已接受的 query。Web Console 开关默认打开并写入 expand=true。",
     "filename 是下载名 stem（1–64 字节）。服务补上各 target 的扩展名。省略则用 sub-hub-<target>.<ext>。",
+    "append_info（省略或 true）在单个远端源上捕获 subscription-userinfo；append_info=false 不写该头。insert 只接受省略或 false（否则 400）。",
     "GET/HEAD request-target 超过 8 KiB 返回 414。",
   ],
   outputsTitle: "客户端 target",
@@ -139,6 +140,7 @@ export const zhCn: Copy = {
     "没有 POST 转换、capabilities 端点或管理 API。",
     "设置 token 后 GET /version 仍公开。错误 token：401 Unauthorized!。未设置：GET /sub 保持匿名，GET /sub/:token 返回 404 Not Found。",
     "有节点被跳过时，GET/HEAD /sub 会加 x-subconverter-skipped（响应还不是 lossy 时再加 x-subconverter-result: partial）。",
+    "省略的 URL-REGEX 规则会加 x-subconverter-omitted-rules 和 x-subconverter-result: lossy。",
   ],
   notTitle: "不在范围内",
   notItems: [
