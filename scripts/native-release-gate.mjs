@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseSemver } from "./workspace-version.mjs";
 
 const USAGE =
-  "usage: node scripts/native-release-gate.mjs --event <name> --ref-type <branch|tag> --ref-name <name> --current <X.Y.Z> [--previous <X.Y.Z>] --release-exists <true|false>";
+  "usage: node scripts/native-release-gate.mjs --event <name> --ref-name <name> --current <X.Y.Z> [--previous <X.Y.Z>] --release-exists <true|false>";
 
 export function parseBool(raw) {
   if (raw === "true") {
@@ -21,7 +21,6 @@ export function parseBool(raw) {
 export function parseGateArgv(argv) {
   const flags = {
     eventName: undefined,
-    refType: undefined,
     refName: undefined,
     currentVersion: undefined,
     previousVersion: "",
@@ -39,10 +38,6 @@ export function parseGateArgv(argv) {
     index += 1;
     if (arg === "--event") {
       flags.eventName = value;
-      continue;
-    }
-    if (arg === "--ref-type") {
-      flags.refType = value;
       continue;
     }
     if (arg === "--ref-name") {
@@ -65,22 +60,17 @@ export function parseGateArgv(argv) {
   }
   if (
     flags.eventName === undefined ||
-    flags.refType === undefined ||
     flags.refName === undefined ||
     flags.currentVersion === undefined ||
     flags.releaseExists === undefined
   ) {
     throw new Error(USAGE);
   }
-  if (flags.refType !== "branch" && flags.refType !== "tag") {
-    throw new Error("ref-type must be branch or tag");
-  }
   return flags;
 }
 
 export function decideNativeRelease({
   eventName,
-  refType,
   refName,
   currentVersion,
   previousVersion = "",
@@ -89,13 +79,6 @@ export function decideNativeRelease({
   const current = parseSemver(currentVersion).raw;
   if (releaseExists) {
     return { publish: false, version: current, reason: "release exists" };
-  }
-  if (refType === "tag") {
-    const expected = `v${current}`;
-    if (refName !== expected) {
-      throw new Error(`tag ${refName} does not match workspace version ${expected}`);
-    }
-    return { publish: true, version: current, reason: "tag" };
   }
   if (eventName === "workflow_dispatch") {
     return { publish: true, version: current, reason: "dispatch" };
