@@ -20,7 +20,6 @@ pub struct CorsOrigins {
 }
 
 impl CorsOrigins {
-    /// An empty set: responses carry no `Access-Control-*` headers.
     #[must_use]
     pub const fn empty() -> Self {
         Self {
@@ -28,12 +27,9 @@ impl CorsOrigins {
         }
     }
 
-    /// Parses a **present** environment or dashboard blob.
-    ///
     /// # Errors
     ///
-    /// Returns [`CorsOriginError`] when the blob is too long, yields zero unique origins,
-    /// contains a ninth unique origin, or any item is not an exact `http`/`https` origin.
+    /// Returns [`CorsOriginError`] when the blob is invalid.
     pub fn parse_list(raw: &str) -> Result<Self, CorsOriginError> {
         if raw.len() > MAX_CORS_ORIGIN_LIST_BYTES {
             return Err(CorsOriginError);
@@ -60,7 +56,7 @@ impl CorsOrigins {
     ///
     /// # Errors
     ///
-    /// Returns [`CorsOriginError`] when a present blob fails [`Self::parse_list`].
+    /// Returns [`CorsOriginError`] when the present blob is invalid.
     pub fn parse_optional(raw: Option<&str>) -> Result<Self, CorsOriginError> {
         match raw {
             None => Ok(Self::empty()),
