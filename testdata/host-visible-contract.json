@@ -4,8 +4,7 @@
       "id": "version",
       "method": "GET",
       "path": "/version",
-      "status": 200,
-      "body": "sub-hub v0.1.0 backend"
+      "status": 200
     },
     {
       "id": "invalid-version-query",
