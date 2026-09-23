@@ -73,13 +73,17 @@ remote refs on targets that can name them. `expand=true` inlines remotes.
 The Web Console switch defaults on and writes `expand=true`. `singbox`
 still inlines when `expand` is omitted. Optional `filename` is a
 download-name stem (1–64 bytes); the service appends the per-target
-extension.
+extension. `append_info` (omitted or `true`) captures
+`subscription-userinfo` on a single remote source; `append_info=false`
+skips it. `insert` accepts omit or `false` only (else 400).
 
 There is no POST conversion, capabilities endpoint, or administration API.
 `GET /version` stays public when tokens are set. Unsupported or invalid
 nodes are skipped; source and config errors fail the request. When any
 node is skipped, `GET`/`HEAD` `/sub` adds `x-subconverter-skipped` (and
 `x-subconverter-result: partial` unless the response is already `lossy`).
+Omitted URL-REGEX rules add `x-subconverter-omitted-rules` and
+`x-subconverter-result: lossy`.
 Remote fetches are bounded. An optional `SUB_HUB_ACCESS_TOKEN` may hold
 up to eight equivalent path tokens and protects `GET`/`HEAD /sub/:token`.
 

@@ -64,6 +64,7 @@ export const en: Copy = {
     "Absent or empty config= uses PROXY/AUTO (select AUTO + nodes + Direct, url-test AUTO, MATCH → PROXY).",
     "expand is accepted. The Web Console switch defaults on and writes expand=true.",
     "filename is a download-name stem (1–64 bytes). The service appends the per-target extension. Omitted uses sub-hub-<target>.<ext>.",
+    "append_info (omitted or true) captures subscription-userinfo on a single remote source; append_info=false skips it. insert accepts omit or false only (else 400).",
     "A GET/HEAD request-target over 8 KiB returns 414.",
   ],
   outputsTitle: "Client targets",
@@ -138,6 +139,7 @@ export const en: Copy = {
     "There is no POST conversion, capabilities endpoint, or administration API.",
     "GET /version stays public when tokens are set. Wrong token: 401 Unauthorized!. Unset token: GET /sub stays anonymous and GET /sub/:token returns 404 Not Found.",
     "When any node is skipped, GET/HEAD /sub adds x-subconverter-skipped (and x-subconverter-result: partial unless the response is already lossy).",
+    "Omitted URL-REGEX rules add x-subconverter-omitted-rules and x-subconverter-result: lossy.",
   ],
   notTitle: "Out of scope",
   notItems: [
