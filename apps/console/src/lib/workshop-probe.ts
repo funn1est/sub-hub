@@ -1,7 +1,7 @@
 import { runVersionProbe, type VersionProbe, type VersionState } from './preview.ts';
 import { parseServiceOrigin, type WorkshopFetch } from './workshop.ts';
 
-export type ProbeRun =
+type ProbeRun =
   | { kind: 'idle' }
   | {
       kind: 'checking';
