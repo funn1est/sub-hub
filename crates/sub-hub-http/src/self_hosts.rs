@@ -12,7 +12,6 @@ pub struct SelfHosts {
 }
 
 impl SelfHosts {
-    /// An empty set: the inbound request hostname remains the only additive self-target.
     #[must_use]
     pub const fn empty() -> Self {
         Self { hosts: Vec::new() }
@@ -40,15 +39,8 @@ impl SelfHosts {
         Ok(Self { hosts })
     }
 
-    /// Parses a **present** environment or dashboard blob.
-    ///
     /// An empty blob is an empty set. A present blob that contains only whitespace or separators
     /// is invalid.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SelfHostError`] when a non-empty blob yields zero unique hosts, contains a 17th
-    /// unique host, or any item is not a canonical DNS hostname.
     pub fn parse_list(raw: &str) -> Result<Self, SelfHostError> {
         if raw.strip_prefix('\u{FEFF}').unwrap_or(raw).is_empty() {
             return Ok(Self::empty());
@@ -72,10 +64,6 @@ impl SelfHosts {
     }
 
     /// `None` and `Some("")` are an empty set. Any other present blob is [`Self::parse_list`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SelfHostError`] when a present non-empty blob fails [`Self::parse_list`].
     pub fn parse_optional(raw: Option<&str>) -> Result<Self, SelfHostError> {
         match raw {
             None | Some("") => Ok(Self::empty()),
