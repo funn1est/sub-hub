@@ -151,7 +151,7 @@ impl fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 /// A secret-safe native HTTP service error.
-pub struct RunError(#[allow(dead_code)] std::io::Error);
+pub struct RunError;
 
 impl fmt::Debug for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -168,8 +168,8 @@ impl fmt::Display for RunError {
 impl std::error::Error for RunError {}
 
 impl From<std::io::Error> for RunError {
-    fn from(error: std::io::Error) -> Self {
-        Self(error)
+    fn from(_: std::io::Error) -> Self {
+        Self
     }
 }
 
@@ -181,6 +181,7 @@ pub struct NativeRemoteAdapter {
 
 impl NativeRemoteAdapter {
     #[must_use]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self::with_resolver(SystemResolver)
     }
@@ -195,12 +196,6 @@ impl NativeRemoteAdapter {
             clock_origin: Instant::now(),
             resolver: Arc::new(resolver),
         }
-    }
-}
-
-impl Default for NativeRemoteAdapter {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
