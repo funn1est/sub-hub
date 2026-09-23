@@ -50,6 +50,10 @@ impl AccessTokens {
     }
 
     /// Parses a **present** dashboard or environment blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessTokenError`] when the blob is invalid.
     pub fn parse_list(raw: &str) -> Result<Self, AccessTokenError> {
         if raw.len() > MAX_ACCESS_TOKEN_LIST_BYTES {
             return Err(AccessTokenError);
@@ -76,6 +80,10 @@ impl AccessTokens {
     }
 
     /// `None` is an empty anonymous set. `Some` is always [`Self::parse_list`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AccessTokenError`] when the present blob is invalid.
     pub fn parse_optional(raw: Option<&str>) -> Result<Self, AccessTokenError> {
         match raw {
             None => Ok(Self::empty()),

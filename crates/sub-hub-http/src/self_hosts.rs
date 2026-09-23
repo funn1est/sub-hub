@@ -41,6 +41,10 @@ impl SelfHosts {
 
     /// An empty blob is an empty set. A present blob that contains only whitespace or separators
     /// is invalid.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SelfHostError`] when the blob is invalid.
     pub fn parse_list(raw: &str) -> Result<Self, SelfHostError> {
         if raw.strip_prefix('\u{FEFF}').unwrap_or(raw).is_empty() {
             return Ok(Self::empty());
@@ -64,6 +68,10 @@ impl SelfHosts {
     }
 
     /// `None` and `Some("")` are an empty set. Any other present blob is [`Self::parse_list`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SelfHostError`] when the present non-empty blob is invalid.
     pub fn parse_optional(raw: Option<&str>) -> Result<Self, SelfHostError> {
         match raw {
             None | Some("") => Ok(Self::empty()),

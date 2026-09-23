@@ -28,6 +28,10 @@ impl CorsOrigins {
     }
 
     /// Parses a **present** environment or dashboard blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CorsOriginError`] when the blob is invalid.
     pub fn parse_list(raw: &str) -> Result<Self, CorsOriginError> {
         if raw.len() > MAX_CORS_ORIGIN_LIST_BYTES {
             return Err(CorsOriginError);
@@ -51,6 +55,10 @@ impl CorsOrigins {
     }
 
     /// `None` is an empty allowlist. `Some` is always [`Self::parse_list`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CorsOriginError`] when the present blob is invalid.
     pub fn parse_optional(raw: Option<&str>) -> Result<Self, CorsOriginError> {
         match raw {
             None => Ok(Self::empty()),
