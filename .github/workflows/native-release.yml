@@ -118,10 +118,10 @@ jobs:
             exit 1
           fi
 
-      - name: Install Rust
+      - name: Install Rust and Node
         uses: jdx/mise-action@v4
         with:
-          install_args: rust
+          install_args: rust node
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
@@ -138,6 +138,7 @@ jobs:
       - name: Smoke GET /version on loopback
         run: |
           set -eu
+          expected="$(node scripts/workspace-version.mjs --body)"
           if command -v python3 >/dev/null 2>&1; then
             py=python3
           else
@@ -155,7 +156,6 @@ jobs:
           }
           trap cleanup EXIT
 
-          expected="sub-hub v${VERSION} backend"
           version=""
           i=0
           while [ "$i" -lt 100 ]; do

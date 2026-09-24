@@ -247,3 +247,19 @@ test("Native release workflow publishes from a main version bump", () => {
     /github\.event_name == 'push' && github\.ref_type == 'tag'/,
   );
 });
+
+test("Native release workflow reads GET /version from workspace-version --body", () => {
+  const workflow = fs.readFileSync(
+    path.join(here, "..", ".github", "workflows", "native-release.yml"),
+    "utf8",
+  );
+  const smoke = fs.readFileSync(
+    path.join(here, "..", ".github", "workflows", "native-release-smoke.yml"),
+    "utf8",
+  );
+  const expectedBody = /expected="\$\(node scripts\/workspace-version\.mjs --body\)"/;
+  assert.match(workflow, expectedBody);
+  assert.match(smoke, expectedBody);
+  assert.match(workflow, /install_args: rust node/);
+  assert.doesNotMatch(workflow, /sub-hub v\$\{VERSION\} backend/);
+});
