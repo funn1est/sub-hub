@@ -92,7 +92,7 @@ impl fmt::Debug for TrojanPassword {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum TrojanSecurity {
     Tls(TlsOptions),
     Reality(RealityOptions),
@@ -104,5 +104,14 @@ impl TrojanSecurity {
             Self::Tls(options) => options,
             Self::Reality(options) => options.tls(),
         }
+    }
+}
+
+impl fmt::Debug for TrojanSecurity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Tls(_) => "Tls",
+            Self::Reality(_) => "Reality",
+        })
     }
 }

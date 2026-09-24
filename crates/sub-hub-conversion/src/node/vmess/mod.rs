@@ -116,8 +116,17 @@ impl VmessCipher {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum VmessSecurity {
     None,
     Tls(TlsOptions),
+}
+
+impl fmt::Debug for VmessSecurity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::None => "None",
+            Self::Tls(_) => "Tls",
+        })
+    }
 }

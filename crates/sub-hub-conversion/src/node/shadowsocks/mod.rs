@@ -48,7 +48,7 @@ impl ShadowsocksNode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ShadowsocksObfs {
     mode: ShadowsocksObfsMode,
     host: Option<String>,
@@ -66,6 +66,16 @@ impl ShadowsocksObfs {
 
     pub(crate) fn host(&self) -> Option<&str> {
         self.host.as_deref()
+    }
+}
+
+impl fmt::Debug for ShadowsocksObfs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ShadowsocksObfs")
+            .field("mode", &self.mode())
+            .field("host", &"[REDACTED]")
+            .finish()
     }
 }
 

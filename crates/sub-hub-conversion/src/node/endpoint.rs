@@ -48,11 +48,21 @@ impl fmt::Debug for Endpoint {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum Host {
     Domain(String),
     Ipv4(Ipv4Addr),
     Ipv6(Ipv6Addr),
+}
+
+impl fmt::Debug for Host {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Domain(_) => "Domain",
+            Self::Ipv4(_) => "Ipv4",
+            Self::Ipv6(_) => "Ipv6",
+        })
+    }
 }
 
 fn is_numeric_ipv4_lookalike(input: &str) -> bool {
