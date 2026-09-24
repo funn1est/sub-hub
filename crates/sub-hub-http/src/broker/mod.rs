@@ -110,7 +110,7 @@ pub(crate) struct BrokerSession<'a, A> {
     pub(super) adapter: &'a A,
     pub(super) self_hosts: &'a SelfHosts,
     pub(super) inbound_host: String,
-    pub(super) budget: SessionBudget,
+    pub(crate) budget: SessionBudget,
     pub(super) total_deadline_millis: u64,
     pub(super) attempts: AtomicUsize,
 }
