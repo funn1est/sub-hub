@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Toast as ToastPrimitive } from '@base-ui/react/toast';
 
 import { cn } from '@/lib/utils';
+import { closeToastLabel } from '@/lib/i18n.ts';
 import { Button } from '@/components/ui/button';
 import {
   XIcon,
@@ -113,19 +114,20 @@ function ToastAction({
 function ToastClose({
   className,
   children,
+  label,
   render = <Button variant="ghost" size="icon-sm" />,
   ...props
-}: ToastPrimitive.Close.Props) {
+}: Omit<ToastPrimitive.Close.Props, 'aria-label'> & { label: string }) {
   return (
     <ToastPrimitive.Close
       data-slot="toast-close"
-      aria-label="Close toast"
       render={render}
       className={cn(
         "relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground",
         className,
       )}
       {...props}
+      aria-label={label}
     >
       {children ?? <XIcon aria-hidden="true" />}
     </ToastPrimitive.Close>
@@ -171,6 +173,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
 
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager();
+  const closeLabel = closeToastLabel(document.documentElement.lang);
 
   return toasts.map((toastItem) => (
     <Toast key={toastItem.id} toast={toastItem}>
@@ -181,7 +184,7 @@ function ToastList() {
           <ToastDescription />
         </div>
         <ToastAction />
-        <ToastClose />
+        <ToastClose label={closeLabel} />
       </ToastContent>
     </Toast>
   ));

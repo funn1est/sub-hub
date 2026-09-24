@@ -8,6 +8,7 @@ import {
   SOURCE_REPO,
   capabilityHint,
   clientTargetLabel,
+  closeToastLabel,
   knownErrorTitle,
   messages,
   targetHint,
@@ -121,6 +122,27 @@ describe('locale key alignment', () => {
     );
     expect(Object.keys(messages.zh.client)).toEqual(Object.keys(messages.en.client));
     expect(Object.keys(messages.zh.client.clash)).toEqual(Object.keys(messages.en.client.clash));
+  });
+});
+
+describe('kit aria labels', () => {
+  it('names toast close in en and zh, never the same string', () => {
+    expect(messages.en.closeToast).toBe('Close toast');
+    expect(messages.zh.closeToast).toBe('关闭通知');
+    expect(messages.zh.closeToast).not.toBe(messages.en.closeToast);
+    expect(closeToastLabel('zh-CN')).toBe('关闭通知');
+    expect(closeToastLabel('en')).toBe('Close toast');
+    expect(closeToastLabel('ja')).toBe('Close toast');
+  });
+
+  it('wires ToastClose to closeToastLabel and does not hardcode English', async () => {
+    const toastSrc = await readFile(
+      resolve(import.meta.dirname, '../components/ui/toast.tsx'),
+      'utf8',
+    );
+    expect(toastSrc).toContain('closeToastLabel');
+    expect(toastSrc).toContain('label={closeLabel}');
+    expect(toastSrc).not.toContain('aria-label="Close toast"');
   });
 });
 
