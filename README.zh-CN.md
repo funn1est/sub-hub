@@ -32,15 +32,10 @@ mise install
 cargo run --locked -p sub-hub-native
 ```
 
-安全默认监听地址是 `127.0.0.1:25500`：
+安全默认监听地址是 `127.0.0.1:25500`。用下面命令验证：
 
 ```sh
 curl http://127.0.0.1:25500/version
-
-curl --get http://127.0.0.1:25500/sub \
-  --data-urlencode 'target=clash' \
-  --data-urlencode 'url=vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha' \
-  --output sub-hub-mihomo.yaml
 ```
 
 ## 当前 HTTP 面
@@ -66,7 +61,8 @@ Shadowsocks、Trojan、v2rayN JSON v2 VMess、Hysteria2 `hysteria2://` /
 省略 `expand` 或设 `expand=false` 时，在能点名远程引用的 target 上把
 HTTPS 订阅留给客户端。`expand=true` 内联远程。Web Console 开关默认打开
 并写入 `expand=true`。省略 `expand` 时 `singbox` 仍会内联。可选的
-`filename` 是下载名词干（1–64 字节），服务按 target 补扩展名。
+`filename` 是下载名词干（1–64 字节，无 path 或 Windows reserved
+characters），服务按 target 补扩展名。
 
 没有 POST 转换、capabilities 或管理 API。配置 token 后 `GET /version`
 仍公开。不支持或无效的节点会被跳过；源和 config 错误会使请求失败。只要
@@ -83,18 +79,10 @@ windows-amd64 和 macos-arm64 的未签名 Native 二进制。解压后运行
 在没有 Rust 工具链时也能运行；它们未签名、未经公证，不含 Web Console，
 并可能被 SmartScreen 或 Gatekeeper 拦截。
 
-工作区钉在 Rust 1.97.1。用下面命令启动开发构建：
-
-```sh
-cargo run --locked -p sub-hub-native
-```
-
-安全默认监听地址是 `127.0.0.1:25500`。用下面命令验证，并转换一条直接
+安全默认监听地址是 `127.0.0.1:25500`。用下面命令转换一条直接
 share URI：
 
 ```sh
-curl http://127.0.0.1:25500/version
-
 curl --get http://127.0.0.1:25500/sub \
   --data-urlencode 'target=clash' \
   --data-urlencode 'url=vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha' \
@@ -136,7 +124,8 @@ cargo check --locked -p sub-hub-http --target wasm32-unknown-unknown
 
 本地应用格式化时用没有 `--check` 的 `cargo fmt --all`。GitHub 的 `CI`
 workflow 每个 revision 跑一遍这些全仓库门禁和 Worker 一致性；单独的
-Mihomo workflow 只覆盖钉住的两版本外部验收矩阵。
+Mihomo workflow 只覆盖钉住的两版本外部验收矩阵，单独的 sing-box
+workflow 只覆盖一个钉住的官方 binary。
 
 ## Native 部署边界
 
