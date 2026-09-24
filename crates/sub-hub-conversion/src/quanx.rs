@@ -162,8 +162,37 @@ fn render_vless_line(
         format!("password={}", vless.id().as_uuid().hyphenated()),
     ];
 
-    match vless.transport() {
-        VlessTransport::Tcp => match vless.security() {
+    if let VlessTransport::WebSocket { path, host } = vless.transport() {
+        if !is_safe_field(path) {
+            return None;
+        }
+        match vless.security() {
+            VlessSecurity::None => {
+                fields.push("obfs=ws".to_owned());
+                if let Some(host) = host {
+                    if !is_safe_field(host) {
+                        return None;
+                    }
+                    fields.push(format!("obfs-host={host}"));
+                }
+                fields.push(format!("obfs-uri={path}"));
+            }
+            VlessSecurity::Tls(options) => {
+                fields.push("obfs=wss".to_owned());
+                let host = host.as_deref().unwrap_or(options.server_name());
+                if !is_safe_field(host) {
+                    return None;
+                }
+                fields.push(format!("obfs-host={host}"));
+                fields.push(format!("obfs-uri={path}"));
+                if let Some(alpn) = options.alpn() {
+                    fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
+                }
+            }
+            VlessSecurity::Reality(_) => return None,
+        }
+    } else {
+        match vless.security() {
             VlessSecurity::None => {}
             VlessSecurity::Tls(options) => {
                 push_tls_fields(
@@ -176,38 +205,7 @@ fn render_vless_line(
             VlessSecurity::Reality(options) => {
                 push_reality_fields(&mut fields, "over-tls", options)?;
             }
-        },
-        VlessTransport::WebSocket { path, host } => {
-            if !is_safe_field(path) {
-                return None;
-            }
-            match vless.security() {
-                VlessSecurity::None => {
-                    fields.push("obfs=ws".to_owned());
-                    if let Some(host) = host {
-                        if !is_safe_field(host) {
-                            return None;
-                        }
-                        fields.push(format!("obfs-host={host}"));
-                    }
-                    fields.push(format!("obfs-uri={path}"));
-                }
-                VlessSecurity::Tls(options) => {
-                    fields.push("obfs=wss".to_owned());
-                    let host = host.as_deref().unwrap_or(options.server_name());
-                    if !is_safe_field(host) {
-                        return None;
-                    }
-                    fields.push(format!("obfs-host={host}"));
-                    fields.push(format!("obfs-uri={path}"));
-                    if let Some(alpn) = options.alpn() {
-                        fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
-                    }
-                }
-                VlessSecurity::Reality(_) => return None,
-            }
         }
-        VlessTransport::Grpc { .. } => return None,
     }
 
     if let Some(VlessFlow::Vision) = vless.flow() {
@@ -236,8 +234,37 @@ fn render_vmess_line(
         format!("method={}", vmess.cipher().as_token()),
         format!("password={}", vmess.id().as_uuid().hyphenated()),
     ];
-    match vmess.transport() {
-        VlessTransport::Tcp => match vmess.security() {
+    if let VlessTransport::WebSocket { path, host } = vmess.transport() {
+        if !is_safe_field(path) {
+            return None;
+        }
+        match vmess.security() {
+            VmessSecurity::None => {
+                fields.push("obfs=ws".to_owned());
+                if let Some(host) = host {
+                    if !is_safe_field(host) {
+                        return None;
+                    }
+                    fields.push(format!("obfs-host={host}"));
+                }
+                fields.push(format!("obfs-uri={path}"));
+            }
+            VmessSecurity::Tls(options) => {
+                fields.push("obfs=wss".to_owned());
+                let host = host.as_deref().unwrap_or(options.server_name());
+                if !is_safe_field(host) {
+                    return None;
+                }
+                fields.push(format!("obfs-host={host}"));
+                fields.push(format!("obfs-uri={path}"));
+                fields.push("tls-verification=true".to_owned());
+                if let Some(alpn) = options.alpn() {
+                    fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
+                }
+            }
+        }
+    } else {
+        match vmess.security() {
             VmessSecurity::None => {}
             VmessSecurity::Tls(options) => {
                 push_tls_fields(
@@ -247,38 +274,7 @@ fn render_vmess_line(
                     options.alpn(),
                 )?;
             }
-        },
-        VlessTransport::WebSocket { path, host } => {
-            if !is_safe_field(path) {
-                return None;
-            }
-            match vmess.security() {
-                VmessSecurity::None => {
-                    fields.push("obfs=ws".to_owned());
-                    if let Some(host) = host {
-                        if !is_safe_field(host) {
-                            return None;
-                        }
-                        fields.push(format!("obfs-host={host}"));
-                    }
-                    fields.push(format!("obfs-uri={path}"));
-                }
-                VmessSecurity::Tls(options) => {
-                    fields.push("obfs=wss".to_owned());
-                    let host = host.as_deref().unwrap_or(options.server_name());
-                    if !is_safe_field(host) {
-                        return None;
-                    }
-                    fields.push(format!("obfs-host={host}"));
-                    fields.push(format!("obfs-uri={path}"));
-                    fields.push("tls-verification=true".to_owned());
-                    if let Some(alpn) = options.alpn() {
-                        fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
-                    }
-                }
-            }
         }
-        VlessTransport::Grpc { .. } => return None,
     }
     fields.push("udp-relay=true".to_owned());
     fields.push("fast-open=false".to_owned());
@@ -300,8 +296,32 @@ fn render_trojan_line(
     }
 
     let mut fields = vec![format!("trojan={endpoint}"), format!("password={password}")];
-    match trojan.transport() {
-        VlessTransport::Tcp => match trojan.security() {
+    if let VlessTransport::WebSocket { path, host } = trojan.transport() {
+        if !is_safe_field(path) {
+            return None;
+        }
+        let sni = trojan.security().tls_options().server_name();
+        let host = host.as_deref().unwrap_or(sni);
+        if !is_safe_field(host) {
+            return None;
+        }
+        fields.push("obfs=wss".to_owned());
+        fields.push(format!("obfs-host={host}"));
+        fields.push(format!("obfs-uri={path}"));
+        match trojan.security() {
+            TrojanSecurity::Tls(options) => {
+                fields.push("tls-verification=true".to_owned());
+                if let Some(alpn) = options.alpn() {
+                    fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
+                }
+            }
+            TrojanSecurity::Reality(options) => {
+                fields.push("tls-verification=true".to_owned());
+                push_trojan_reality_fields(&mut fields, options);
+            }
+        }
+    } else {
+        match trojan.security() {
             TrojanSecurity::Tls(options) => {
                 push_trojan_tls_fields(&mut fields, options.server_name(), options.alpn())?;
             }
@@ -309,33 +329,7 @@ fn render_trojan_line(
                 push_trojan_tls_fields(&mut fields, options.tls().server_name(), None)?;
                 push_trojan_reality_fields(&mut fields, options);
             }
-        },
-        VlessTransport::WebSocket { path, host } => {
-            if !is_safe_field(path) {
-                return None;
-            }
-            let sni = trojan.security().tls_options().server_name();
-            let host = host.as_deref().unwrap_or(sni);
-            if !is_safe_field(host) {
-                return None;
-            }
-            fields.push("obfs=wss".to_owned());
-            fields.push(format!("obfs-host={host}"));
-            fields.push(format!("obfs-uri={path}"));
-            match trojan.security() {
-                TrojanSecurity::Tls(options) => {
-                    fields.push("tls-verification=true".to_owned());
-                    if let Some(alpn) = options.alpn() {
-                        fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
-                    }
-                }
-                TrojanSecurity::Reality(options) => {
-                    fields.push("tls-verification=true".to_owned());
-                    push_trojan_reality_fields(&mut fields, options);
-                }
-            }
         }
-        VlessTransport::Grpc { .. } => return None,
     }
     fields.push("udp-relay=true".to_owned());
     fields.push("fast-open=false".to_owned());
