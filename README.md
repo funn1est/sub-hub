@@ -36,15 +36,10 @@ mise install
 cargo run --locked -p sub-hub-native
 ```
 
-The safe default listener is `127.0.0.1:25500`:
+The safe default listener is `127.0.0.1:25500`. Verify it with:
 
 ```sh
 curl http://127.0.0.1:25500/version
-
-curl --get http://127.0.0.1:25500/sub \
-  --data-urlencode 'target=clash' \
-  --data-urlencode 'url=vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha' \
-  --output sub-hub-mihomo.yaml
 ```
 
 ## Current HTTP surface
@@ -72,8 +67,8 @@ Omit `expand` or set `expand=false` to leave HTTPS subscriptions as client
 remote refs on targets that can name them. `expand=true` inlines remotes.
 The Web Console switch defaults on and writes `expand=true`. `singbox`
 still inlines when `expand` is omitted. Optional `filename` is a
-download-name stem (1–64 bytes); the service appends the per-target
-extension.
+download-name stem (1–64 bytes, no path or Windows reserved
+characters); the service appends the per-target extension.
 
 There is no POST conversion, capabilities endpoint, or administration API.
 `GET /version` stays public when tokens are set. Unsupported or invalid
@@ -92,18 +87,10 @@ Windows). Those downloads are a convenience for running without a Rust
 toolchain; they are not signed or notarized, do not include the Web
 Console, and may be blocked by SmartScreen or Gatekeeper.
 
-The workspace is pinned to Rust 1.97.1. Start the development build with:
-
-```sh
-cargo run --locked -p sub-hub-native
-```
-
-The safe default listener is `127.0.0.1:25500`. Verify it and convert one direct
+The safe default listener is `127.0.0.1:25500`. Convert one direct
 share URI with:
 
 ```sh
-curl http://127.0.0.1:25500/version
-
 curl --get http://127.0.0.1:25500/sub \
   --data-urlencode 'target=clash' \
   --data-urlencode 'url=vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha' \
@@ -146,7 +133,8 @@ cargo check --locked -p sub-hub-http --target wasm32-unknown-unknown
 
 Use `cargo fmt --all` without `--check` to apply formatting locally. GitHub's `CI` workflow runs
 these repository-wide gates and Worker conformance once per revision; the separate Mihomo workflow
-is limited to its pinned two-version external acceptance matrix.
+is limited to its pinned two-version external acceptance matrix, and the separate sing-box
+workflow is limited to one pinned official binary.
 
 ## Native deployment boundary
 
