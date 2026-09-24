@@ -5,9 +5,8 @@ use sub_hub_conversion::{
 use url::Url;
 
 use crate::{
-    RemoteAdapter, SessionBudget,
+    RemoteAdapter,
     broker::{BrokerSession, RemoteResource, UniqueFetchBatch},
-    remote_url::OutboundReject,
     userinfo::{SubscriptionUserInfoV1, parse_subscription_user_info},
 };
 
@@ -24,7 +23,7 @@ pub(crate) async fn run<A>(
 where
     A: RemoteAdapter,
 {
-    let budget = SessionBudget::production();
+    let budget = broker.budget;
     let mut drive = UniqueFlightSessionV1::start(
         sources,
         occurrence_urls.iter().map(Option::as_ref),
@@ -116,11 +115,6 @@ fn accept_outbound<'b, A: RemoteAdapter>(
     |url| {
         broker
             .accept_outbound(url)
-            .map_err(host_failure_from_outbound_reject)
+            .map_err(|_| UniqueFlightHostFailure::Rejected)
     }
-}
-
-/// Policy and port rejections both map to 400 Invalid request today.
-const fn host_failure_from_outbound_reject(_reject: OutboundReject) -> UniqueFlightHostFailure {
-    UniqueFlightHostFailure::Rejected
 }
