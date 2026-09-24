@@ -1,8 +1,3 @@
-//! Stage 1: strict ACL4SSR INI parsing and reference resolution.
-//!
-//! Produces the resolved [`Config`] consumed by policy compilation. Grammar,
-//! budgets, and reference validation live here; no I/O and no policy semantics.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use regex::{Regex, RegexBuilder};
