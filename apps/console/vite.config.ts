@@ -11,7 +11,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
-      includeAssets: ['icon.svg', 'theme-boot.js'],
+      includeAssets: ['icon.svg'],
       manifest: {
         name: 'Sub Hub Console',
         short_name: 'Sub Hub',

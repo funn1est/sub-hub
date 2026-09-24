@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { runInNewContext } from 'node:vm';
+import { describe, expect, it } from 'vitest';
 
 import {
   chromeFromPersistRaw,
@@ -20,17 +21,6 @@ type BootShot = {
 const bootPath = resolve(import.meta.dirname, '../../public/theme-boot.js');
 const indexPath = resolve(import.meta.dirname, '../../index.html');
 const headersPath = resolve(import.meta.dirname, '../../public/_headers');
-
-const previousGlobals = {
-  document: (globalThis as { document?: unknown }).document,
-  localStorage: (globalThis as { localStorage?: unknown }).localStorage,
-  navigator: (globalThis as { navigator?: unknown }).navigator,
-  window: (globalThis as { window?: unknown }).window,
-};
-
-afterEach(() => {
-  restoreGlobals();
-});
 
 describe('chromeFromPersistRaw', () => {
   it('reads only top-level theme and locale from the persist blob', () => {
@@ -143,30 +133,6 @@ describe('Console first-paint shell', () => {
   });
 });
 
-function restoreGlobals() {
-  const target = globalThis as Record<string, unknown>;
-  if (previousGlobals.document === undefined) {
-    delete target.document;
-  } else {
-    target.document = previousGlobals.document;
-  }
-  if (previousGlobals.localStorage === undefined) {
-    delete target.localStorage;
-  } else {
-    target.localStorage = previousGlobals.localStorage;
-  }
-  if (previousGlobals.navigator === undefined) {
-    delete target.navigator;
-  } else {
-    target.navigator = previousGlobals.navigator;
-  }
-  if (previousGlobals.window === undefined) {
-    delete target.window;
-  } else {
-    target.window = previousGlobals.window;
-  }
-}
-
 function runThemeBoot(
   source: string,
   input: { raw: string | null; prefersDark: boolean; language: string },
@@ -246,7 +212,7 @@ function runThemeBoot(
     },
   };
 
-  Object.assign(globalThis, {
+  runInNewContext(source, {
     document,
     localStorage: {
       getItem(key: string) {
@@ -261,14 +227,9 @@ function runThemeBoot(
     },
   });
 
-  try {
-    new Function(source)();
-    return {
-      lang: state.lang,
-      className: [...classes].sort(),
-      themeColors: metas.map((meta) => ({ content: meta.content, media: meta.media })),
-    };
-  } finally {
-    restoreGlobals();
-  }
+  return {
+    lang: state.lang,
+    className: [...classes].sort(),
+    themeColors: metas.map((meta) => ({ content: meta.content, media: meta.media })),
+  };
 }
