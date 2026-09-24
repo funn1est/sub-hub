@@ -72,7 +72,7 @@ export function VersionBadge({ state, copy }: { state: VersionState; copy: Retur
   if (state.status === 'checking') {
     return (
       <Badge variant="outline">
-        <Spinner />
+        <Spinner decorative />
         <span className="sr-only">{copy.versionChecking}</span>
       </Badge>
     );

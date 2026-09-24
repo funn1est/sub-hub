@@ -1,4 +1,4 @@
-import type { Locale } from './persist.ts';
+import { defaultLocale, type Locale } from './persist.ts';
 import type { KnownServiceError } from './service-contract.ts';
 import { targetConsumers } from './target-consumers.ts';
 import type { ClientTarget } from './workshop.ts';
@@ -149,6 +149,7 @@ export const messages = {
     copyUrl: 'Copy URL',
     copied: 'Copied',
     copyFailed: 'Could not copy',
+    closeToast: 'Close toast',
     overLimit:
       'This GET target is 8 KiB or larger. Preview is blocked; the Conversion Service will return 414.',
     preview: 'Preview',
@@ -294,6 +295,7 @@ export const messages = {
     copyUrl: '复制 URL',
     copied: '已复制',
     copyFailed: '无法复制',
+    closeToast: '关闭通知',
     overLimit: '这条 GET 目标已达到或超过 8 KiB。Preview 已阻止；Conversion Service 会返回 414。',
     preview: 'Preview',
     previewBlocked: '填好 origin 和至少一条源后才会发出 Subscription URL。',
@@ -330,6 +332,10 @@ export type Messages = (typeof messages)[Locale];
 
 export function t(locale: Locale): Messages {
   return messages[locale];
+}
+
+export function closeToastLabel(language: string): string {
+  return messages[defaultLocale(language)].closeToast;
 }
 
 export function knownErrorTitle(locale: Locale, body: KnownServiceError): string {
