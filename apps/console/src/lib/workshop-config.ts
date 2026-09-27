@@ -55,6 +55,18 @@ export function configChoiceGroups(copy: Messages): ConfigChoiceGroup[] {
   ];
 }
 
+export function configChoiceLabel(item: ConfigChoice): string {
+  return item.detail ? `${item.label} · ${item.detail}` : item.label;
+}
+
+export function configChoiceMatches(item: ConfigChoice, query: string): boolean {
+  const needle = query.trim().toLocaleLowerCase();
+  if (needle.length === 0) {
+    return true;
+  }
+  return item.search.toLocaleLowerCase().includes(needle);
+}
+
 export function selectedConfigChoice(
   groups: readonly ConfigChoiceGroup[],
   id: ConfigSelectionId,
