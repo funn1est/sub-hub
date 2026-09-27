@@ -27,7 +27,12 @@ import { Switch } from '@/components/ui/switch.tsx';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx';
 import { capabilityHint, t, targetHint } from '@/lib/i18n.ts';
 import type { Locale } from '@/lib/persist.ts';
-import { type ConfigChoice, type ConfigChoiceGroup } from '@/lib/workshop-config.ts';
+import {
+  configChoiceLabel,
+  configChoiceMatches,
+  type ConfigChoice,
+  type ConfigChoiceGroup,
+} from '@/lib/workshop-config.ts';
 import type { WorkshopSessionActions } from '@/lib/workshop-session.ts';
 import { CLIENT_TARGETS, isClientTarget, urlField, type WorkshopFields } from '@/lib/workshop.ts';
 import { SectionCard } from '@/components/workshop-section.tsx';
@@ -104,7 +109,8 @@ export function WorkshopOptions({
               }
               actions.selectConfig(item.id);
             }}
-            itemToStringLabel={(item) => item.search}
+            itemToStringLabel={configChoiceLabel}
+            filter={configChoiceMatches}
           >
             <ComboboxTrigger
               id="config-preset"
@@ -112,15 +118,12 @@ export function WorkshopOptions({
                 <Button variant="outline" className="w-full min-w-0 justify-between font-normal" />
               }
             >
-              <span className="min-w-0 truncate">
-                {selectedConfig.detail
-                  ? `${selectedConfig.label} · ${selectedConfig.detail}`
-                  : selectedConfig.label}
-              </span>
+              <span className="min-w-0 truncate">{configChoiceLabel(selectedConfig)}</span>
             </ComboboxTrigger>
             <ComboboxContent>
               <ComboboxInput
                 placeholder={copy.configSearch}
+                aria-label={copy.configSearch}
                 showTrigger={false}
                 autoComplete="off"
                 autoCapitalize="none"
