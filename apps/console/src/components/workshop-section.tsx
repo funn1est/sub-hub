@@ -79,7 +79,7 @@ export function VersionBadge({ state, copy }: { state: VersionState; copy: Retur
   }
   if (state.status === 'ok') {
     return (
-      <Badge variant="secondary" className="max-w-full truncate" aria-label={copy.versionOk}>
+      <Badge variant="secondary" className="max-w-full truncate">
         {state.body}
       </Badge>
     );
