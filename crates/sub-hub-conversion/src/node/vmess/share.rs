@@ -10,7 +10,7 @@ use crate::node::{
     UnsupportedCapability,
     uri::parse_endpoint,
     vless::{
-        ClientFingerprint, GrpcMode, VlessTransport,
+        ClientFingerprint, VlessTransport,
         share::{
             build_tls_options, is_canonical_uuid, parse_alpn, parse_fingerprint, require_nonempty,
         },
@@ -369,17 +369,13 @@ fn build_transport(
                     UnsupportedCapability::TransportOption,
                 ));
             }
-            let mode = match kind {
-                "" | "none" | "gun" => GrpcMode::Gun,
-                _ => {
-                    return Err(NodeRejection::Unsupported(
-                        UnsupportedCapability::TransportOption,
-                    ));
-                }
-            };
+            if !matches!(kind, "" | "none" | "gun") {
+                return Err(NodeRejection::Unsupported(
+                    UnsupportedCapability::TransportOption,
+                ));
+            }
             Ok(VlessTransport::Grpc {
                 service_name: path,
-                mode,
             })
         }
         "http" | "h2" | "kcp" | "quic" | "httpupgrade" | "xhttp" | "splithttp" => {

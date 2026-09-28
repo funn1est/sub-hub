@@ -2,7 +2,7 @@ use super::{InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_share
 use crate::node::{
     Host, NodeNameInput, NodeProtocol,
     vless::{
-        ClientFingerprint, GrpcMode, RealityShortId, TlsOptions, VlessFlow, VlessSecurity,
+        ClientFingerprint, RealityShortId, TlsOptions, VlessFlow, VlessSecurity,
         VlessTransport,
     },
 };
@@ -245,7 +245,6 @@ fn vless_transport_options_are_typed_and_scoped() {
         grpc.transport(),
         &VlessTransport::Grpc {
             service_name: Some("svc+name".into()),
-            mode: GrpcMode::Gun,
         }
     );
 
@@ -257,7 +256,6 @@ fn vless_transport_options_are_typed_and_scoped() {
         grpc_defaults.transport(),
         &VlessTransport::Grpc {
             service_name: None,
-            mode: GrpcMode::Gun,
         }
     );
 
