@@ -71,7 +71,7 @@ fn encode_node(node: &ProxyNode) -> Result<(String, ProxyEntry), NodeKeep> {
 fn proxy_entry(node: &ProxyNode, tag: &str) -> Option<ProxyEntry> {
     match node.protocol() {
         NodeProtocol::Vless(vless) => Some(ProxyEntry::Vless {
-            vless: Box::new(vless_proxy(node, vless, tag)?),
+            vless: Box::new(vless_proxy(node, vless, tag)),
         }),
         NodeProtocol::Shadowsocks(shadowsocks) => Some(ProxyEntry::Shadowsocks {
             shadowsocks: Box::new(ShadowsocksProxy {
@@ -265,14 +265,8 @@ fn vless_proxy(
     node: &ProxyNode,
     vless: &crate::node::vless::VlessNode,
     tag: &str,
-) -> Option<VlessProxy> {
-    if matches!(
-        (vless.transport(), vless.security()),
-        (VlessTransport::WebSocket { .. }, VlessSecurity::Reality(_))
-    ) {
-        return None;
-    }
-    Some(VlessProxy {
+) -> VlessProxy {
+    VlessProxy {
         name: tag.to_owned(),
         server: render_host_plain(node.endpoint().host()),
         port: node.endpoint().port().get(),
@@ -283,7 +277,7 @@ fn vless_proxy(
         tfo: false,
         udp_relay: true,
         transport: vless_transport(vless),
-    })
+    }
 }
 
 fn vless_transport(vless: &crate::node::vless::VlessNode) -> Option<Transport> {
@@ -297,15 +291,8 @@ fn vless_transport(vless: &crate::node::vless::VlessNode) -> Option<Transport> {
             let headers = host.as_deref().map(|host| WsHeaders {
                 host: host.to_owned(),
             });
-            match vless.security() {
-                VlessSecurity::None => Some(Transport {
-                    ws: Some(WsTransport {
-                        path: path.clone(),
-                        headers,
-                    }),
-                    ..Transport::empty()
-                }),
-                VlessSecurity::Tls(options) => Some(Transport {
+            if let VlessSecurity::Tls(options) = vless.security() {
+                Some(Transport {
                     wss: Some(WssTransport {
                         path: path.clone(),
                         headers,
@@ -313,8 +300,15 @@ fn vless_transport(vless: &crate::node::vless::VlessNode) -> Option<Transport> {
                         skip_tls_verify: Some(false),
                     }),
                     ..Transport::empty()
-                }),
-                VlessSecurity::Reality(_) => None,
+                })
+            } else {
+                Some(Transport {
+                    ws: Some(WsTransport {
+                        path: path.clone(),
+                        headers,
+                    }),
+                    ..Transport::empty()
+                })
             }
         }
         VlessTransport::Grpc { service_name, .. } => Some(Transport {

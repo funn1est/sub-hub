@@ -276,9 +276,6 @@ fn render_vless_line(
     if has_vision != has_reality {
         return None;
     }
-    if has_reality && !matches!(vless.transport(), VlessTransport::Tcp) {
-        return None;
-    }
 
     let uuid = quote(&vless.id().as_uuid().hyphenated().to_string())?;
     let mut fields = vec![
