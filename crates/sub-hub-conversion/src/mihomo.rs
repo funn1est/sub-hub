@@ -690,7 +690,7 @@ fn transport_opts(
             }),
             None,
         ),
-        VlessTransport::Grpc { service_name, .. } => (
+        VlessTransport::Grpc { service_name } => (
             "grpc",
             None,
             service_name

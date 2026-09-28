@@ -160,7 +160,7 @@ fn stream_transport(transport: &VlessTransport) -> Option<Transport<'_>> {
             headers: host.as_deref().map(|host| TransportHeaders { host }),
             service_name: None,
         }),
-        VlessTransport::Grpc { service_name, .. } => Some(Transport {
+        VlessTransport::Grpc { service_name } => Some(Transport {
             kind: "grpc",
             path: None,
             headers: None,
