@@ -270,12 +270,6 @@ fn vless_proxy(
     {
         return None;
     }
-    if matches!(
-        (vless.transport(), vless.security()),
-        (VlessTransport::WebSocket { .. }, VlessSecurity::Reality(_))
-    ) {
-        return None;
-    }
     Some(VlessProxy {
         name: tag.to_owned(),
         server: render_host_plain(node.endpoint().host()),
@@ -301,15 +295,8 @@ fn vless_transport(vless: &crate::node::vless::VlessNode) -> Option<Transport> {
             let headers = host.as_deref().map(|host| WsHeaders {
                 host: host.to_owned(),
             });
-            match vless.security() {
-                VlessSecurity::None => Some(Transport {
-                    ws: Some(WsTransport {
-                        path: path.clone(),
-                        headers,
-                    }),
-                    ..Transport::empty()
-                }),
-                VlessSecurity::Tls(options) => Some(Transport {
+            if let VlessSecurity::Tls(options) = vless.security() {
+                Some(Transport {
                     wss: Some(WssTransport {
                         path: path.clone(),
                         headers,
@@ -317,8 +304,15 @@ fn vless_transport(vless: &crate::node::vless::VlessNode) -> Option<Transport> {
                         skip_tls_verify: Some(false),
                     }),
                     ..Transport::empty()
-                }),
-                VlessSecurity::Reality(_) => None,
+                })
+            } else {
+                Some(Transport {
+                    ws: Some(WsTransport {
+                        path: path.clone(),
+                        headers,
+                    }),
+                    ..Transport::empty()
+                })
             }
         }
         VlessTransport::Grpc { service_name } => Some(Transport {
