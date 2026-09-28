@@ -374,9 +374,7 @@ fn build_transport(
                     UnsupportedCapability::TransportOption,
                 ));
             }
-            Ok(VlessTransport::Grpc {
-                service_name: path,
-            })
+            Ok(VlessTransport::Grpc { service_name: path })
         }
         "http" | "h2" | "kcp" | "quic" | "httpupgrade" | "xhttp" | "splithttp" => {
             Err(NodeRejection::Unsupported(UnsupportedCapability::Transport))

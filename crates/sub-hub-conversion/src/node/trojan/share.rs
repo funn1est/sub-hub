@@ -3,8 +3,7 @@ use crate::node::{
     UnsupportedCapability, percent,
     uri::{parse_authority_uri, parse_endpoint, scan_query},
     vless::{
-        ClientFingerprint, RealityOptions, VlessSecurityKind, VlessTransport,
-        VlessTransportKind,
+        ClientFingerprint, RealityOptions, VlessSecurityKind, VlessTransport, VlessTransportKind,
         share::{
             ParameterContext, ShortIdParameter, StreamQueryBase, apply_shared_stream_query_pair,
             build_tls_options, nonempty_owned, require_compatible, require_nonempty,

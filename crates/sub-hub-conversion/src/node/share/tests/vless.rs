@@ -2,8 +2,7 @@ use super::{InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_share
 use crate::node::{
     Host, NodeNameInput, NodeProtocol,
     vless::{
-        ClientFingerprint, RealityShortId, TlsOptions, VlessFlow, VlessSecurity,
-        VlessTransport,
+        ClientFingerprint, RealityShortId, TlsOptions, VlessFlow, VlessSecurity, VlessTransport,
     },
 };
 
@@ -254,9 +253,7 @@ fn vless_transport_options_are_typed_and_scoped() {
     };
     assert_eq!(
         grpc_defaults.transport(),
-        &VlessTransport::Grpc {
-            service_name: None,
-        }
+        &VlessTransport::Grpc { service_name: None }
     );
 
     let rejected = [

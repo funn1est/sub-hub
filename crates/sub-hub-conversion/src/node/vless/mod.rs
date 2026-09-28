@@ -108,13 +108,8 @@ impl fmt::Debug for VlessId {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum VlessTransport {
     Tcp,
-    WebSocket {
-        path: String,
-        host: Option<String>,
-    },
-    Grpc {
-        service_name: Option<String>,
-    },
+    WebSocket { path: String, host: Option<String> },
+    Grpc { service_name: Option<String> },
 }
 
 impl VlessTransport {
