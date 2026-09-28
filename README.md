@@ -296,7 +296,8 @@ Do not add `SUB_HUB_ACCESS_TOKEN` with **Secret** unchecked. That row is
 visible in the Dashboard and shadows a **Secret** of the same **Name**.
 Delete that row.
 
-This change does **not** need a Workers Builds rebuild. The form action is
+If you add or replace `SUB_HUB_ACCESS_TOKEN` in the Dashboard, you do
+**not** need a Workers Builds rebuild. The form action is
 **Add 1 variables**, not a rebuild. `wrangler secret put` does the same.
 Later git deploys use `--keep-vars` and keep the **Secret**.
 
