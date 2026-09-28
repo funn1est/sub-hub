@@ -371,6 +371,9 @@ pub fn build_router_with_console(
         }))
 }
 
+/// # Errors
+///
+/// Returns [`RunError`] if binding or serving fails.
 pub async fn serve(config: NativeConfig) -> Result<(), RunError> {
     if config.access_tokens.is_empty() {
         eprintln!("sub-hub-native: SUB_HUB_ACCESS_TOKEN is unset; GET /sub is anonymous");
