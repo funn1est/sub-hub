@@ -211,9 +211,11 @@ fn vmess_transport(vmess: &crate::node::vmess::VmessNode) -> Option<Transport> {
                 }),
             }
         }
-        VlessTransport::Grpc { service_name, .. } => match vmess.security() {
-            VmessSecurity::None => None,
-            VmessSecurity::Tls(options) => Some(Transport {
+        VlessTransport::Grpc { service_name, .. } => {
+            let VmessSecurity::Tls(options) = vmess.security() else {
+                return None;
+            };
+            Some(Transport {
                 grpc: Some(GrpcTransport {
                     service_name: service_name.clone(),
                     sni: Some(options.server_name().to_owned()),
@@ -221,8 +223,8 @@ fn vmess_transport(vmess: &crate::node::vmess::VmessNode) -> Option<Transport> {
                     reality: None,
                 }),
                 ..Transport::empty()
-            }),
-        },
+            })
+        }
     }
 }
 
