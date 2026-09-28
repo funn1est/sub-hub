@@ -79,8 +79,6 @@ impl RemoteAdapter for CloudflareRemoteAdapter {
 }
 
 #[event(fetch)]
-/// Handles one Cloudflare Workers fetch event.
-///
 /// # Errors
 ///
 /// Returns an error only if the runtime cannot construct even the fixed fallback response.

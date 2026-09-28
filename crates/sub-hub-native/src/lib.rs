@@ -173,7 +173,6 @@ impl From<std::io::Error> for RunError {
     }
 }
 
-/// The production single-hop HTTPS adapter used by the host-neutral broker.
 pub struct NativeRemoteAdapter {
     clock_origin: Instant,
     resolver: Arc<dyn DestinationResolver>,
@@ -372,8 +371,6 @@ pub fn build_router_with_console(
         }))
 }
 
-/// Binds and serves until the runtime stops the task.
-///
 /// # Errors
 ///
 /// Returns [`RunError`] if binding or serving fails.
