@@ -78,6 +78,9 @@ impl RemoteAdapter for CloudflareRemoteAdapter {
 }
 
 #[event(fetch)]
+/// # Errors
+///
+/// Returns an error only if the runtime cannot construct even the fixed fallback response.
 pub async fn fetch(
     request: worker::HttpRequest,
     environment: Env,
