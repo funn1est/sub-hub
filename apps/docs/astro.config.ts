@@ -17,7 +17,6 @@ export default defineConfig({
   },
   integrations: [
     sitemap({
-      filter: (page) => !page.endsWith("robots.txt"),
       i18n: {
         defaultLocale: "en",
         locales: {
