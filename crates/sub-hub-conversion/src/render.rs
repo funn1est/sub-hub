@@ -201,7 +201,6 @@ impl fmt::Display for ConversionRenderError {
 
 impl std::error::Error for ConversionRenderError {}
 
-/// Signature shared by the five per-target policy renderers.
 pub(crate) type RenderFromPolicyFn =
     fn(&[&ProxyNode], &CompiledPolicyV1, usize) -> Result<RenderedTargetV1, AdapterRenderError>;
 
