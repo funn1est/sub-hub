@@ -1,8 +1,11 @@
-# Deploy-to-Cloudflare / Workers Builds when the clone root is this
-# repository. Layout `all`: Conversion plus same-origin Console.
-# Local maintainer publish stays `cd crates/sub-hub-worker && pnpm run deploy`
-# (that crate wrangler.toml). Do not add Cloudflare account fields or
-# KV / D1 / R2 / Secrets Store bindings.
+# Deploy-to-Cloudflare button contract when the clone root is this
+# repository (root `package.json` `build` / `deploy`). Layout `all`:
+# Conversion plus same-origin Console.
+# Workers Builds (Dashboard root `crates/sub-hub-worker`) uses that crate
+# wrangler.toml. Local maintainer publish stays
+# `cd crates/sub-hub-worker && pnpm run deploy`.
+# Do not add Cloudflare account fields or KV / D1 / R2 / Secrets Store
+# bindings.
 
 name = "sub-hub"
 main = "crates/sub-hub-worker/build/worker/shim.mjs"
