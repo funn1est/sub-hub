@@ -19,8 +19,8 @@ use crate::{
 };
 
 pub struct Application<A> {
-    pub(crate) adapter: A,
-    pub(crate) self_hosts: SelfHosts,
+    adapter: A,
+    self_hosts: SelfHosts,
     access_tokens: AccessTokens,
     cors_origins: CorsOrigins,
 }
@@ -199,7 +199,7 @@ struct SubRequestPlan {
     occurrence_urls: Vec<Option<Url>>,
 }
 
-pub(crate) fn finish_subscription(
+fn finish_subscription(
     target: OutputTarget,
     config: RenderedConfig,
     metadata: Option<SubscriptionUserInfoV1>,
