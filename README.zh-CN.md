@@ -272,7 +272,8 @@ token。第一次构建成功后，可以在这里添加绑定。未设置
 不要在未勾选 **密钥** 的情况下添加 `SUB_HUB_ACCESS_TOKEN`。那一行会在
 Dashboard 里可见，并盖住同 **名称** 的 **密钥**。删掉那一行。
 
-这次改动 **不用**再跑 Workers Builds。表单按钮是 **添加 1 个变量**，不是
+若在 Dashboard 里添加或替换 `SUB_HUB_ACCESS_TOKEN`，**不用**再跑
+Workers Builds。表单按钮是 **添加 1 个变量**，不是
 重新构建。`wrangler secret put` 效果相同。之后的 git 发布带
 `--keep-vars`，会保留这条 **密钥**。
 
