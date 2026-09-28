@@ -2,7 +2,7 @@ use http::{Method, StatusCode, header};
 use sub_hub_http::{AccessTokens, Application, HttpRequest, HttpResponse, SelfHosts};
 
 mod common;
-use common::{handle as anonymous, UnreachableRemote, VERSION_BODY};
+use common::{UnreachableRemote, VERSION_BODY, handle as anonymous};
 
 const TOKEN: &str = "deployer-token";
 const DIRECT_QUERY: &str = concat!(

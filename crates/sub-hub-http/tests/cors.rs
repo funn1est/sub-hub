@@ -2,7 +2,7 @@ use http::{Method, StatusCode, header};
 use sub_hub_http::{AccessTokens, Application, CorsOrigins, HttpRequest, HttpResponse, SelfHosts};
 
 mod common;
-use common::{handle, UnreachableRemote};
+use common::{UnreachableRemote, handle};
 
 const DIRECT_QUERY: &str = concat!(
     "target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef",
