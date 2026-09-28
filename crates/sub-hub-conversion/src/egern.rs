@@ -261,11 +261,7 @@ fn trojan_proxy(
     })
 }
 
-fn vless_proxy(
-    node: &ProxyNode,
-    vless: &crate::node::vless::VlessNode,
-    tag: &str,
-) -> VlessProxy {
+fn vless_proxy(node: &ProxyNode, vless: &crate::node::vless::VlessNode, tag: &str) -> VlessProxy {
     VlessProxy {
         name: tag.to_owned(),
         server: render_host_plain(node.endpoint().host()),
