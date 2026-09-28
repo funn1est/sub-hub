@@ -181,30 +181,26 @@ fn render_vless_line(
             if !is_safe_field(path) {
                 return None;
             }
-            match vless.security() {
-                VlessSecurity::None => {
-                    fields.push("obfs=ws".to_owned());
-                    if let Some(host) = host {
-                        if !is_safe_field(host) {
-                            return None;
-                        }
-                        fields.push(format!("obfs-host={host}"));
-                    }
-                    fields.push(format!("obfs-uri={path}"));
+            if let VlessSecurity::Tls(options) = vless.security() {
+                fields.push("obfs=wss".to_owned());
+                let host = host.as_deref().unwrap_or(options.server_name());
+                if !is_safe_field(host) {
+                    return None;
                 }
-                VlessSecurity::Tls(options) => {
-                    fields.push("obfs=wss".to_owned());
-                    let host = host.as_deref().unwrap_or(options.server_name());
+                fields.push(format!("obfs-host={host}"));
+                fields.push(format!("obfs-uri={path}"));
+                if let Some(alpn) = options.alpn() {
+                    fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
+                }
+            } else {
+                fields.push("obfs=ws".to_owned());
+                if let Some(host) = host {
                     if !is_safe_field(host) {
                         return None;
                     }
                     fields.push(format!("obfs-host={host}"));
-                    fields.push(format!("obfs-uri={path}"));
-                    if let Some(alpn) = options.alpn() {
-                        fields.push(format!("tls-alpn={}", encode_alpn_hex(alpn)?));
-                    }
                 }
-                VlessSecurity::Reality(_) => return None,
+                fields.push(format!("obfs-uri={path}"));
             }
         }
         VlessTransport::Grpc { .. } => return None,
