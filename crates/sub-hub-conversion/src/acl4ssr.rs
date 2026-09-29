@@ -79,12 +79,9 @@ impl PreparedAcl4SsrV1 {
         let mut remote_rule_sets = Vec::new();
         let mut rules = Vec::new();
         let mut rs_index = 0_usize;
-        for directive in &self.config.directives {
-            match directive {
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::Remote(url),
-                } => {
+        for Directive { target, source } in &self.config.directives {
+            match source {
+                RuleSource::Remote(url) => {
                     rs_index += 1;
                     let policy_target = match target {
                         TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
@@ -99,10 +96,7 @@ impl PreparedAcl4SsrV1 {
                         policy_target,
                     ));
                 }
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::GeoIpCn,
-                } => rules.push(crate::policy::CompiledRuleV1::new(
+                RuleSource::GeoIpCn => rules.push(crate::policy::CompiledRuleV1::new(
                     crate::policy::RuleMatcherV1::GeoIpCn,
                     match target {
                         TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
@@ -112,10 +106,7 @@ impl PreparedAcl4SsrV1 {
                         }
                     },
                 )),
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::Final,
-                } => rules.push(crate::policy::CompiledRuleV1::new(
+                RuleSource::Final => rules.push(crate::policy::CompiledRuleV1::new(
                     crate::policy::RuleMatcherV1::Match,
                     match target {
                         TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
@@ -402,14 +393,11 @@ pub(crate) fn prepare(
     let requests = config
         .directives
         .iter()
-        .filter_map(|directive| match directive {
-            Directive::Ruleset {
-                source: RuleSource::Remote(url),
-                ..
-            } => Some(Acl4SsrRuleSetRequestV1 {
+        .filter_map(|directive| match &directive.source {
+            RuleSource::Remote(url) => Some(Acl4SsrRuleSetRequestV1 {
                 url: url.declared.clone(),
             }),
-            Directive::Ruleset { .. } => None,
+            RuleSource::GeoIpCn | RuleSource::Final => None,
         })
         .collect();
     Ok(PreparedAcl4SsrV1 {
