@@ -45,7 +45,7 @@ export function outboundUserAgent(version) {
   return `sub-hub/${parseSemver(version).raw}`;
 }
 
-export function tomlSection(text, header) {
+function tomlSection(text, header) {
   const escaped = header.replaceAll(".", "\\.");
   const startRe = new RegExp(`^\\[${escaped}\\][ \\t]*\\r?\\n`, "m");
   const match = startRe.exec(text);
@@ -106,7 +106,7 @@ function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function setLockfilePackageVersions(lockfile, names, oldVersion, newVersion) {
+function setLockfilePackageVersions(lockfile, names, oldVersion, newVersion) {
   parseSemver(oldVersion);
   const next = parseSemver(newVersion).raw;
   let updated = lockfile;
@@ -122,7 +122,7 @@ export function setLockfilePackageVersions(lockfile, names, oldVersion, newVersi
   return updated;
 }
 
-export function setJsonPackageVersion(text, newVersion) {
+function setJsonPackageVersion(text, newVersion) {
   const next = parseSemver(newVersion).raw;
   const pkg = JSON.parse(text);
   if (typeof pkg.version !== "string") {
