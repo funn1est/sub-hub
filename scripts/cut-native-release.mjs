@@ -65,7 +65,7 @@ function gitText(git, args, options) {
   return (git(args, options).stdout || "").trim();
 }
 
-export function assertReleaseGitState(root, tag, { git = runGit, fetch = true } = {}) {
+function assertReleaseGitState(root, tag, { git = runGit, fetch = true } = {}) {
   if (fetch) {
     git(["fetch", "origin"], { cwd: root });
   }
