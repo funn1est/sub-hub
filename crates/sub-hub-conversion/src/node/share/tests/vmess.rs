@@ -241,3 +241,22 @@ fn vmess_duplicate_json_keys_are_rejected() {
         NodeRejection::Invalid(InvalidNodeReason::DuplicateParameter)
     );
 }
+
+#[test]
+fn vmess_malformed_json_is_invalid_uri() {
+    let trailing = format!(r#"{{"add":"example.com","port":443,"id":"{ID}"}} trailing"#);
+    for json in [
+        "{",
+        "[]",
+        "null",
+        r#""not-an-object""#,
+        r#"{"add":"example.com""#,
+        trailing.as_str(),
+    ] {
+        assert_eq!(
+            rejection(&uri(json)),
+            NodeRejection::Invalid(InvalidNodeReason::Uri),
+            "fixture: {json}"
+        );
+    }
+}
