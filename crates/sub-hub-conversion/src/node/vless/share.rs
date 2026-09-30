@@ -118,7 +118,9 @@ impl<S: Copy + Eq> ParameterContext<S> {
     }
 
     pub(crate) fn security_uses_tls(&self) -> bool {
-        self.security.as_ref().copied().is_some_and(self.uses_tls)
+        self.security
+            .as_ref()
+            .is_ok_and(|security| (self.uses_tls)(*security))
     }
 
     fn security_is_reality(&self) -> bool {
