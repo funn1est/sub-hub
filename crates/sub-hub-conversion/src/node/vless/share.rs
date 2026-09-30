@@ -46,9 +46,9 @@ pub(crate) enum ShortIdParameter {
 }
 
 /// Shared stream-query fields for VLESS and Trojan share-URIs.
-pub(crate) struct StreamQueryBase {
+pub(crate) struct StreamQueryBase<S = VlessSecurityKind> {
     pub transport: VlessTransportKind,
-    pub security: VlessSecurityKind,
+    pub security: S,
     pub path: Option<String>,
     pub host: Option<String>,
     pub service_name: Option<String>,
@@ -60,8 +60,8 @@ pub(crate) struct StreamQueryBase {
     pub short_id: Option<ShortIdParameter>,
 }
 
-impl StreamQueryBase {
-    pub(crate) fn new(security: VlessSecurityKind) -> Self {
+impl<S> StreamQueryBase<S> {
+    pub(crate) fn new(security: S) -> Self {
         Self {
             transport: VlessTransportKind::Tcp,
             security,
@@ -78,16 +78,20 @@ impl StreamQueryBase {
     }
 }
 
-pub(crate) struct ParameterContext {
+pub(crate) struct ParameterContext<S = VlessSecurityKind> {
     transport: Result<VlessTransportKind, NodeRejection>,
-    security: Result<VlessSecurityKind, NodeRejection>,
+    security: Result<S, NodeRejection>,
+    reality: S,
+    uses_tls: fn(S) -> bool,
 }
 
-impl ParameterContext {
+impl<S: Copy + Eq> ParameterContext<S> {
     pub(crate) fn from_pairs(
         pairs: &[QueryPair<'_>],
-        default_security: VlessSecurityKind,
-        parse_security: fn(&str) -> Result<VlessSecurityKind, NodeRejection>,
+        default_security: S,
+        parse_security: fn(&str) -> Result<S, NodeRejection>,
+        reality: S,
+        uses_tls: fn(S) -> bool,
     ) -> Self {
         let transport = parameter_value(pairs, "type")
             .map_or(Ok(VlessTransportKind::Tcp), parse_transport_kind);
@@ -96,6 +100,8 @@ impl ParameterContext {
         Self {
             transport,
             security,
+            reality,
+            uses_tls,
         }
     }
 
@@ -105,18 +111,22 @@ impl ParameterContext {
             .is_ok_and(|actual| *actual == expected)
     }
 
-    fn security_is(&self, expected: VlessSecurityKind) -> bool {
+    fn security_is(&self, expected: S) -> bool {
         self.security
             .as_ref()
             .is_ok_and(|actual| *actual == expected)
     }
 
     pub(crate) fn security_uses_tls(&self) -> bool {
-        self.security
-            .as_ref()
-            .is_ok_and(|security| security.uses_tls())
+        self.security.as_ref().copied().is_some_and(self.uses_tls)
     }
 
+    fn security_is_reality(&self) -> bool {
+        self.security_is(self.reality)
+    }
+}
+
+impl ParameterContext<VlessSecurityKind> {
     pub(crate) fn flow_is_compatible(&self, flow: VlessFlow) -> bool {
         match (self.transport.as_ref(), self.security.as_ref()) {
             (Ok(transport), Ok(security)) => flow.is_compatible_with(*transport, *security),
@@ -126,9 +136,9 @@ impl ParameterContext {
 }
 
 /// Applies a shared stream-query key. Returns `false` when `key` is protocol-local.
-pub(crate) fn apply_shared_stream_query_pair(
-    parameters: &mut StreamQueryBase,
-    context: &ParameterContext,
+pub(crate) fn apply_shared_stream_query_pair<S: Copy + Clone + Eq>(
+    parameters: &mut StreamQueryBase<S>,
+    context: &ParameterContext<S>,
     key: &str,
     value: Cow<'_, str>,
 ) -> Result<bool, NodeRejection> {
@@ -184,7 +194,7 @@ pub(crate) fn apply_shared_stream_query_pair(
         "pbk" => {
             require_nonempty(&value)?;
             let public_key = parse_public_key(&value)?;
-            require_compatible(context.security_is(VlessSecurityKind::Reality))?;
+            require_compatible(context.security_is_reality())?;
             parameters.public_key = Some(public_key);
         }
         "sid" => {
@@ -193,7 +203,7 @@ pub(crate) fn apply_shared_stream_query_pair(
             } else {
                 ShortIdParameter::Value(parse_short_id(&value)?)
             };
-            require_compatible(context.security_is(VlessSecurityKind::Reality))?;
+            require_compatible(context.security_is_reality())?;
             parameters.short_id = Some(short_id);
         }
         "spx" | "spiderx" | "spiderX" => {}
@@ -217,8 +227,13 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
         return Ok(Parameters { base, flow });
     };
     let pairs = scan_query(query)?;
-    let context =
-        ParameterContext::from_pairs(&pairs, VlessSecurityKind::None, parse_security_kind);
+    let context = ParameterContext::from_pairs(
+        &pairs,
+        VlessSecurityKind::None,
+        parse_security_kind,
+        VlessSecurityKind::Reality,
+        VlessSecurityKind::uses_tls,
+    );
 
     for pair in pairs {
         let key = pair.key;
