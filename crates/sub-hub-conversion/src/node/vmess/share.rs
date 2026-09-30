@@ -1,5 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use serde::de::{Deserializer as _, MapAccess, Visitor};
+use serde::de::{self, Deserializer as _, MapAccess, Visitor};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -57,25 +57,30 @@ fn decode_payload(input: &str) -> Result<String, NodeRejection> {
 
 fn parse_object(json: &str) -> Result<serde_json::Map<String, Value>, NodeRejection> {
     let invalid_uri = || NodeRejection::Invalid(InvalidNodeReason::Uri);
+    let mut duplicate = None;
     let mut deserializer = serde_json::Deserializer::from_str(json);
-    match deserializer.deserialize_map(UniqueObjectVisitor) {
-        Ok(Err(DuplicateKeyError)) => Err(NodeRejection::Invalid(
-            InvalidNodeReason::DuplicateParameter,
-        )),
-        Ok(Ok(object)) => deserializer
+    match deserializer.deserialize_map(UniqueObjectVisitor {
+        duplicate: &mut duplicate,
+    }) {
+        Ok(object) => deserializer
             .end()
             .map(|()| object)
             .map_err(|_| invalid_uri()),
+        Err(_) if duplicate.is_some() => Err(NodeRejection::Invalid(
+            InvalidNodeReason::DuplicateParameter,
+        )),
         Err(_) => Err(invalid_uri()),
     }
 }
 
 struct DuplicateKeyError;
 
-struct UniqueObjectVisitor;
+struct UniqueObjectVisitor<'a> {
+    duplicate: &'a mut Option<DuplicateKeyError>,
+}
 
-impl<'de> Visitor<'de> for UniqueObjectVisitor {
-    type Value = Result<serde_json::Map<String, Value>, DuplicateKeyError>;
+impl<'de> Visitor<'de> for UniqueObjectVisitor<'_> {
+    type Value = serde_json::Map<String, Value>;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("a JSON object")
@@ -85,13 +90,25 @@ impl<'de> Visitor<'de> for UniqueObjectVisitor {
         let mut object = serde_json::Map::new();
         while let Some(key) = map.next_key::<String>()? {
             match object.entry(key) {
-                serde_json::map::Entry::Occupied(_) => return Ok(Err(DuplicateKeyError)),
+                serde_json::map::Entry::Occupied(_) => {
+                    // serde_json always end_map()s after visit_map and drops an
+                    // early Ok if the object is unfinished. Record the private
+                    // error and abort; do not read serde Display text.
+                    *self.duplicate = Some(DuplicateKeyError);
+                    return Err(de::Error::custom(DuplicateKeyError));
+                }
                 serde_json::map::Entry::Vacant(slot) => {
                     slot.insert(map.next_value()?);
                 }
             }
         }
-        Ok(Ok(object))
+        Ok(object)
+    }
+}
+
+impl std::fmt::Display for DuplicateKeyError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("duplicate key")
     }
 }
 
