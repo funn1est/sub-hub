@@ -1,7 +1,5 @@
-use std::collections::BTreeSet;
-
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use serde::de::{self, Deserializer as _, MapAccess, Visitor};
+use serde::de::{Deserializer as _, MapAccess, Visitor};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -58,46 +56,42 @@ fn decode_payload(input: &str) -> Result<String, NodeRejection> {
 }
 
 fn parse_object(json: &str) -> Result<serde_json::Map<String, Value>, NodeRejection> {
-    reject_duplicate_keys(json)?;
-    let value: Value =
-        serde_json::from_str(json).map_err(|_| NodeRejection::Invalid(InvalidNodeReason::Uri))?;
-    match value {
-        Value::Object(map) => Ok(map),
-        _ => Err(NodeRejection::Invalid(InvalidNodeReason::Uri)),
+    let invalid_uri = || NodeRejection::Invalid(InvalidNodeReason::Uri);
+    let mut deserializer = serde_json::Deserializer::from_str(json);
+    match deserializer.deserialize_map(UniqueObjectVisitor) {
+        Ok(Err(DuplicateKeyError)) => Err(NodeRejection::Invalid(
+            InvalidNodeReason::DuplicateParameter,
+        )),
+        Ok(Ok(object)) => deserializer
+            .end()
+            .map(|()| object)
+            .map_err(|_| invalid_uri()),
+        Err(_) => Err(invalid_uri()),
     }
 }
 
-fn reject_duplicate_keys(json: &str) -> Result<(), NodeRejection> {
-    let mut deserializer = serde_json::Deserializer::from_str(json);
-    deserializer
-        .deserialize_map(UniqueKeyVisitor)
-        .map_err(|error| {
-            if error.to_string().contains("duplicate_parameter") {
-                NodeRejection::Invalid(InvalidNodeReason::DuplicateParameter)
-            } else {
-                NodeRejection::Invalid(InvalidNodeReason::Uri)
-            }
-        })
-}
+struct DuplicateKeyError;
 
-struct UniqueKeyVisitor;
+struct UniqueObjectVisitor;
 
-impl<'de> Visitor<'de> for UniqueKeyVisitor {
-    type Value = ();
+impl<'de> Visitor<'de> for UniqueObjectVisitor {
+    type Value = Result<serde_json::Map<String, Value>, DuplicateKeyError>;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("a JSON object")
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-        let mut seen = BTreeSet::new();
+        let mut object = serde_json::Map::new();
         while let Some(key) = map.next_key::<String>()? {
-            if !seen.insert(key) {
-                return Err(de::Error::custom("duplicate_parameter"));
+            match object.entry(key) {
+                serde_json::map::Entry::Occupied(_) => return Ok(Err(DuplicateKeyError)),
+                serde_json::map::Entry::Vacant(slot) => {
+                    slot.insert(map.next_value()?);
+                }
             }
-            let _: Value = map.next_value()?;
         }
-        Ok(())
+        Ok(Ok(object))
     }
 }
 
