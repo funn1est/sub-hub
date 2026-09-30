@@ -51,13 +51,8 @@ pub(crate) fn render_mihomo_from_policy_v1(
         let target = mihomo_symbol(rule_set.target());
         rules.push(format!("RULE-SET,{},{target}", rule_set.name()));
     }
-    let (inline_rules, omitted_url_regex) = map_compiled_rules(policy.rules(), |rule| {
-        if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
-            Ok(None)
-        } else {
-            Ok(Some(render_clash_rule(rule)))
-        }
-    })?;
+    let (inline_rules, omitted_url_regex) =
+        map_compiled_rules(policy.rules(), |rule| Ok(render_clash_rule(rule)))?;
     rules.extend(inline_rules);
     let proxy_groups = policy
         .groups()
@@ -150,9 +145,9 @@ fn mihomo_symbol(member: &PolicyMemberV1) -> &str {
     }
 }
 
-fn render_clash_rule(rule: &CompiledRuleV1) -> String {
+fn render_clash_rule(rule: &CompiledRuleV1) -> Option<String> {
     let target = mihomo_symbol(rule.target());
-    match rule.matcher() {
+    Some(match rule.matcher() {
         RuleMatcherV1::Domain(value) => format!("DOMAIN,{value},{target}"),
         RuleMatcherV1::DomainSuffix(value) => format!("DOMAIN-SUFFIX,{value},{target}"),
         RuleMatcherV1::DomainKeyword(value) => format!("DOMAIN-KEYWORD,{value},{target}"),
@@ -171,10 +166,8 @@ fn render_clash_rule(rule: &CompiledRuleV1) -> String {
         ),
         RuleMatcherV1::GeoIpCn => format!("GEOIP,CN,{target}"),
         RuleMatcherV1::Match => format!("MATCH,{target}"),
-        RuleMatcherV1::UrlRegex(_) => {
-            unreachable!("URL-REGEX is counted and dropped before Mihomo serialize")
-        }
-    }
+        RuleMatcherV1::UrlRegex(_) => return None,
+    })
 }
 
 fn comment_prefix(omitted_url_regex: u8, empty_groups: u8) -> String {
