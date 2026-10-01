@@ -8,14 +8,13 @@ use crate::{
     node::vless::{RealityOptions, VlessFlow, VlessSecurity, VlessTransport},
     node::vmess::VmessSecurity,
     node::{NodeProtocol, ProxyNode},
-    policy::{
-        CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
-    },
+    policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
         AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex,
-        hysteria2_official_ports, keep_named, map_compiled_rules, reality_public_key_base64,
-        reality_short_id_hex, reject_when_empty, render_fingerprint, render_host_plain,
-        serialize_bounded, shadowsocks_method, shadowsocks_password, walk_group_members,
+        hysteria2_official_ports, keep_named, map_compiled_rules, policy_member_token,
+        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_fingerprint,
+        render_host_plain, serialize_bounded, shadowsocks_method, shadowsocks_password,
+        walk_group_members,
     },
 };
 
@@ -48,14 +47,23 @@ pub(crate) fn render_mihomo_from_policy_v1(
         .collect::<Vec<_>>();
     let mut rules = Vec::new();
     for rule_set in policy.remote_rule_sets() {
-        let target = mihomo_symbol(rule_set.target());
+        let Some(target) = policy_member_token(
+            rule_set.target(),
+            "DIRECT",
+            "REJECT",
+            |name| Ok(Some(name.to_owned())),
+            &valid,
+        )?
+        else {
+            continue;
+        };
         rules.push(format!("RULE-SET,{},{target}", rule_set.name()));
     }
     let (inline_rules, omitted_url_regex) = map_compiled_rules(policy.rules(), |rule| {
         if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
             Ok(None)
         } else {
-            Ok(Some(render_clash_rule(rule)))
+            render_clash_rule(rule, &valid)
         }
     })?;
     rules.extend(inline_rules);
@@ -141,18 +149,21 @@ fn mihomo_node_tag(name: &str) -> Option<&str> {
     }
 }
 
-fn mihomo_symbol(member: &PolicyMemberV1) -> &str {
-    match member {
-        PolicyMemberV1::Direct => "DIRECT",
-        PolicyMemberV1::Reject => "REJECT",
-        PolicyMemberV1::Group(name) | PolicyMemberV1::Node(name) => name,
-        PolicyMemberV1::UnexpandedAll => "",
-    }
-}
-
-fn render_clash_rule(rule: &CompiledRuleV1) -> String {
-    let target = mihomo_symbol(rule.target());
-    match rule.matcher() {
+fn render_clash_rule(
+    rule: &CompiledRuleV1,
+    valid_nodes: &[&str],
+) -> Result<Option<String>, AdapterRenderError> {
+    let Some(target) = policy_member_token(
+        rule.target(),
+        "DIRECT",
+        "REJECT",
+        |name| Ok(Some(name.to_owned())),
+        valid_nodes,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(match rule.matcher() {
         RuleMatcherV1::Domain(value) => format!("DOMAIN,{value},{target}"),
         RuleMatcherV1::DomainSuffix(value) => format!("DOMAIN-SUFFIX,{value},{target}"),
         RuleMatcherV1::DomainKeyword(value) => format!("DOMAIN-KEYWORD,{value},{target}"),
@@ -174,7 +185,7 @@ fn render_clash_rule(rule: &CompiledRuleV1) -> String {
         RuleMatcherV1::UrlRegex(_) => {
             unreachable!("URL-REGEX is counted and dropped before Mihomo serialize")
         }
-    }
+    }))
 }
 
 fn comment_prefix(omitted_url_regex: u8, empty_groups: u8) -> String {

@@ -11,8 +11,9 @@ use crate::{
     render::{
         AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, WalkedGroupItem,
         bounded_text_sections, encode_hex, is_reserved_tag, is_safe_field as ini_safe_field,
-        keep_named, map_compiled_rules, reality_public_key_base64, reality_short_id_hex,
-        render_host_bracketed, shadowsocks_method, shadowsocks_password, walk_group_members,
+        keep_named, map_compiled_rules, policy_member_token, reality_public_key_base64,
+        reality_short_id_hex, render_host_bracketed, shadowsocks_method, shadowsocks_password,
+        walk_group_members,
     },
 };
 
@@ -33,7 +34,7 @@ pub(crate) fn render_quanx_from_policy_v1(
     let remotes = render_server_remote(policy, &remote_tags)?;
     let groups = render_groups(policy, &valid, &unique_urls, &remote_tags)?;
     let servers = expand_servers(servers, policy, &valid, &unique_urls)?;
-    let (rules, omitted_url_regex) = render_rules(policy.rules())?;
+    let (rules, omitted_url_regex) = render_rules(policy.rules(), &valid)?;
 
     let mut leading = String::new();
     leading.push_str("[general]\n");
@@ -703,14 +704,19 @@ fn insert_before_tag(line: &str, field: &str) -> String {
     }
 }
 
-fn render_rules(rules: &[CompiledRuleV1]) -> Result<(Vec<String>, u8), AdapterRenderError> {
+fn render_rules(
+    rules: &[CompiledRuleV1],
+    valid_nodes: &[&str],
+) -> Result<(Vec<String>, u8), AdapterRenderError> {
     map_compiled_rules(rules, |rule| {
-        let Some(policy) = (match rule.target() {
-            PolicyMemberV1::Direct => Some("direct"),
-            PolicyMemberV1::Reject => Some("reject"),
-            PolicyMemberV1::Group(name) => quanx_group_tag(name),
-            PolicyMemberV1::Node(_) | PolicyMemberV1::UnexpandedAll => None,
-        }) else {
+        let Some(policy) = policy_member_token(
+            rule.target(),
+            "direct",
+            "reject",
+            |name| Ok(quanx_group_tag(name).map(str::to_owned)),
+            valid_nodes,
+        )?
+        else {
             return Ok(None);
         };
         let line = match rule.matcher() {
