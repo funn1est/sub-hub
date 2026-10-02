@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "miniflare": "5.20260903.0-alpha",
-    "undici": "7.29.0",
+    "undici": "7.29.1",
     "wrangler": "4.129.0"
   },
   "engines": {
