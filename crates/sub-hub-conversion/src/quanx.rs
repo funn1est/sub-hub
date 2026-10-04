@@ -32,7 +32,7 @@ pub(crate) fn render_quanx_from_policy_v1(
     let remote_tags = quanx_unexpanded_tags(policy, &valid)?;
     let remotes = render_server_remote(policy, &remote_tags)?;
     let groups = render_groups(policy, &valid, &unique_urls, &remote_tags)?;
-    let servers = expand_servers(servers, policy, &valid, &unique_urls)?;
+    let servers = expand_servers(servers, policy, &unique_urls)?;
     let (rules, omitted_url_regex) = render_rules(policy.rules())?;
 
     let mut leading = String::new();
@@ -650,14 +650,10 @@ fn health_tag(original: &str, url: &str, unique_urls: &[&str]) -> String {
 fn expand_servers(
     servers: Vec<ServerRecord>,
     policy: &CompiledPolicyV1,
-    valid_nodes: &[&str],
     unique_urls: &[&str],
 ) -> Result<Vec<String>, AdapterRenderError> {
     let mut lines = Vec::new();
     for server in servers {
-        if !valid_nodes.contains(&server.original_tag.as_str()) {
-            continue;
-        }
         let mut urls = Vec::new();
         for group in policy.groups() {
             let Some(url) = automatic_url(group.strategy()) else {
