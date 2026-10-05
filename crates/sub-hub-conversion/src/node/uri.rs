@@ -30,32 +30,48 @@ pub(crate) struct QueryPair<'a> {
 
 pub(crate) fn parse_endpoint(input: &str) -> Result<Endpoint, NodeRejection> {
     let invalid = || NodeRejection::Invalid(InvalidNodeReason::Endpoint);
-    let (host, port) = if let Some(bracketed) = input.strip_prefix('[') {
-        let (address, suffix) = bracketed.split_once(']').ok_or_else(invalid)?;
-        if address.contains('%') {
-            return Err(invalid());
-        }
-        let port = suffix.strip_prefix(':').ok_or_else(invalid)?;
-        let address = address.parse::<Ipv6Addr>().map_err(|_| invalid())?;
-        (Host::Ipv6(address), port)
-    } else {
-        let (host, port) = input.rsplit_once(':').ok_or_else(invalid)?;
-        if host.contains(':') {
-            return Err(invalid());
-        }
-        let host = if let Ok(address) = host.parse::<Ipv4Addr>() {
-            Host::Ipv4(address)
-        } else {
-            Host::Domain(host.to_owned())
-        };
-        (host, port)
-    };
+    let (host, port) = parse_host_and_port_suffix(input)?;
+    let port = port.ok_or_else(invalid)?;
     if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(invalid());
     }
     let port = port.parse::<u16>().map_err(|_| invalid())?;
 
     Endpoint::new(host, port).ok_or_else(invalid)
+}
+
+pub(crate) fn parse_host_and_port_suffix(
+    input: &str,
+) -> Result<(Host, Option<&str>), NodeRejection> {
+    let invalid = || NodeRejection::Invalid(InvalidNodeReason::Endpoint);
+    if let Some(bracketed) = input.strip_prefix('[') {
+        let (address, suffix) = bracketed.split_once(']').ok_or_else(invalid)?;
+        if address.contains('%') {
+            return Err(invalid());
+        }
+        let address = address.parse::<Ipv6Addr>().map_err(|_| invalid())?;
+        let port = if suffix.is_empty() {
+            None
+        } else {
+            Some(suffix.strip_prefix(':').ok_or_else(invalid)?)
+        };
+        return Ok((Host::Ipv6(address), port));
+    }
+    if let Some((host, port)) = input.rsplit_once(':') {
+        if host.contains(':') {
+            return Err(invalid());
+        }
+        return Ok((ipv4_or_domain(host), Some(port)));
+    }
+    Ok((ipv4_or_domain(input), None))
+}
+
+fn ipv4_or_domain(host: &str) -> Host {
+    if let Ok(address) = host.parse::<Ipv4Addr>() {
+        Host::Ipv4(address)
+    } else {
+        Host::Domain(host.to_owned())
+    }
 }
 
 pub(crate) fn parse_authority_uri(input: &str) -> Result<AuthorityUri<'_>, NodeRejection> {
