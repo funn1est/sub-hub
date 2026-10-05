@@ -22,7 +22,7 @@ import {
   subscriptionMediaType,
   type Target,
 } from './service-contract.ts';
-import { filenameFromDisposition, parseSkippedFromHeaders } from './preview.ts';
+import { filenameFromDisposition, readSubGetHeaders } from './preview.ts';
 type GoldenContract = {
   targets: string[];
   queryKeys: string[];
@@ -76,9 +76,14 @@ describe('Conversion Service GET contract', () => {
     }
     for (const sample of contract.skipSamples) {
       expect(parseSkippedHeader(sample.skipped)).toEqual(sample.counts);
-      expect(parseSkippedFromHeaders([{ name: SKIPPED_HEADER, value: sample.skipped }])).toEqual(
-        sample.counts,
-      );
+      expect(
+        readSubGetHeaders(
+          {
+            get: (name) => (name === SKIPPED_HEADER ? sample.skipped : null),
+          },
+          'clash',
+        ).skipped,
+      ).toEqual(sample.counts);
     }
     for (const rejected of contract.skipRejects) {
       expect(parseSkippedHeader(rejected)).toBeNull();
