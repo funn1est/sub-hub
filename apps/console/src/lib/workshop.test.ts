@@ -34,6 +34,11 @@ function assembleSubscription(fields: WorkshopFields) {
   return evaluateWorkshop(fields).assembled;
 }
 
+function pathAndQuery(url: string): string {
+  const parsed = new URL(url);
+  return `${parsed.pathname}${parsed.search}`;
+}
+
 const VLESS = 'vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alpha';
 const VLESS_ENCODED =
   'vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha';
@@ -94,7 +99,6 @@ describe('assembleSubscription', () => {
     expect(assembled.url).toBe(
       `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&expand=true`,
     );
-    expect(assembled.getTarget).toBe(`/sub?target=clash&url=${VLESS_ENCODED}&expand=true`);
     expect(assembled.overLimit).toBe(false);
     expect(assembled.url).not.toContain('append_info');
   });
@@ -104,16 +108,15 @@ describe('assembleSubscription', () => {
     expect(assembled.url).toBe(
       `http://127.0.0.1:25500/sub/deployer-token_1?target=clash&url=${VLESS_ENCODED}&expand=true`,
     );
-    expect(assembled.getTarget).toBe(
-      `/sub/deployer-token_1?target=clash&url=${VLESS_ENCODED}&expand=true`,
-    );
   });
 
   it('joins sources with | before encoding and keeps occurrence order', () => {
     const assembled = assembleSubscription(
       input({ sources: ['vless://u@h:443#A', 'ss://p@h:8388#B'] }),
     );
-    expect(assembled.getTarget).toBe(`/sub?target=clash&url=${TWO_SOURCES_ENCODED}&expand=true`);
+    expect(assembled.url).toBe(
+      `http://127.0.0.1:25500/sub?target=clash&url=${TWO_SOURCES_ENCODED}&expand=true`,
+    );
   });
 
   it('assembles more than five sources without a source-count cap', () => {
@@ -126,8 +129,8 @@ describe('assembleSubscription', () => {
       'vless://u@h:443#F',
     ];
     const assembled = assembleSubscription(input({ sources }));
-    expect(assembled.getTarget).toBe(
-      `/sub?target=clash&url=${encodeURIComponent(sources.join('|'))}&expand=true`,
+    expect(assembled.url).toBe(
+      `http://127.0.0.1:25500/sub?target=clash&url=${encodeURIComponent(sources.join('|'))}&expand=true`,
     );
     expect(assembled.overLimit).toBe(false);
     expect(assembled.previewable).toBe(true);
@@ -141,23 +144,23 @@ describe('assembleSubscription', () => {
         appendInfo: false,
       }),
     );
-    expect(assembled.getTarget).toBe(
-      `/sub?target=singbox&url=${VLESS_ENCODED}&config=${ONLINE_ENCODED}&append_info=false&expand=true`,
+    expect(assembled.url).toBe(
+      `http://127.0.0.1:25500/sub?target=singbox&url=${VLESS_ENCODED}&config=${ONLINE_ENCODED}&append_info=false&expand=true`,
     );
   });
 
   it('writes expand=true by default and omits the key when the switch is off', () => {
-    expect(assembleSubscription(input()).getTarget).toBe(
-      `/sub?target=clash&url=${VLESS_ENCODED}&expand=true`,
+    expect(assembleSubscription(input()).url).toBe(
+      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&expand=true`,
     );
-    expect(assembleSubscription(input({ expand: false })).getTarget).toBe(
-      `/sub?target=clash&url=${VLESS_ENCODED}`,
+    expect(assembleSubscription(input({ expand: false })).url).toBe(
+      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}`,
     );
   });
 
   it('writes filename= only when the stem is set and valid', () => {
-    expect(assembleSubscription(input({ filename: 'airport' })).getTarget).toBe(
-      `/sub?target=clash&url=${VLESS_ENCODED}&expand=true&filename=airport`,
+    expect(assembleSubscription(input({ filename: 'airport' })).url).toBe(
+      `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&expand=true&filename=airport`,
     );
     expect(assembleSubscription(input({ filename: '..' })).url).toBeNull();
     expect(evaluateWorkshop(input({ filename: '..' })).filenameInvalid).toBe(true);
@@ -178,12 +181,12 @@ describe('assembleSubscription', () => {
       'egern',
       'surge',
     ]);
-    expect(clash.siblings.map((sibling) => sibling.getTarget)).toEqual([
-      `/sub?target=quanx&url=${VLESS_ENCODED}&expand=true`,
-      `/sub?target=singbox&url=${VLESS_ENCODED}&expand=true`,
-      `/sub?target=loon&url=${VLESS_ENCODED}&expand=true`,
-      `/sub?target=egern&url=${VLESS_ENCODED}&expand=true`,
-      `/sub?target=surge&url=${VLESS_ENCODED}&expand=true`,
+    expect(clash.siblings.map((sibling) => sibling.url)).toEqual([
+      `http://127.0.0.1:25500/sub?target=quanx&url=${VLESS_ENCODED}&expand=true`,
+      `http://127.0.0.1:25500/sub?target=singbox&url=${VLESS_ENCODED}&expand=true`,
+      `http://127.0.0.1:25500/sub?target=loon&url=${VLESS_ENCODED}&expand=true`,
+      `http://127.0.0.1:25500/sub?target=egern&url=${VLESS_ENCODED}&expand=true`,
+      `http://127.0.0.1:25500/sub?target=surge&url=${VLESS_ENCODED}&expand=true`,
     ]);
     expect(clash.url).toBe(
       `http://127.0.0.1:25500/sub?target=clash&url=${VLESS_ENCODED}&expand=true`,
@@ -191,7 +194,9 @@ describe('assembleSubscription', () => {
     expect(clash.siblings.some((sibling) => sibling.target === 'clash')).toBe(false);
 
     const loon = assembleSubscription(input({ target: 'loon' }));
-    expect(loon.getTarget).toBe(`/sub?target=loon&url=${VLESS_ENCODED}&expand=true`);
+    expect(loon.url).toBe(
+      `http://127.0.0.1:25500/sub?target=loon&url=${VLESS_ENCODED}&expand=true`,
+    );
     expect(loon.siblings.map((sibling) => sibling.target)).toEqual([
       'clash',
       'quanx',
@@ -202,19 +207,21 @@ describe('assembleSubscription', () => {
     expect(loon.siblings).toHaveLength(5);
 
     const collapsed = assembleSubscription(input({ expand: false }));
-    expect(collapsed.siblings.every((sibling) => !sibling.getTarget.includes('expand='))).toBe(
-      true,
-    );
+    expect(collapsed.siblings.every((sibling) => !sibling.url.includes('expand='))).toBe(true);
   });
 
   it('flags GET targets longer than 8192 bytes and still returns the URL', () => {
     const atLimit = assembleSubscription(input({ sources: ['a'.repeat(8158)] }));
-    expect(atLimit.getTarget).toBe(`/sub?target=clash&url=${'a'.repeat(8158)}&expand=true`);
-    expect(new TextEncoder().encode(atLimit.getTarget ?? '').length).toBe(8192);
+    expect(atLimit.url).not.toBeNull();
+    expect(pathAndQuery(atLimit.url!)).toBe(
+      `/sub?target=clash&url=${'a'.repeat(8158)}&expand=true`,
+    );
+    expect(new TextEncoder().encode(pathAndQuery(atLimit.url!)).length).toBe(8192);
     expect(atLimit.overLimit).toBe(false);
 
     const over = assembleSubscription(input({ sources: ['a'.repeat(8159)] }));
-    expect(new TextEncoder().encode(over.getTarget ?? '').length).toBe(8193);
+    expect(over.url).not.toBeNull();
+    expect(new TextEncoder().encode(pathAndQuery(over.url!)).length).toBe(8193);
     expect(over.overLimit).toBe(true);
     expect(over.clashInstall).toBe(false);
     expect(over.previewable).toBe(false);
@@ -467,8 +474,8 @@ describe('subscription URL golden', () => {
           expand: workshop.expand === true,
           filename: workshop.filename ?? '',
         });
-        expect(assembled.getTarget, testCase.id).toBe(expected);
         expect(assembled.url, testCase.id).toBe(`${workshop.serviceOrigin}${expected}`);
+        expect(pathAndQuery(assembled.url!), testCase.id).toBe(expected);
         continue;
       }
       expect(
