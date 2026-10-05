@@ -27,7 +27,7 @@ pub(crate) fn accept_outbound_url(
     Ok(url)
 }
 
-pub(crate) fn canonical_remote_url(
+fn canonical_remote_url(
     input: &str,
     self_hosts: &SelfHosts,
     inbound_host: &str,
