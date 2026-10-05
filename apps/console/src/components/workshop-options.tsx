@@ -121,7 +121,6 @@ export function WorkshopOptions({
             <ComboboxContent>
               <ComboboxInput
                 placeholder={copy.configSearch}
-                showTrigger={false}
                 autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect="off"
