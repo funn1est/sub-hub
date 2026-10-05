@@ -10,7 +10,7 @@ export type PreviewProfile = {
   omitted?: string;
 };
 
-export function formatByteCount(bytes: number, locale: Locale): string {
+function formatByteCount(bytes: number, locale: Locale): string {
   const units =
     locale === 'zh'
       ? (['字节', 'KiB', 'MiB', 'GiB'] as const)
@@ -32,7 +32,7 @@ function formatExpire(expire: number, locale: Locale): string {
   });
 }
 
-export function trafficSummary(locale: Locale, traffic: SubscriptionUserInfo): string {
+function trafficSummary(locale: Locale, traffic: SubscriptionUserInfo): string {
   const copy = messages[locale];
   const used = formatByteCount(traffic.upload + traffic.download, locale);
   if (traffic.total > 0) {
@@ -44,7 +44,7 @@ export function trafficSummary(locale: Locale, traffic: SubscriptionUserInfo): s
     : `${used} used (${copy.trafficNone})`;
 }
 
-export function expireSummary(locale: Locale, expire: number): string {
+function expireSummary(locale: Locale, expire: number): string {
   const copy = messages[locale];
   return `${copy.expires} ${formatExpire(expire, locale)}`;
 }
@@ -54,7 +54,7 @@ function datedExpire(expire: number | null): expire is number {
   return expire !== null && expire !== 0;
 }
 
-export function skippedSummary(locale: Locale, counts: SkipCounts): string {
+function skippedSummary(locale: Locale, counts: SkipCounts): string {
   const parts: string[] = [];
   if (counts.parse > 0) {
     parts.push(
@@ -83,7 +83,7 @@ export function skippedSummary(locale: Locale, counts: SkipCounts): string {
   return `Skipped ${total} ${noun}: ${parts.join(', ')}.`;
 }
 
-export function omittedSummary(locale: Locale, omittedUrlRegex: number): string {
+function omittedSummary(locale: Locale, omittedUrlRegex: number): string {
   if (locale === 'zh') {
     return `省略 ${omittedUrlRegex} 条 URL-REGEX 规则（这个客户端不支持）。`;
   }
