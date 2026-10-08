@@ -23,13 +23,13 @@ function headerValue(
   return headers.find((header) => header.name === name)?.value ?? null;
 }
 
-export function parseSkippedFromHeaders(
+function parseSkippedFromHeaders(
   headers: readonly { name: string; value: string }[],
 ): SkipCounts | null {
   return parseSkippedHeader(headerValue(headers, SKIPPED_HEADER));
 }
 
-export function parseUserInfoFromHeaders(
+function parseUserInfoFromHeaders(
   headers: readonly { name: string; value: string }[],
 ): SubscriptionUserInfo | null {
   return parseSubscriptionUserInfo(headerValue(headers, USERINFO_HEADER));

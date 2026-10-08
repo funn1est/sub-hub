@@ -141,7 +141,7 @@ export function parseServiceOrigin(raw: string): string | null {
   return url.origin;
 }
 
-export function parseHttpsResourceUrl(raw: string): string | null {
+function parseHttpsResourceUrl(raw: string): string | null {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
     return null;
