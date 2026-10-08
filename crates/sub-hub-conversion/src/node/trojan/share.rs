@@ -3,8 +3,7 @@ use crate::node::{
     UnsupportedCapability, percent,
     uri::{parse_authority_uri, parse_endpoint, scan_query},
     vless::{
-        ClientFingerprint, GrpcMode, RealityOptions, VlessSecurityKind, VlessTransport,
-        VlessTransportKind,
+        ClientFingerprint, GrpcMode, RealityOptions, VlessTransport, VlessTransportKind,
         share::{
             ParameterContext, ShortIdParameter, StreamQueryBase, apply_shared_stream_query_pair,
             build_tls_options, nonempty_owned, require_compatible, require_nonempty,
@@ -13,6 +12,18 @@ use crate::node::{
 };
 
 use super::{TrojanNode, TrojanPassword, TrojanSecurity};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrojanSecurityKind {
+    Tls,
+    Reality,
+}
+
+impl TrojanSecurityKind {
+    const fn uses_tls(self) -> bool {
+        matches!(self, Self::Tls | Self::Reality)
+    }
+}
 
 pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
     let uri = parse_authority_uri(input)?;
@@ -38,18 +49,24 @@ fn parse_password(userinfo: &str) -> Result<TrojanPassword, NodeRejection> {
 }
 
 struct Parameters {
-    base: StreamQueryBase,
+    base: StreamQueryBase<TrojanSecurityKind>,
     peer: Option<String>,
 }
 
 fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
-    let mut base = StreamQueryBase::new(VlessSecurityKind::Tls);
+    let mut base = StreamQueryBase::new(TrojanSecurityKind::Tls);
     let mut peer = None;
     let Some(query) = query else {
         return Ok(Parameters { base, peer });
     };
     let pairs = scan_query(query)?;
-    let context = ParameterContext::from_pairs(&pairs, VlessSecurityKind::Tls, parse_security_kind);
+    let context = ParameterContext::from_pairs(
+        &pairs,
+        TrojanSecurityKind::Tls,
+        parse_security_kind,
+        TrojanSecurityKind::Reality,
+        TrojanSecurityKind::uses_tls,
+    );
 
     for pair in pairs {
         let key = pair.key;
@@ -68,11 +85,11 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
     Ok(Parameters { base, peer })
 }
 
-fn parse_security_kind(value: &str) -> Result<VlessSecurityKind, NodeRejection> {
+fn parse_security_kind(value: &str) -> Result<TrojanSecurityKind, NodeRejection> {
     require_nonempty(value)?;
     match value {
-        "tls" => Ok(VlessSecurityKind::Tls),
-        "reality" => Ok(VlessSecurityKind::Reality),
+        "tls" => Ok(TrojanSecurityKind::Tls),
+        "reality" => Ok(TrojanSecurityKind::Reality),
         _ => Err(NodeRejection::Unsupported(UnsupportedCapability::Security)),
     }
 }
@@ -134,10 +151,7 @@ fn build_components(
     };
 
     let security = match security_kind {
-        VlessSecurityKind::None => {
-            return Err(NodeRejection::Unsupported(UnsupportedCapability::Security));
-        }
-        VlessSecurityKind::Tls => {
+        TrojanSecurityKind::Tls => {
             if public_key.is_some() || short_id.is_some() {
                 return Err(NodeRejection::Invalid(
                     InvalidNodeReason::IncompatibleParameter,
@@ -150,7 +164,7 @@ fn build_components(
                 fingerprint.unwrap_or(ClientFingerprint::Chrome),
             )?)
         }
-        VlessSecurityKind::Reality => {
+        TrojanSecurityKind::Reality => {
             let public_key =
                 public_key.ok_or(NodeRejection::Invalid(InvalidNodeReason::Credential))?;
             let short_id = match short_id {
