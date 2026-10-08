@@ -9,10 +9,11 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, WalkedGroupItem,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, SpelledRule, WalkedGroupItem,
         bounded_text_sections, encode_hex, is_reserved_tag, is_safe_field as ini_safe_field,
         keep_named, map_compiled_rules, reality_public_key_base64, reality_short_id_hex,
-        render_host_bracketed, shadowsocks_method, shadowsocks_password, walk_group_members,
+        render_host_bracketed, shadowsocks_method, shadowsocks_password, unspelled,
+        walk_group_members,
     },
 };
 
@@ -711,7 +712,7 @@ fn render_rules(rules: &[CompiledRuleV1]) -> Result<(Vec<String>, u8), AdapterRe
             PolicyMemberV1::Group(name) => quanx_group_tag(name),
             PolicyMemberV1::Node(_) | PolicyMemberV1::UnexpandedAll => None,
         }) else {
-            return Ok(None);
+            return Ok(unspelled(rule));
         };
         let line = match rule.matcher() {
             RuleMatcherV1::Domain(value) if is_safe_field(value) => {
@@ -729,14 +730,14 @@ fn render_rules(rules: &[CompiledRuleV1]) -> Result<(Vec<String>, u8), AdapterRe
             },
             RuleMatcherV1::GeoIpCn => format!("geoip, cn, {policy}"),
             RuleMatcherV1::Match => format!("final, {policy}"),
-            RuleMatcherV1::UrlRegex(_)
-            | RuleMatcherV1::ProcessName(_)
+            RuleMatcherV1::UrlRegex(_) => return Ok(SpelledRule::OmitUrlRegex),
+            RuleMatcherV1::ProcessName(_)
             | RuleMatcherV1::Domain(_)
             | RuleMatcherV1::DomainSuffix(_)
             | RuleMatcherV1::DomainKeyword(_)
-            | RuleMatcherV1::IpCidr { .. } => return Ok(None),
+            | RuleMatcherV1::IpCidr { .. } => return Ok(SpelledRule::Drop),
         };
-        Ok(Some(line))
+        Ok(SpelledRule::Keep(line))
     })
 }
 

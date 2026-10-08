@@ -345,21 +345,52 @@ pub(crate) fn accepted_nodes(named: &NamedSubscriptionSources) -> Vec<&ProxyNode
         .collect()
 }
 
-/// Adapter spelling of compiled rules. `None` drops the rule; a dropped
-/// `UrlRegex` increments the omitted count used by Keep-pass.
+/// How one compiled rule enters a target document.
+pub(crate) enum SpelledRule<T> {
+    /// A line or object the document keeps.
+    Keep(T),
+    /// This target does not spell URL-REGEX. Keep-pass counts the omission.
+    OmitUrlRegex,
+    /// The rule is absent from this document and is not an omitted URL-REGEX.
+    Drop,
+}
+
+/// A rule this target could not spell.
+///
+/// URL-REGEX still counts as a Keep-pass omission. Every other matcher is dropped.
+#[must_use]
+pub(crate) fn unspelled<T>(rule: &CompiledRuleV1) -> SpelledRule<T> {
+    if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
+        SpelledRule::OmitUrlRegex
+    } else {
+        SpelledRule::Drop
+    }
+}
+
+/// Adapter spelling of compiled rules.
+///
+/// [`SpelledRule::OmitUrlRegex`] is valid only for a URL-REGEX matcher.
+/// [`SpelledRule::Drop`] is not valid for URL-REGEX: that matcher is kept or omitted.
 pub(crate) fn map_compiled_rules<T>(
     rules: &[CompiledRuleV1],
-    mut spell: impl FnMut(&CompiledRuleV1) -> Result<Option<T>, AdapterRenderError>,
+    mut spell: impl FnMut(&CompiledRuleV1) -> Result<SpelledRule<T>, AdapterRenderError>,
 ) -> Result<(Vec<T>, u8), AdapterRenderError> {
     let mut items = Vec::with_capacity(rules.len());
     let mut omitted_url_regex = 0_u8;
     for rule in rules {
         match spell(rule)? {
-            Some(item) => items.push(item),
-            None if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) => {
+            SpelledRule::Keep(item) => items.push(item),
+            SpelledRule::OmitUrlRegex => {
+                if !matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
+                    return Err(AdapterRenderError::Internal);
+                }
                 omitted_url_regex = omitted_url_regex.saturating_add(1);
             }
-            None => {}
+            SpelledRule::Drop => {
+                if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
+                    return Err(AdapterRenderError::Internal);
+                }
+            }
         }
     }
     Ok((items, omitted_url_regex))
@@ -573,7 +604,7 @@ mod tests {
     fn map_compiled_rules_counts_omitted_url_regex() {
         use crate::policy::{CompiledRuleV1, PolicyMemberV1, RuleMatcherV1};
 
-        use super::map_compiled_rules;
+        use super::{SpelledRule, map_compiled_rules};
 
         let rules = [
             CompiledRuleV1::new(RuleMatcherV1::Match, PolicyMemberV1::Direct),
@@ -592,12 +623,61 @@ mod tests {
         ];
         let (items, omitted) = map_compiled_rules(&rules, |rule| {
             Ok(match rule.matcher() {
-                RuleMatcherV1::UrlRegex(_) => None,
-                _ => Some(()),
+                RuleMatcherV1::UrlRegex(_) => SpelledRule::OmitUrlRegex,
+                _ => SpelledRule::Keep(()),
             })
         })
         .expect("spell");
         assert_eq!(items.len(), 2);
         assert_eq!(omitted, 2);
+    }
+
+    #[test]
+    fn map_compiled_rules_rejects_omit_unless_url_regex() {
+        use crate::policy::{CompiledRuleV1, PolicyMemberV1, RuleMatcherV1};
+
+        use super::{AdapterRenderError, SpelledRule, map_compiled_rules};
+
+        let rules = [CompiledRuleV1::new(
+            RuleMatcherV1::Match,
+            PolicyMemberV1::Direct,
+        )];
+        let error = map_compiled_rules(&rules, |_| Ok(SpelledRule::OmitUrlRegex::<()>))
+            .expect_err("omit is only for URL-REGEX");
+        assert_eq!(error, AdapterRenderError::Internal);
+    }
+
+    #[test]
+    fn map_compiled_rules_rejects_drop_on_url_regex() {
+        use crate::policy::{CompiledRuleV1, PolicyMemberV1, RuleMatcherV1};
+
+        use super::{AdapterRenderError, SpelledRule, map_compiled_rules};
+
+        let rules = [CompiledRuleV1::new(
+            RuleMatcherV1::UrlRegex("a".to_owned()),
+            PolicyMemberV1::Direct,
+        )];
+        let error = map_compiled_rules(&rules, |_| Ok(SpelledRule::Drop::<()>))
+            .expect_err("URL-REGEX is kept or omitted");
+        assert_eq!(error, AdapterRenderError::Internal);
+    }
+
+    #[test]
+    fn unspelled_counts_url_regex_and_drops_match() {
+        use crate::policy::{CompiledRuleV1, PolicyMemberV1, RuleMatcherV1};
+
+        use super::{map_compiled_rules, unspelled};
+
+        let rules = [
+            CompiledRuleV1::new(
+                RuleMatcherV1::UrlRegex("a".to_owned()),
+                PolicyMemberV1::Direct,
+            ),
+            CompiledRuleV1::new(RuleMatcherV1::Match, PolicyMemberV1::Direct),
+        ];
+        let (items, omitted) =
+            map_compiled_rules(&rules, |rule| Ok(unspelled::<()>(rule))).expect("spell");
+        assert!(items.is_empty());
+        assert_eq!(omitted, 1);
     }
 }

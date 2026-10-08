@@ -7,12 +7,12 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, encode_hex, hysteria2_has_gecko,
-        hysteria2_official_ports, keep_named, keep_tagged_or_unexpanded, map_compiled_rules,
-        plain_group_tag, plain_node_tag, policy_member_token, probe_url_or_default,
-        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_host_plain,
-        serialize_bounded, shadowsocks_method, shadowsocks_password, shared_probe_url,
-        walk_group_members,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, SpelledRule, encode_hex,
+        hysteria2_has_gecko, hysteria2_official_ports, keep_named, keep_tagged_or_unexpanded,
+        map_compiled_rules, plain_group_tag, plain_node_tag, policy_member_token,
+        probe_url_or_default, reality_public_key_base64, reality_short_id_hex, reject_when_empty,
+        render_host_plain, serialize_bounded, shadowsocks_method, shadowsocks_password,
+        shared_probe_url, unspelled, walk_group_members,
     },
 };
 
@@ -435,7 +435,7 @@ fn render_rules(
             valid_nodes,
         )?
         else {
-            return Ok(None);
+            return Ok(unspelled(rule));
         };
         let entry = match rule.matcher() {
             RuleMatcherV1::Domain(value) => RuleEntry::Domain {
@@ -484,9 +484,10 @@ fn render_rules(
             RuleMatcherV1::Match => RuleEntry::Default {
                 default: DefaultRule { policy },
             },
-            RuleMatcherV1::UrlRegex(_) | RuleMatcherV1::ProcessName(_) => return Ok(None),
+            RuleMatcherV1::UrlRegex(_) => return Ok(SpelledRule::OmitUrlRegex),
+            RuleMatcherV1::ProcessName(_) => return Ok(SpelledRule::Drop),
         };
-        Ok(Some(entry))
+        Ok(SpelledRule::Keep(entry))
     })
 }
 

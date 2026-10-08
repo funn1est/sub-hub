@@ -9,11 +9,12 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, RuleMatcherV1},
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, hysteria2_has_gecko, hysteria2_has_pin,
-        hysteria2_singbox_ports, keep_named, keep_tagged, map_compiled_rules, plain_group_tag,
-        plain_node_tag, policy_member_token, probe_url_or_default, reality_public_key_base64,
-        reality_short_id_hex, reject_when_empty, render_fingerprint, render_host_plain,
-        serialize_pretty_json, shadowsocks_method, shadowsocks_password, walk_group_members,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, SpelledRule, hysteria2_has_gecko,
+        hysteria2_has_pin, hysteria2_singbox_ports, keep_named, keep_tagged, map_compiled_rules,
+        plain_group_tag, plain_node_tag, policy_member_token, probe_url_or_default,
+        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_fingerprint,
+        render_host_plain, serialize_pretty_json, shadowsocks_method, shadowsocks_password,
+        unspelled, walk_group_members,
     },
 };
 
@@ -376,7 +377,7 @@ fn render_rules(
             valid_nodes,
         )?
         else {
-            return Ok(None);
+            return Ok(unspelled(rule));
         };
         let route = match rule.matcher() {
             RuleMatcherV1::Domain(value) => RouteRule {
@@ -406,13 +407,12 @@ fn render_rules(
             },
             RuleMatcherV1::Match => {
                 final_outbound = Some(outbound);
-                return Ok(None);
+                return Ok(SpelledRule::Drop);
             }
-            RuleMatcherV1::UrlRegex(_) | RuleMatcherV1::GeoIpCn => {
-                return Ok(None);
-            }
+            RuleMatcherV1::UrlRegex(_) => return Ok(SpelledRule::OmitUrlRegex),
+            RuleMatcherV1::GeoIpCn => return Ok(SpelledRule::Drop),
         };
-        Ok(Some(route))
+        Ok(SpelledRule::Keep(route))
     })?;
     Ok((
         route_rules,
