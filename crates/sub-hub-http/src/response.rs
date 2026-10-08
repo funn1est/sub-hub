@@ -199,7 +199,7 @@ pub(crate) fn attach_conversion_headers(
     insert_skip_headers(response, skips);
 }
 
-pub(crate) fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_regex_count: u8) {
+fn insert_lossy_headers(response: &mut HttpResponse, omitted_url_regex_count: u8) {
     if omitted_url_regex_count == 0 {
         return;
     }
@@ -273,7 +273,7 @@ pub(crate) fn error_response(error: ApplicationError) -> HttpResponse {
     response
 }
 
-pub(crate) fn insert_skip_headers(response: &mut HttpResponse, skips: SkipCountsV1) {
+fn insert_skip_headers(response: &mut HttpResponse, skips: SkipCountsV1) {
     if skips.is_empty() {
         return;
     }
