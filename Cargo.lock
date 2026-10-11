@@ -1277,7 +1277,6 @@ dependencies = [
  "futures",
  "http",
  "sub-hub-http",
- "url",
  "worker",
  "worker-macros",
 ]
