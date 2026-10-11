@@ -1,9 +1,3 @@
-//! Subscription prepare: Direct and Remote sources share one Keep-pass entry.
-//!
-//! Unique-flight fill consumes [`PreparedSubscriptionV1`]. Prefix adjudication
-//! for a later unique failure lives here so the Unique-flight table can zip
-//! bodies without owning parse grammar.
-
 use std::fmt;
 
 use crate::{
@@ -23,7 +17,6 @@ pub(crate) struct PreparedSubscriptionV1 {
 }
 
 impl PreparedSubscriptionV1 {
-    /// Names, compiles builtin policy, and renders with an explicit byte limit.
     #[cfg(test)]
     pub(crate) fn render_builtin_with_limit(
         self,
@@ -33,14 +26,6 @@ impl PreparedSubscriptionV1 {
         crate::render::render_builtin_with_limit(self.parsed, render, limit_bytes)
     }
 
-    /// Consumes the parsed subscription and prepares a strict ACL4SSR v1 config.
-    ///
-    /// The returned value contains an ordered, opaque Rule Set fetch plan. This method performs no
-    /// network I/O.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error when the config is malformed, unsupported, or exceeds a fixed limit.
     pub fn prepare_acl4ssr_config_v1(
         self,
         config: &[u8],
@@ -48,23 +33,11 @@ impl PreparedSubscriptionV1 {
         crate::acl4ssr::prepare(self.parsed, config)
     }
 
-    /// Returns selected/decoded remote bytes aligned with source declaration order.
-    ///
-    /// Direct occurrences are `None`. Remote sources are `Some(bytes)`, where `bytes` is the raw
-    /// source length or the decoded whole-source Base64 length. Duplicate resource occurrences are
-    /// deliberately retained; Unique-flight accounting keeps first-seen sizes only.
     #[must_use]
     pub fn remote_decoded_bytes_by_source(&self) -> &[Option<usize>] {
         &self.parsed.remote_decoded_bytes
     }
 
-    /// Consumes the prepared subscription and renders the builtin document for `target`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConversionRenderError::ConversionLimit`] when the bounded output exceeds its fixed
-    /// limit, [`ConversionRenderError::NoValidNodes`] when every node is dropped, or
-    /// [`ConversionRenderError::Internal`] when naming or serialization cannot complete.
     pub fn render_builtin_v1(
         self,
         target: OutputTarget,

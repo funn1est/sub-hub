@@ -95,7 +95,6 @@ pub(crate) enum UniqueFetchBatch {
         loaded: Vec<Vec<u8>>,
         host: UniqueFlightHostFailure,
     },
-    /// Scheduler invariant broken (a hole in the loaded slots).
     Misaligned,
 }
 
@@ -151,7 +150,6 @@ impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {
         Ok(())
     }
 
-    /// Concurrent Unique-flight cap from Session budget.
     #[must_use]
     pub(crate) const fn active_resource_limit(&self) -> usize {
         self.budget.active_resources
