@@ -412,9 +412,6 @@ pub(crate) fn bounded_text(
     ))
 }
 
-/// QuanX/Loon INI tail: optional leading stanza plus named line lists, then
-/// the Keep-pass byte bound. Headings and the leading stanza are adapter
-/// spelling; this only joins sections with a blank line between them.
 pub(crate) fn bounded_text_sections(
     leading: &str,
     sections: &[(&str, &[String])],
