@@ -11,7 +11,6 @@ use crate::{
     userinfo::{SubscriptionUserInfoV1, parse_subscription_user_info},
 };
 
-/// One GET: Ask in, Unique-flight fill ending out.
 pub(crate) async fn run<A>(
     broker: &BrokerSession<'_, A>,
     sources: &[String],

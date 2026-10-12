@@ -5,12 +5,12 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, WalkedGroupItem, bounded_text_sections,
-        hysteria2_has_gecko, hysteria2_has_pin, is_safe_field as ini_safe_field, keep_named,
-        keep_tagged_or_unexpanded, map_compiled_rules, policy_member_token, probe_url_or_default,
-        reality_public_key_base64, reality_short_id_hex, reject_when_empty, render_host_plain,
-        reserved_group_tag, reserved_node_tag, shadowsocks_method, shadowsocks_password,
-        shared_probe_url, walk_group_members,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, SpelledRule, WalkedGroupItem,
+        bounded_text_sections, hysteria2_has_gecko, hysteria2_has_pin,
+        is_safe_field as ini_safe_field, keep_named, keep_tagged_or_unexpanded, map_compiled_rules,
+        policy_member_token, probe_url_or_default, reality_public_key_base64, reality_short_id_hex,
+        reject_when_empty, render_host_plain, reserved_group_tag, reserved_node_tag,
+        shadowsocks_method, shadowsocks_password, shared_probe_url, unspelled, walk_group_members,
     },
 };
 
@@ -516,7 +516,7 @@ fn render_rules(
             valid_nodes,
         )?
         else {
-            return Ok(None);
+            return Ok(unspelled(rule));
         };
         let line = match rule.matcher() {
             RuleMatcherV1::Domain(value) if is_safe_field(value) => {
@@ -551,14 +551,14 @@ fn render_rules(
             {
                 format!("URL-REGEX,{value},{policy}")
             }
-            RuleMatcherV1::UrlRegex(_)
-            | RuleMatcherV1::ProcessName(_)
-            | RuleMatcherV1::Domain(_)
+            RuleMatcherV1::UrlRegex(_) => return Ok(SpelledRule::OmitUrlRegex),
+            RuleMatcherV1::ProcessName(_) => return Ok(SpelledRule::Drop),
+            RuleMatcherV1::Domain(_)
             | RuleMatcherV1::DomainSuffix(_)
             | RuleMatcherV1::DomainKeyword(_)
-            | RuleMatcherV1::IpCidr { .. } => return Ok(None),
+            | RuleMatcherV1::IpCidr { .. } => return Ok(unspelled(rule)),
         };
-        Ok(Some(line))
+        Ok(SpelledRule::Keep(line))
     })
 }
 

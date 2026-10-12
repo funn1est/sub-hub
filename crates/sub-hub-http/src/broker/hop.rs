@@ -1,6 +1,3 @@
-//! HTTPS hop seam. Hosts supply header bags and read octets only when asked.
-//! They do not name Redirect or Success.
-
 use std::{fmt, future::Future};
 
 use http::StatusCode;
@@ -86,7 +83,6 @@ impl RemoteResponse {
         }
     }
 
-    /// Completes one hop. Body octets are required only after [`HttpsHopOutcome::ReadBody`].
     #[must_use]
     pub(crate) fn finish_https_hop(
         status: StatusCode,
@@ -126,12 +122,6 @@ impl HttpsHopPending {
         self.max_body_bytes
     }
 
-    /// Finishes a successful hop. The body reader may stop at
-    /// [`Self::max_body_bytes`]; this check is the closed oversize reject.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RemoteFetchError::Failure`] when `body` exceeds [`Self::max_body_bytes`].
     pub fn finish(self, body: Vec<u8>) -> Result<RemoteResponse, RemoteFetchError> {
         if body.len() > self.max_body_bytes {
             return Err(RemoteFetchError::Failure);
@@ -193,12 +183,6 @@ where
         .collect()
 }
 
-/// Interprets one hop's headers and returns [`HttpsHopOutcome::ReadBody`] only
-/// when octets are required.
-///
-/// # Errors
-///
-/// Returns [`RemoteFetchError::Failure`] when the hop header contract is violated.
 pub(crate) fn begin_https_hop<L, E, C, U, LV, EV, CV, UV>(
     status: StatusCode,
     location_values: L,

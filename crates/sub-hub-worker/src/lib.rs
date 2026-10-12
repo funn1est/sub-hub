@@ -6,7 +6,7 @@ use std::{
 };
 
 use futures::Stream;
-use http::{HeaderName, StatusCode};
+use http::StatusCode;
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HopHeaderBag, HttpRequest as ApplicationRequest,
     RemoteAdapter, RemoteAttempt, RemoteFetchError, RemoteResponse, SelfHosts, append_hop_chunk,
@@ -50,8 +50,7 @@ impl ApplicationCache {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-pub struct CloudflareRemoteAdapter;
+struct CloudflareRemoteAdapter;
 
 impl fmt::Debug for CloudflareRemoteAdapter {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -111,10 +110,8 @@ async fn handle_request(
     request: worker::HttpRequest,
     environment: &Env,
 ) -> Result<sub_hub_http::HttpResponse, HostFailure> {
-    let Some(request_url) = url::Url::parse(&request.uri().to_string()).ok() else {
-        return Err(HostFailure::InvalidRequest);
-    };
-    let Some(inbound_host) = normalize_request_hostname(&request_url) else {
+    let uri = request.uri();
+    let Some(inbound_host) = uri.host().and_then(canonicalize_inbound_host) else {
         return Err(HostFailure::InvalidRequest);
     };
     let application = APPLICATION.get_or_load(|| application_from_environment(environment))?;
@@ -124,8 +121,8 @@ async fn handle_request(
         .handle(
             ApplicationRequest::new_with_inbound_host(
                 request.method().clone(),
-                request_url.path(),
-                request_url.query(),
+                uri.path(),
+                uri.query(),
                 &inbound_host,
             )
             .with_origin(origin.as_deref()),
@@ -301,28 +298,17 @@ fn optional_env(
     Ok(Some(value))
 }
 
-fn normalize_request_hostname(url: &url::Url) -> Option<String> {
-    canonicalize_inbound_host(url.host_str()?)
-}
-
 fn map_application_response(application: sub_hub_http::HttpResponse) -> worker::Result<Response> {
     let status = application.status().as_u16();
     let headers = application.headers().clone();
     let mut response = Response::from_bytes(application.into_body())?.with_status(status);
     for (name, value) in &headers {
-        if is_managed_response_header(name) {
-            continue;
-        }
         let value = value
             .to_str()
             .map_err(|_| worker::Error::RustError("invalid application response".to_owned()))?;
         response.headers_mut().set(name.as_str(), value)?;
     }
     Ok(response)
-}
-
-fn is_managed_response_header(name: &HeaderName) -> bool {
-    name == http::header::CONTENT_LENGTH || name == http::header::TRANSFER_ENCODING
 }
 
 fn monotonic_millis() -> u64 {

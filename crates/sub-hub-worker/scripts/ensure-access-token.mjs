@@ -6,7 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export const ACCESS_TOKEN_BINDING = "SUB_HUB_ACCESS_TOKEN";
+const ACCESS_TOKEN_BINDING = "SUB_HUB_ACCESS_TOKEN";
 const MAX_TOKENS = 8;
 const MAX_LIST_BYTES = 2048;
 const TOKEN_PATTERN = /^[A-Za-z0-9._~-]+$/;
@@ -35,11 +35,7 @@ export function parseList(raw) {
     if (piece.length === 0) {
       continue;
     }
-    if (
-      piece.length < 1 ||
-      piece.length > 128 ||
-      !TOKEN_PATTERN.test(piece)
-    ) {
+    if (piece.length > 128 || !TOKEN_PATTERN.test(piece)) {
       throw new Error("invalid access token list");
     }
     if (tokens.includes(piece)) {

@@ -1,18 +1,10 @@
-//! ACL4SSR INI frontend: staged prepare/render behind Unique-flight session.
-//!
-//! The pipeline stages live in submodules — [`ini`] (parsing and reference
-//! resolution) and [`policy_compile`] (Rule Set materialization and policy
-//! compilation). This root module owns the staged types and closed error
-//! enums. Target dispatch and the named-node render tail live in
-//! [`crate::render`].
-
 mod ini;
 mod policy_compile;
 
 use std::fmt;
 
-use ini::{Config, Directive, RuleSource, TargetRef};
-use policy_compile::{RuleEntry, compile_acl4ssr_policy};
+use ini::{Config, Directive, RuleSource};
+use policy_compile::{RuleEntry, compile_acl4ssr_policy, policy_member};
 
 use crate::{
     OutputTarget, UniqueFlightFillV1,
@@ -33,20 +25,12 @@ impl PreparedAcl4SsrV1 {
         &self.requests
     }
 
-    /// Next Rule Set occurrence URL still waiting for Outbound accept.
     #[must_use]
     #[cfg(test)]
     pub(crate) fn next_rule_set_url(&self, pushed: usize) -> Option<&str> {
         self.requests.get(pushed).map(Acl4SsrRuleSetRequestV1::url)
     }
 
-    /// Batch bind for crate tests. Session pushes incrementally, then
-    /// [`Self::finish_rule_sets`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Acl4SsrRenderError::RuleSetAlignment`] when `canonical_urls`
-    /// is not declaration-aligned.
     #[cfg(test)]
     pub fn bind_rule_sets(
         self,
@@ -58,10 +42,50 @@ impl PreparedAcl4SsrV1 {
         self.finish_rule_sets(fill)
     }
 
-    /// Keep-pass without fetching Rule Set bodies: emit remote refs for HTTPS lists.
     pub fn render_unexpanded_v1(
         self,
         target: OutputTarget,
+    ) -> Result<crate::RenderedConfig, Acl4SsrRenderError> {
+        let mut remote_rule_sets = Vec::new();
+        let mut rules = Vec::new();
+        let mut rs_index = 0_usize;
+        for directive in &self.config.directives {
+            match directive {
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::Remote(url),
+                } => {
+                    rs_index += 1;
+                    remote_rule_sets.push(crate::policy::RemoteRuleSetRefV1::new(
+                        format!("rs-{rs_index}"),
+                        url.declared.clone(),
+                        policy_member(target),
+                    ));
+                }
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::GeoIpCn,
+                } => rules.push(crate::policy::CompiledRuleV1::new(
+                    crate::policy::RuleMatcherV1::GeoIpCn,
+                    policy_member(target),
+                )),
+                Directive::Ruleset {
+                    target,
+                    source: RuleSource::Final,
+                } => rules.push(crate::policy::CompiledRuleV1::new(
+                    crate::policy::RuleMatcherV1::Match,
+                    policy_member(target),
+                )),
+            }
+        }
+        self.render_compiled(target, rules, remote_rule_sets)
+    }
+
+    fn render_compiled(
+        self,
+        target: OutputTarget,
+        rules: Vec<crate::policy::CompiledRuleV1>,
+        remote_rule_sets: Vec<crate::policy::RemoteRuleSetRefV1>,
     ) -> Result<crate::RenderedConfig, Acl4SsrRenderError> {
         let group_names = self
             .config
@@ -76,57 +100,6 @@ impl PreparedAcl4SsrV1 {
             .iter()
             .map(|node| node.name().as_str())
             .collect::<Vec<_>>();
-        let mut remote_rule_sets = Vec::new();
-        let mut rules = Vec::new();
-        let mut rs_index = 0_usize;
-        for directive in &self.config.directives {
-            match directive {
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::Remote(url),
-                } => {
-                    rs_index += 1;
-                    let policy_target = match target {
-                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
-                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => {
-                            crate::policy::PolicyMemberV1::Group(name.clone())
-                        }
-                    };
-                    remote_rule_sets.push(crate::policy::RemoteRuleSetRefV1::new(
-                        format!("rs-{rs_index}"),
-                        url.declared.clone(),
-                        policy_target,
-                    ));
-                }
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::GeoIpCn,
-                } => rules.push(crate::policy::CompiledRuleV1::new(
-                    crate::policy::RuleMatcherV1::GeoIpCn,
-                    match target {
-                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
-                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => {
-                            crate::policy::PolicyMemberV1::Group(name.clone())
-                        }
-                    },
-                )),
-                Directive::Ruleset {
-                    target,
-                    source: RuleSource::Final,
-                } => rules.push(crate::policy::CompiledRuleV1::new(
-                    crate::policy::RuleMatcherV1::Match,
-                    match target {
-                        TargetRef::Direct => crate::policy::PolicyMemberV1::Direct,
-                        TargetRef::Reject => crate::policy::PolicyMemberV1::Reject,
-                        TargetRef::Group(name) => {
-                            crate::policy::PolicyMemberV1::Group(name.clone())
-                        }
-                    },
-                )),
-            }
-        }
         let policy = compile_acl4ssr_policy(
             &self.config.groups,
             &node_names,
@@ -140,12 +113,6 @@ impl PreparedAcl4SsrV1 {
         }
     }
 
-    /// Completes Rule Set bind once `fill` is declaration-aligned.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Acl4SsrRenderError::RuleSetAlignment`] when the pushed count
-    /// is not declaration-aligned.
     pub(crate) fn finish_rule_sets(
         self,
         fill: UniqueFlightFillV1,
@@ -169,15 +136,6 @@ pub(crate) struct PreparedAcl4SsrRuleSetsV1 {
 }
 
 impl PreparedAcl4SsrRuleSetsV1 {
-    /// Consumes the bound stages and renders the document for `target`.
-    ///
-    /// `unique_rule_set_bodies` must contain one body per first-seen broker flight. Parsed typed
-    /// entries are cached per flight and replayed at every declaration occurrence.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error for alignment, Rule Set grammar/capability, resource-limit, naming,
-    /// or serialization failures. No partial document is returned.
     pub fn render_v1(
         self,
         target: OutputTarget,
@@ -203,7 +161,6 @@ impl PreparedAcl4SsrRuleSetsV1 {
         )
     }
 
-    /// How many declaration occurrences are covered by the first `unique_loaded` flights.
     #[must_use]
     pub(crate) fn covered_occurrence_count(&self, unique_loaded: usize) -> usize {
         self.fill.covered_occurrence_count(unique_loaded)
@@ -220,24 +177,14 @@ impl PreparedAcl4SsrRuleSetsV1 {
         self.fill.flight_count()
     }
 
-    /// Canonical URLs in declaration order.
     #[must_use]
     #[cfg(test)]
     pub(crate) fn occurrence_urls(&self, ledger: &crate::unique_fill::UniqueUrls) -> Vec<String> {
         self.fill.occurrence_urls(ledger)
     }
 
-    /// Grammar and budget check for a loaded unique prefix.
-    ///
-    /// When `decoded_crossing_occurrence` is `Some`, the host has already hit its
-    /// decoded-byte cap at that declaration; this method still reports an earlier
+    /// When `decoded_crossing_occurrence` is `Some`, this still reports an earlier
     /// Rule Set grammar error if one exists in the prefix.
-    ///
-    /// # Errors
-    ///
-    /// Same closed Rule Set grammar and budget errors as final rendering would
-    /// observe in this prefix, or [`Acl4SsrRenderError::ConversionLimit`] when
-    /// the host reported a decoded-byte crossing.
     pub fn check_loaded_prefix(
         &mut self,
         unique_rule_set_bodies: &[&[u8]],
@@ -250,16 +197,6 @@ impl PreparedAcl4SsrRuleSetsV1 {
         self.validate_loaded_unique_prefix_v1(unique_rule_set_bodies)
     }
 
-    /// Grammar check plus Conversion Service decoded-byte budget for a loaded unique prefix.
-    ///
-    /// `already_accounted_unique` is the first-seen unique prefix already included in
-    /// `already_decoded_bytes`. Fill loads Unique flights in that same first-seen order.
-    ///
-    /// # Errors
-    ///
-    /// Same closed errors as [`Self::check_loaded_prefix`], or
-    /// [`Acl4SsrRenderError::ConversionLimit`] when the decoded-byte cap is crossed
-    /// or saturates.
     pub fn check_loaded_prefix_with_decoded_budget(
         &mut self,
         unique_rule_set_bodies: &[&[u8]],
@@ -380,11 +317,6 @@ impl fmt::Display for Acl4SsrRenderError {
 impl std::error::Error for Acl4SsrRenderError {}
 
 impl Acl4SsrRenderError {
-    /// Keep-pass closed failure. Other variants stay Rule Set stage errors.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err(self)` when this error is a Rule Set stage failure.
     #[cfg(test)]
     pub const fn keep_pass(self) -> Result<ConversionRenderError, Self> {
         match self {
@@ -432,32 +364,7 @@ fn render(
         &mut bound.parsed_rule_sets,
         occurrence_count,
     )?;
-    let prepared = bound.prepared;
-
-    let group_names = prepared
-        .config
-        .groups
-        .iter()
-        .map(|group| group.name.as_str())
-        .collect::<Vec<_>>();
-    let occupied = occupy_named_sources(prepared.parsed_subscription, &group_names)
-        .map_err(|_| Acl4SsrRenderError::Internal)?;
-    let nodes = crate::render::accepted_nodes(occupied.named());
-    let node_names = nodes
-        .iter()
-        .map(|node| node.name().as_str())
-        .collect::<Vec<_>>();
-    let policy = compile_acl4ssr_policy(
-        &prepared.config.groups,
-        &node_names,
-        rules,
-        occupied.unexpanded(),
-        Vec::new(),
-    )?;
-    match render_named_policy(occupied.named(), &policy, target, MAX_OUTPUT_BYTES) {
-        Ok(document) => Ok(document),
-        Err(error) => Err(Acl4SsrRenderError::from(error)),
-    }
+    bound.prepared.render_compiled(target, rules, Vec::new())
 }
 
 impl From<ConversionRenderError> for Acl4SsrRenderError {

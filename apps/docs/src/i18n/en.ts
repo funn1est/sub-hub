@@ -63,7 +63,7 @@ export const en: Copy = {
   policyItems: [
     "Absent or empty config= uses PROXY/AUTO (select AUTO + nodes + Direct, url-test AUTO, MATCH → PROXY).",
     "expand is accepted. The Web Console switch defaults on and writes expand=true.",
-    "filename is a download-name stem (1–64 bytes). The service appends the per-target extension. Omitted uses sub-hub-<target>.<ext>.",
+    "filename is a download-name stem (1–64 bytes). The service appends the per-target extension. Omitted uses sub-hub-<target>.<ext> (clash shares the mihomo stem).",
     "append_info (omitted or true) captures subscription-userinfo on a single remote source; append_info=false skips it. insert accepts omit or false only (else 400).",
     "A GET/HEAD request-target over 8 KiB returns 414.",
   ],

@@ -91,7 +91,8 @@ second rule-file dialect, or AnyTLS / WireGuard / SSR in a drive-by PR.
 refs when the target can name them; `expand=true` inlines remotes.
 `filename` is an accepted query key: a download-name stem (1..=64 bytes, no
 path or Windows reserved characters). The service appends the per-target
-extension. Omitted uses `sub-hub-<target>.<ext>`.
+extension. Omitted uses `sub-hub-<target>.<ext>` (`clash` shares the
+`mihomo` stem).
 `append_info` is an accepted query key: omitted or `true` captures
 `subscription-userinfo` on a single remote source; `false` skips that
 header. `insert` is an accepted query key: omitted or `false` only

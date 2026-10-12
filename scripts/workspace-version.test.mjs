@@ -176,6 +176,15 @@ test("repository Cargo.toml and Cargo.lock match the helper", () => {
   );
   assert.equal(readWorkspaceVersion(plan.cargoToml), next);
   assert.equal(JSON.parse(plan.consolePackageJson).name, "@sub-hub/console");
+  assert.equal(JSON.parse(consolePackageJson).version, version);
+});
+
+test("docs package.json omits version; it is not in the release file set", () => {
+  const docs = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, "apps", "docs", "package.json"), "utf8"),
+  );
+  assert.equal(docs.name, "@sub-hub/docs");
+  assert.equal(docs.version, undefined);
 });
 
 test("workspace-version CLI prints the live workspace version", () => {

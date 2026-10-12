@@ -402,7 +402,7 @@ fn compiled_rule(entry: &RuleEntry, target: &TargetRef) -> CompiledRuleV1 {
     CompiledRuleV1::new(matcher, policy_member(target))
 }
 
-fn policy_member(target: &TargetRef) -> PolicyMemberV1 {
+pub(super) fn policy_member(target: &TargetRef) -> PolicyMemberV1 {
     match target {
         TargetRef::Direct => PolicyMemberV1::Direct,
         TargetRef::Reject => PolicyMemberV1::Reject,
