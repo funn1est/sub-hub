@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { messages } from './i18n.ts';
-import {
-  formatByteCount,
-  omittedSummary,
-  previewProfile,
-  skippedSummary,
-  trafficSummary,
-} from './preview-copy.ts';
+import { previewProfile } from './preview-copy.ts';
 import type { PreviewDone } from './preview.ts';
 
 function done(partial: Partial<PreviewDone> & Pick<PreviewDone, 'body'>): PreviewDone {
@@ -26,60 +20,46 @@ function done(partial: Partial<PreviewDone> & Pick<PreviewDone, 'body'>): Previe
   };
 }
 
-describe('formatByteCount', () => {
-  it('uses binary units', () => {
-    expect(formatByteCount(512, 'en')).toBe('512 B');
-    expect(formatByteCount(512, 'zh')).toBe('512 字节');
-    expect(formatByteCount(1536, 'en')).toBe('1.50 KiB');
-    expect(formatByteCount(10 * 1024 * 1024, 'en')).toBe('10.0 MiB');
-  });
-});
-
-describe('skippedSummary', () => {
-  it('lists only the non-zero buckets in zh and en', () => {
-    expect(skippedSummary('en', { parse: 1, capability: 4, name: 0 })).toBe(
-      'Skipped 5 nodes: 1 could not be read, 4 this client cannot import.',
-    );
-    expect(skippedSummary('en', { parse: 0, capability: 1, name: 0 })).toBe(
-      'Skipped 1 node: 1 this client cannot import.',
-    );
-    expect(skippedSummary('zh', { parse: 1, capability: 4, name: 0 })).toBe(
-      '跳过 5 个节点：1 个读不出来，4 个这个客户端导不进去。',
-    );
-  });
-});
-
-describe('omittedSummary', () => {
-  it('names the omitted URL-REGEX count in zh and en', () => {
-    expect(omittedSummary('en', 3)).toBe(
-      'Omitted 3 URL-REGEX rules (this client cannot use them).',
-    );
-    expect(omittedSummary('zh', 3)).toBe('省略 3 条 URL-REGEX 规则（这个客户端不支持）。');
-  });
-});
-
-describe('preview profile card copy', () => {
-  it('summarizes traffic from the GET record without a second URL', () => {
-    expect(
-      trafficSummary('en', {
-        upload: 1024,
-        download: 1024,
-        total: 10 * 1024 * 1024,
-        expire: null,
-      }),
-    ).toBe('2.00 KiB used of 10.0 MiB');
-    expect(
-      trafficSummary('zh', {
-        upload: 512,
-        download: 0,
-        total: 0,
-        expire: null,
-      }),
-    ).toContain(messages.zh.trafficNone);
-  });
-});
-
 describe('previewProfile', () => {
+  it('uses binary units in traffic copy', () => {
+    expect(
+      previewProfile(
+        'en',
+        done({
+          body: 'mode: rule\n',
+          traffic: { upload: 512, download: 0, total: 0, expire: null },
+        }),
+      ).traffic?.summary,
+    ).toBe(`512 B used (${messages.en.trafficNone})`);
+    expect(
+      previewProfile(
+        'zh',
+        done({
+          body: 'mode: rule\n',
+          traffic: { upload: 512, download: 0, total: 0, expire: null },
+        }),
+      ).traffic?.summary,
+    ).toBe(`已用 512 字节（${messages.zh.trafficNone}）`);
+    expect(
+      previewProfile(
+        'en',
+        done({
+          body: 'mode: rule\n',
+          traffic: { upload: 1536, download: 0, total: 0, expire: null },
+        }),
+      ).traffic?.summary,
+    ).toBe(`1.50 KiB used (${messages.en.trafficNone})`);
+    expect(
+      previewProfile(
+        'en',
+        done({
+          body: 'mode: rule\n',
+          traffic: { upload: 10 * 1024 * 1024, download: 0, total: 0, expire: null },
+        }),
+      ).traffic?.summary,
+    ).toBe(`10.0 MiB used (${messages.en.trafficNone})`);
+  });
+
   it('reads traffic from the GET record on ok', () => {
     const profile = previewProfile(
       'en',
@@ -200,5 +180,56 @@ describe('previewProfile', () => {
     expect(profile.error).toBeNull();
     expect(profile.skipped).toBe('Skipped 1 node: 1 could not be read.');
     expect(profile.omitted).toBe('Omitted 3 URL-REGEX rules (this client cannot use them).');
+  });
+
+  it('lists only the non-zero skip buckets in zh and en', () => {
+    expect(
+      previewProfile(
+        'en',
+        done({
+          body: 'mode: rule\n',
+          skipped: { parse: 1, capability: 4, name: 0 },
+        }),
+      ).skipped,
+    ).toBe('Skipped 5 nodes: 1 could not be read, 4 this client cannot import.');
+    expect(
+      previewProfile(
+        'en',
+        done({
+          body: 'mode: rule\n',
+          skipped: { parse: 0, capability: 1, name: 0 },
+        }),
+      ).skipped,
+    ).toBe('Skipped 1 node: 1 this client cannot import.');
+    expect(
+      previewProfile(
+        'zh',
+        done({
+          body: 'mode: rule\n',
+          skipped: { parse: 1, capability: 4, name: 0 },
+        }),
+      ).skipped,
+    ).toBe('跳过 5 个节点：1 个读不出来，4 个这个客户端导不进去。');
+  });
+
+  it('names the omitted URL-REGEX count in zh and en', () => {
+    expect(
+      previewProfile(
+        'en',
+        done({
+          body: 'mode: rule\n',
+          omitted: { omittedUrlRegex: 3 },
+        }),
+      ).omitted,
+    ).toBe('Omitted 3 URL-REGEX rules (this client cannot use them).');
+    expect(
+      previewProfile(
+        'zh',
+        done({
+          body: 'mode: rule\n',
+          omitted: { omittedUrlRegex: 3 },
+        }),
+      ).omitted,
+    ).toBe('省略 3 条 URL-REGEX 规则（这个客户端不支持）。');
   });
 });

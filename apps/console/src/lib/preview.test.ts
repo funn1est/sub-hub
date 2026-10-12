@@ -11,7 +11,6 @@ import {
   classifyVersionBody,
   filenameFromDisposition,
   isLoopbackHost,
-  parseUserInfoFromHeaders,
   PREVIEW_VIEW_LIMIT_BYTES,
   readSubGetHeaders,
   runPreview,
@@ -198,16 +197,23 @@ describe('parseOmittedRulesHeader', () => {
   });
 });
 
-describe('parseUserInfoFromHeaders', () => {
-  it('reads subscription-userinfo from exposed Preview headers', () => {
+describe('readSubGetHeaders', () => {
+  it('reads subscription-userinfo from the GET', () => {
     expect(
-      parseUserInfoFromHeaders([
-        { name: 'content-disposition', value: 'attachment; filename="a.yaml"' },
+      readSubGetHeaders(
         {
-          name: 'subscription-userinfo',
-          value: 'upload=1; download=2; total=3',
+          get: (name) => {
+            if (name === 'content-disposition') {
+              return 'attachment; filename="a.yaml"';
+            }
+            if (name === 'subscription-userinfo') {
+              return 'upload=1; download=2; total=3';
+            }
+            return null;
+          },
         },
-      ]),
+        'clash',
+      ).traffic,
     ).toEqual({ upload: 1, download: 2, total: 3, expire: null });
   });
 });
