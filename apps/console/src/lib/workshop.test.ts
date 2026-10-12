@@ -7,7 +7,6 @@ import {
   type SubGetEncodeInput,
 } from './service-contract.ts';
 import {
-  ACL4SSR_ONLINE_URL,
   acl4ssrConfigUrl,
   acl4ssrListed,
   configPresetOf,
@@ -38,7 +37,7 @@ const VLESS = 'vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443#Alph
 const VLESS_ENCODED =
   'vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha';
 const TWO_SOURCES_ENCODED = 'vless%3A%2F%2Fu%40h%3A443%23A%7Css%3A%2F%2Fp%40h%3A8388%23B';
-const ONLINE_ENCODED = encodeURIComponent(ACL4SSR_ONLINE_URL);
+const ONLINE_ENCODED = encodeURIComponent(acl4ssrConfigUrl('ACL4SSR_Online.ini'));
 
 function input(overrides: Partial<WorkshopFields> = {}): WorkshopFields {
   return {
@@ -137,7 +136,7 @@ describe('assembleSubscription', () => {
     const assembled = assembleSubscription(
       input({
         target: 'singbox',
-        configUrl: ACL4SSR_ONLINE_URL,
+        configUrl: acl4ssrConfigUrl('ACL4SSR_Online.ini'),
         appendInfo: false,
       }),
     );

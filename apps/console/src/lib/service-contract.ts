@@ -42,7 +42,6 @@ export const KNOWN_SERVICE_ERRORS = [
 export type KnownServiceError = (typeof KNOWN_SERVICE_ERRORS)[number];
 
 const KNOWN_ERROR_SET = new Set<string>(KNOWN_SERVICE_ERRORS);
-const QUERY_KEY_SET = new Set<string>(QUERY_KEYS);
 
 export const SKIPPED_HEADER = 'x-subconverter-skipped';
 export const USERINFO_HEADER = 'subscription-userinfo';
@@ -65,10 +64,6 @@ export function isTarget(value: string): value is Target {
 
 export function isKnownServiceError(body: string): body is KnownServiceError {
   return KNOWN_ERROR_SET.has(body);
-}
-
-export function isQueryKey(key: string): boolean {
-  return QUERY_KEY_SET.has(key);
 }
 
 /** HTTP `query.rs`: ASCII `http://` prefix is rejected. */
@@ -114,55 +109,6 @@ export type SkipCounts = {
   capability: number;
   name: number;
 };
-
-/** HTTP `query.rs`: `+` is literal, not space. Rejects NUL / CR / LF. */
-export function percentDecodeValue(raw: string): string | null {
-  const input = new TextEncoder().encode(raw);
-  const decoded = new Uint8Array(input.length);
-  let out = 0;
-  let index = 0;
-  while (index < input.length) {
-    if (input[index] === 0x25) {
-      const high = hexValue(input[index + 1]);
-      const low = hexValue(input[index + 2]);
-      if (high === undefined || low === undefined) {
-        return null;
-      }
-      decoded[out] = (high << 4) | low;
-      out += 1;
-      index += 3;
-    } else {
-      decoded[out] = input[index];
-      out += 1;
-      index += 1;
-    }
-  }
-  const slice = decoded.subarray(0, out);
-  if (slice.some((byte) => byte === 0 || byte === 0x0d || byte === 0x0a)) {
-    return null;
-  }
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(slice);
-  } catch {
-    return null;
-  }
-}
-
-function hexValue(byte: number | undefined): number | undefined {
-  if (byte === undefined) {
-    return undefined;
-  }
-  if (byte >= 0x30 && byte <= 0x39) {
-    return byte - 0x30;
-  }
-  if (byte >= 0x61 && byte <= 0x66) {
-    return byte - 0x61 + 10;
-  }
-  if (byte >= 0x41 && byte <= 0x46) {
-    return byte - 0x41 + 10;
-  }
-  return undefined;
-}
 
 export function parseSkippedHeader(value: string | null): SkipCounts | null {
   if (value === null || value.length === 0) {

@@ -4,14 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { KNOWN_SERVICE_ERRORS } from './service-contract.ts';
 import { CLIENT_TARGETS } from './workshop.ts';
-import {
-  SOURCE_REPO,
-  capabilityHint,
-  clientTargetLabel,
-  knownErrorTitle,
-  messages,
-  targetHint,
-} from './i18n.ts';
+import { SOURCE_REPO, capabilityHint, knownErrorTitle, messages, targetHint } from './i18n.ts';
 
 describe('known Conversion Service errors', () => {
   it('has a distinct zh and en title for every exact English body', async () => {
@@ -84,16 +77,16 @@ describe('targetHint', () => {
       expect(targetHint('zh', target)).not.toMatch(/Shadowrocket/i);
       expect(capabilityHint('en', target)).not.toMatch(/Shadowrocket/i);
       expect(capabilityHint('zh', target)).not.toMatch(/Shadowrocket/i);
-      expect(clientTargetLabel('en', target)).not.toMatch(/Shadowrocket/i);
+      expect(messages.en.client[target].label).not.toMatch(/Shadowrocket/i);
     }
   });
 });
 
 describe('client-first copy', () => {
   it('names the phone app, not the wire token', () => {
-    expect(clientTargetLabel('en', 'clash')).toBe('Clash / Mihomo');
-    expect(clientTargetLabel('zh', 'quanx')).toBe('Quantumult X');
-    expect(clientTargetLabel('en', 'singbox')).toBe('sing-box');
+    expect(messages.en.client.clash.label).toBe('Clash / Mihomo');
+    expect(messages.zh.client.quanx.label).toBe('Quantumult X');
+    expect(messages.en.client.singbox.label).toBe('sing-box');
     expect(Object.keys(messages.en.client)).toEqual([...CLIENT_TARGETS]);
     expect(messages.en.client.clash.wireNote).toMatch(/Mihomo YAML/);
     expect(messages.zh.client.clash.wireNote).toMatch(/Mihomo YAML/);
