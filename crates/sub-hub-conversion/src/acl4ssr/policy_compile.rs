@@ -1,9 +1,3 @@
-//! Stage 3: Rule Set parsing, rule materialization, and policy compilation.
-//!
-//! Turns loaded Rule Set bodies plus the resolved config into the
-//! crate-internal `CompiledPolicyV1` inputs (rules and expanded groups),
-//! enforcing the request-level rule and expansion budgets.
-
 use std::{collections::BTreeSet, net::IpAddr};
 
 use super::{
@@ -436,17 +430,6 @@ fn expand_groups(
                     }
                 }
                 GroupMember::NodeRegex(regex) => {
-                    if has_unexpanded && node_names.is_empty() {
-                        let member = PolicyMemberV1::UnexpandedAll;
-                        if seen.insert(member.clone()) {
-                            push_expanded_member(
-                                &mut members,
-                                member,
-                                &mut total_expanded_members,
-                                &mut total_expanded_member_bytes,
-                            )?;
-                        }
-                    }
                     for node_name in node_names {
                         let member = PolicyMemberV1::Node((*node_name).to_owned());
                         if regex.compiled.is_match(node_name) && seen.insert(member.clone()) {
@@ -458,7 +441,7 @@ fn expand_groups(
                             )?;
                         }
                     }
-                    if has_unexpanded && !node_names.is_empty() {
+                    if has_unexpanded {
                         let member = PolicyMemberV1::UnexpandedAll;
                         if seen.insert(member.clone()) {
                             push_expanded_member(
