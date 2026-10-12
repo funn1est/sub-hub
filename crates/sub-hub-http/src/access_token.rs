@@ -16,12 +16,6 @@ pub(crate) struct AccessToken {
 }
 
 impl AccessToken {
-    /// Parses a configured token.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AccessTokenError`] when the value is empty, longer than 128 bytes, or contains a
-    /// character outside the unreserved URI set `A–Z a–z 0–9 - . _ ~`.
     fn parse(raw: &str) -> Result<Self, AccessTokenError> {
         if (MIN_TOKEN_BYTES..=MAX_TOKEN_BYTES).contains(&raw.len())
             && raw.bytes().all(is_unreserved)
@@ -50,18 +44,14 @@ pub struct AccessTokens {
 }
 
 impl AccessTokens {
-    /// An empty set: `GET /sub` stays anonymous.
     #[must_use]
     pub const fn empty() -> Self {
         Self { tokens: Vec::new() }
     }
 
-    /// Parses a **present** dashboard or environment blob.
-    ///
     /// # Errors
     ///
-    /// Returns [`AccessTokenError`] when the blob is too long, yields zero unique tokens,
-    /// contains a ninth unique token, or any item fails [`AccessToken::parse`].
+    /// Returns [`AccessTokenError`] when the blob is invalid.
     pub fn parse_list(raw: &str) -> Result<Self, AccessTokenError> {
         if raw.len() > MAX_ACCESS_TOKEN_LIST_BYTES {
             return Err(AccessTokenError);
@@ -91,7 +81,7 @@ impl AccessTokens {
     ///
     /// # Errors
     ///
-    /// Returns [`AccessTokenError`] when a present blob fails [`Self::parse_list`].
+    /// Returns [`AccessTokenError`] when the present blob is invalid.
     pub fn parse_optional(raw: Option<&str>) -> Result<Self, AccessTokenError> {
         match raw {
             None => Ok(Self::empty()),
