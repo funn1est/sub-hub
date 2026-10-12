@@ -164,7 +164,7 @@ impl fmt::Debug for RenderedConfig {
 
 /// Closed Keep-pass failure shared by No remote config and Rule frontend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConversionRenderError {
+pub(crate) enum ConversionRenderError {
     ConversionLimit,
     NoValidNodes { skips: SkipCountsV1 },
     Internal,

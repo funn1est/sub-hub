@@ -69,11 +69,6 @@ pub(super) enum GroupMember {
 }
 
 pub(super) struct NodeRegex {
-    #[expect(
-        dead_code,
-        reason = "regex source retained for parse fidelity; matching uses compiled"
-    )]
-    pub(super) source: String,
     pub(super) compiled: Regex,
 }
 
@@ -298,10 +293,7 @@ fn parse_group(
                     regex::Error::CompiledTooBig(_) => Acl4SsrPreparationError::ConversionLimit,
                     _ => Acl4SsrPreparationError::InvalidConfig,
                 })?;
-            UnresolvedMember::NodeRegex(NodeRegex {
-                source: (*field).to_owned(),
-                compiled,
-            })
+            UnresolvedMember::NodeRegex(NodeRegex { compiled })
         };
         members.push(member);
     }

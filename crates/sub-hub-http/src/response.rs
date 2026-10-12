@@ -49,7 +49,7 @@ impl HttpResponse {
         self
     }
 
-    pub fn suppress_body(&mut self) {
+    fn suppress_body(&mut self) {
         self.body.clear();
     }
 
