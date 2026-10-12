@@ -2,7 +2,6 @@ use std::fmt;
 
 use http::StatusCode;
 
-/// A deliberately detail-free single-hop HTTPS response-contract error.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RemoteHttpsError;
 
@@ -14,23 +13,14 @@ impl fmt::Display for RemoteHttpsError {
 
 impl std::error::Error for RemoteHttpsError {}
 
-/// Maximum UTF-8 byte length of a followed-redirect `Location` value.
 const MAX_REDIRECT_LOCATION_BYTES: usize = 8_192;
-/// Maximum octet length of a host-observed `Subscription-UserInfo` value.
 pub(crate) const MAX_SUBSCRIPTION_USER_INFO_BYTES: usize = 256;
 
-/// Statuses the broker follows as a single-hop redirect.
 #[must_use]
 pub(crate) const fn is_followed_redirect(status: StatusCode) -> bool {
     matches!(status.as_u16(), 301 | 302 | 303 | 307 | 308)
 }
 
-/// Accepts an absent `Location` caller already rejected, then the exact redirect hop value.
-///
-/// # Errors
-///
-/// Returns [`RemoteHttpsError`] when the value is empty, longer than
-/// [`MAX_REDIRECT_LOCATION_BYTES`], or contains a CR or LF.
 fn parse_redirect_location(raw: &str) -> Result<&str, RemoteHttpsError> {
     if raw.is_empty() || raw.len() > MAX_REDIRECT_LOCATION_BYTES || raw.contains(['\r', '\n']) {
         return Err(RemoteHttpsError);
@@ -38,12 +28,6 @@ fn parse_redirect_location(raw: &str) -> Result<&str, RemoteHttpsError> {
     Ok(raw)
 }
 
-/// Absent is allowed. Exactly one `identity` token (trimmed, ASCII case-insensitive) is allowed.
-///
-/// # Errors
-///
-/// Returns [`RemoteHttpsError`] when a second value is present, the value contains a comma, or the
-/// token is not `identity`.
 fn accept_identity_content_encoding<I, V>(values: I) -> Result<(), RemoteHttpsError>
 where
     I: IntoIterator<Item = V>,
@@ -68,12 +52,6 @@ where
     }
 }
 
-/// Absent is allowed. Exactly one canonical decimal `Content-Length` must fit `max_body_bytes`.
-///
-/// # Errors
-///
-/// Returns [`RemoteHttpsError`] when a second value is present, the decimal is not canonical, or
-/// the length exceeds the body budget.
 fn accept_canonical_content_length<I, V>(
     values: I,
     max_body_bytes: usize,
@@ -111,10 +89,6 @@ fn parse_canonical_content_length(bytes: &[u8]) -> Result<u64, RemoteHttpsError>
         .ok_or(RemoteHttpsError)
 }
 
-/// Host-observed raw guard for the final-hop `Subscription-UserInfo` field.
-///
-/// Missing, a second field line, oversize, non-ASCII, comma, CR, or LF collapse to `None`. The
-/// shared parser still owns pair/key/number grammar.
 #[must_use]
 fn observed_subscription_user_info<I, V>(values: I) -> Option<Vec<u8>>
 where
@@ -138,7 +112,6 @@ where
     Some(value.to_vec())
 }
 
-/// Header decision for one HTTPS hop. Body octets follow only `Success`.
 #[derive(PartialEq, Eq)]
 pub(crate) enum HttpsHopHeaders {
     Redirect {
@@ -175,13 +148,11 @@ impl fmt::Debug for HttpsHopHeaders {
     }
 }
 
-/// Body octets are required only for a successful hop.
 #[must_use]
 pub(crate) const fn https_hop_needs_body(hop: &HttpsHopHeaders) -> bool {
     matches!(hop, HttpsHopHeaders::Success { .. })
 }
 
-/// Identity headers every host adapter must send on an outbound GET hop.
 const OUTBOUND_ACCEPT: http::HeaderValue = http::HeaderValue::from_static("*/*");
 const OUTBOUND_ACCEPT_ENCODING: http::HeaderValue = http::HeaderValue::from_static("identity");
 const OUTBOUND_CACHE_CONTROL: http::HeaderValue = http::HeaderValue::from_static("no-store");
@@ -196,12 +167,6 @@ pub fn outbound_request_headers() -> [(&'static str, http::HeaderValue); 3] {
     ]
 }
 
-/// Interprets the single-hop HTTPS header contract once for every host adapter.
-///
-/// # Errors
-///
-/// Returns [`RemoteHttpsError`] when a followed redirect is missing a single valid
-/// `Location`, or when a success hop fails the encoding/length contract.
 pub(crate) fn interpret_https_headers<L, E, C, U, LV, EV, CV, UV>(
     status: StatusCode,
     location_values: L,
