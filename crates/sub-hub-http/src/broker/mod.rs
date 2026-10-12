@@ -95,7 +95,6 @@ pub(crate) enum UniqueFetchBatch {
         loaded: Vec<Vec<u8>>,
         host: UniqueFlightHostFailure,
     },
-    Misaligned,
 }
 
 #[derive(Clone)]
