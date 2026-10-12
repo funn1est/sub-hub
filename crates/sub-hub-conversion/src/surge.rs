@@ -112,15 +112,13 @@ fn render_trojan_line(
     if matches!(trojan.transport(), VlessTransport::Grpc { .. }) {
         return None;
     }
-    if matches!(trojan.security(), TrojanSecurity::Reality(_)) {
-        return None;
-    }
     let password = trojan.password().expose();
     if !is_safe_field(password) {
         return None;
     }
-    let TrojanSecurity::Tls(options) = trojan.security() else {
-        return None;
+    let options = match trojan.security() {
+        TrojanSecurity::Tls(options) => options,
+        TrojanSecurity::Reality(_) => return None,
     };
     if !is_safe_field(options.server_name()) {
         return None;
@@ -263,27 +261,25 @@ fn push_alpn(fields: &mut Vec<String>, alpn: Option<&[String]>) -> Option<()> {
 }
 
 fn push_ws(fields: &mut Vec<String>, transport: &VlessTransport) -> Option<()> {
-    match transport {
-        VlessTransport::Tcp => Some(()),
-        VlessTransport::WebSocket {
-            path,
-            host: ws_host,
-        } => {
-            if !is_safe_field(path) {
-                return None;
-            }
-            fields.push("ws=true".to_owned());
-            fields.push(format!("ws-path={path}"));
-            if let Some(ws_host) = ws_host {
-                if !is_safe_field(ws_host) {
-                    return None;
-                }
-                fields.push(format!("ws-headers=Host:{ws_host}"));
-            }
-            Some(())
-        }
-        VlessTransport::Grpc { .. } => None,
+    let VlessTransport::WebSocket {
+        path,
+        host: ws_host,
+    } = transport
+    else {
+        return Some(());
+    };
+    if !is_safe_field(path) {
+        return None;
     }
+    fields.push("ws=true".to_owned());
+    fields.push(format!("ws-path={path}"));
+    if let Some(ws_host) = ws_host {
+        if !is_safe_field(ws_host) {
+            return None;
+        }
+        fields.push(format!("ws-headers=Host:{ws_host}"));
+    }
+    Some(())
 }
 
 fn render_groups(

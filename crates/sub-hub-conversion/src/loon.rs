@@ -160,25 +160,24 @@ fn render_vmess_line(
         vmess.cipher().as_token().to_owned(),
         uuid,
     ];
-    match vmess.transport() {
-        VlessTransport::Tcp => fields.push("transport=tcp".to_owned()),
-        VlessTransport::WebSocket {
-            path,
-            host: ws_host,
-        } => {
-            if !is_safe_field(path) {
+    if let VlessTransport::WebSocket {
+        path,
+        host: ws_host,
+    } = vmess.transport()
+    {
+        if !is_safe_field(path) {
+            return None;
+        }
+        fields.push("transport=ws".to_owned());
+        fields.push(format!("path={path}"));
+        if let Some(ws_host) = ws_host {
+            if !is_safe_field(ws_host) {
                 return None;
             }
-            fields.push("transport=ws".to_owned());
-            fields.push(format!("path={path}"));
-            if let Some(ws_host) = ws_host {
-                if !is_safe_field(ws_host) {
-                    return None;
-                }
-                fields.push(format!("host={ws_host}"));
-            }
+            fields.push(format!("host={ws_host}"));
         }
-        VlessTransport::Grpc { .. } => return None,
+    } else {
+        fields.push("transport=tcp".to_owned());
     }
     fields.push("alterId=0".to_owned());
     match vmess.security() {
@@ -208,9 +207,10 @@ fn render_trojan_line(
     if matches!(trojan.transport(), VlessTransport::Grpc { .. }) {
         return None;
     }
-    if matches!(trojan.security(), TrojanSecurity::Reality(_)) {
-        return None;
-    }
+    let options = match trojan.security() {
+        TrojanSecurity::Tls(options) => options,
+        TrojanSecurity::Reality(_) => return None,
+    };
 
     let password = quote(trojan.password().expose())?;
     let mut fields = vec![
@@ -220,30 +220,23 @@ fn render_trojan_line(
         password,
     ];
 
-    match trojan.transport() {
-        VlessTransport::Tcp => {}
-        VlessTransport::WebSocket {
-            path,
-            host: ws_host,
-        } => {
-            if !is_safe_field(path) {
+    if let VlessTransport::WebSocket {
+        path,
+        host: ws_host,
+    } = trojan.transport()
+    {
+        if !is_safe_field(path) {
+            return None;
+        }
+        fields.push("transport=ws".to_owned());
+        fields.push(format!("path={path}"));
+        if let Some(ws_host) = ws_host {
+            if !is_safe_field(ws_host) {
                 return None;
             }
-            fields.push("transport=ws".to_owned());
-            fields.push(format!("path={path}"));
-            if let Some(ws_host) = ws_host {
-                if !is_safe_field(ws_host) {
-                    return None;
-                }
-                fields.push(format!("host={ws_host}"));
-            }
+            fields.push(format!("host={ws_host}"));
         }
-        VlessTransport::Grpc { .. } => return None,
     }
-
-    let TrojanSecurity::Tls(options) = trojan.security() else {
-        return None;
-    };
     if let Some(alpn) = options.alpn()
         && alpn.len() == 1
         && is_safe_field(&alpn[0])
@@ -288,25 +281,24 @@ fn render_vless_line(
         uuid,
     ];
 
-    match vless.transport() {
-        VlessTransport::Tcp => fields.push("transport=tcp".to_owned()),
-        VlessTransport::WebSocket {
-            path,
-            host: ws_host,
-        } => {
-            if !is_safe_field(path) {
+    if let VlessTransport::WebSocket {
+        path,
+        host: ws_host,
+    } = vless.transport()
+    {
+        if !is_safe_field(path) {
+            return None;
+        }
+        fields.push("transport=ws".to_owned());
+        fields.push(format!("path={path}"));
+        if let Some(ws_host) = ws_host {
+            if !is_safe_field(ws_host) {
                 return None;
             }
-            fields.push("transport=ws".to_owned());
-            fields.push(format!("path={path}"));
-            if let Some(ws_host) = ws_host {
-                if !is_safe_field(ws_host) {
-                    return None;
-                }
-                fields.push(format!("host={ws_host}"));
-            }
+            fields.push(format!("host={ws_host}"));
         }
-        VlessTransport::Grpc { .. } => return None,
+    } else {
+        fields.push("transport=tcp".to_owned());
     }
 
     match vless.security() {

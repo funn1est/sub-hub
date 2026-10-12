@@ -239,13 +239,13 @@ fn trojan_proxy(
         TrojanSecurity::Tls(_) => None,
         TrojanSecurity::Reality(options) => Some(Reality::from_options(options)),
     };
-    let websocket = match trojan.transport() {
-        VlessTransport::Tcp => None,
-        VlessTransport::WebSocket { path, host } => Some(TrojanWebsocket {
+    let websocket = if let VlessTransport::WebSocket { path, host } = trojan.transport() {
+        Some(TrojanWebsocket {
             path: path.clone(),
             host: host.clone(),
-        }),
-        VlessTransport::Grpc { .. } => return None,
+        })
+    } else {
+        None
     };
     Some(TrojanProxy {
         name: tag.to_owned(),
