@@ -93,6 +93,10 @@ refs when the target can name them; `expand=true` inlines remotes.
 path or Windows reserved characters). The service appends the per-target
 extension. Omitted uses `sub-hub-<target>.<ext>` (`clash` shares the
 `mihomo` stem).
+`append_info` is an accepted query key: omitted or `true` captures
+`subscription-userinfo` on a single remote source; `false` skips that
+header. `insert` is an accepted query key: omitted or `false` only
+(else 400).
 Do not add a Dockerfile, `docker-compose.yml`, or GHCR publish job. Native
 without a Rust toolchain is the GitHub Release binaries; Cloudflare is the
 Worker in `crates/sub-hub-worker`.
