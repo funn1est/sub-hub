@@ -17,7 +17,7 @@ function readUtf8(filePath) {
   return fs.readFileSync(filePath, "utf8");
 }
 
-test("repository-root package.json pre-populates C1 Workers Builds commands", () => {
+test("repository-root package.json pre-populates Workers Builds commands", () => {
   const pkg = JSON.parse(readUtf8(path.join(repoRoot, "package.json")));
   assert.equal(pkg.private, true);
   assert.equal(
