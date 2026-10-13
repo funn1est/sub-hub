@@ -1,8 +1,3 @@
-//! Stage 1: strict ACL4SSR INI parsing and reference resolution.
-//!
-//! Produces the resolved [`Config`] consumed by policy compilation. Grammar,
-//! budgets, and reference validation live here; no I/O and no policy semantics.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use regex::{Regex, RegexBuilder};
@@ -69,11 +64,6 @@ pub(super) enum GroupMember {
 }
 
 pub(super) struct NodeRegex {
-    #[expect(
-        dead_code,
-        reason = "regex source retained for parse fidelity; matching uses compiled"
-    )]
-    pub(super) source: String,
     pub(super) compiled: Regex,
 }
 
@@ -298,10 +288,7 @@ fn parse_group(
                     regex::Error::CompiledTooBig(_) => Acl4SsrPreparationError::ConversionLimit,
                     _ => Acl4SsrPreparationError::InvalidConfig,
                 })?;
-            UnresolvedMember::NodeRegex(NodeRegex {
-                source: (*field).to_owned(),
-                compiled,
-            })
+            UnresolvedMember::NodeRegex(NodeRegex { compiled })
         };
         members.push(member);
     }

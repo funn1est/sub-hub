@@ -12,7 +12,7 @@ use crate::{
         CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, PolicyMemberV1, RuleMatcherV1,
     },
     render::{
-        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, encode_hex,
+        AdapterRenderError, KeptNodes, NodeKeep, RenderedTargetV1, SpelledRule, encode_hex,
         hysteria2_official_ports, keep_named, map_compiled_rules, reality_public_key_base64,
         reality_short_id_hex, reject_when_empty, render_fingerprint, render_host_plain,
         serialize_bounded, shadowsocks_method, shadowsocks_password, walk_group_members,
@@ -53,9 +53,9 @@ pub(crate) fn render_mihomo_from_policy_v1(
     }
     let (inline_rules, omitted_url_regex) = map_compiled_rules(policy.rules(), |rule| {
         if matches!(rule.matcher(), RuleMatcherV1::UrlRegex(_)) {
-            Ok(None)
+            Ok(SpelledRule::OmitUrlRegex)
         } else {
-            Ok(Some(render_clash_rule(rule)))
+            Ok(SpelledRule::Keep(render_clash_rule(rule)))
         }
     })?;
     rules.extend(inline_rules);
@@ -171,9 +171,7 @@ fn render_clash_rule(rule: &CompiledRuleV1) -> String {
         ),
         RuleMatcherV1::GeoIpCn => format!("GEOIP,CN,{target}"),
         RuleMatcherV1::Match => format!("MATCH,{target}"),
-        RuleMatcherV1::UrlRegex(_) => {
-            unreachable!("URL-REGEX is counted and dropped before Mihomo serialize")
-        }
+        RuleMatcherV1::UrlRegex(_) => unreachable!(),
     }
 }
 

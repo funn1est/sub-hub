@@ -35,6 +35,7 @@ struct HostVisibleVector {
     #[serde(default, rename = "pathRepeat")]
     path_repeat: Option<PathRepeat>,
     status: u16,
+    #[serde(default)]
     body: String,
     #[serde(default)]
     allow: Option<String>,

@@ -67,11 +67,16 @@ Shadowsocks、Trojan、v2rayN JSON v2 VMess、Hysteria2 `hysteria2://` /
 HTTPS 订阅留给客户端。`expand=true` 内联远程。Web Console 开关默认打开
 并写入 `expand=true`。省略 `expand` 时 `singbox` 仍会内联。可选的
 `filename` 是下载名词干（1–64 字节），服务按 target 补扩展名。
+`append_info`（省略或 `true`）在单个远端源上捕获
+`subscription-userinfo`；`append_info=false` 不写该头。`insert` 只接受
+省略或 `false`（否则 400）。
 
 没有 POST 转换、capabilities 或管理 API。配置 token 后 `GET /version`
 仍公开。不支持或无效的节点会被跳过；源和 config 错误会使请求失败。只要
 有节点被跳过，`GET`/`HEAD` `/sub` 会加上 `x-subconverter-skipped`（若响应
-还不是 `lossy`，再加 `x-subconverter-result: partial`）。远程拉取有界。
+还不是 `lossy`，再加 `x-subconverter-result: partial`）。省略的
+URL-REGEX 规则会加上 `x-subconverter-omitted-rules` 和
+`x-subconverter-result: lossy`。远程拉取有界。
 可选的 `SUB_HUB_ACCESS_TOKEN` 最多容纳八个等价 path token，配置后保护
 `GET`/`HEAD /sub/:token`。
 
@@ -285,26 +290,26 @@ wire form，不是 Dashboard 泄露。
 
 ### Cloudflare Git
 
-把仓库接成一个 Worker（Workers Builds，根目录
-`crates/sub-hub-worker`）。该发布包含 Web Console。克隆根是整个仓库时
-（本文件顶部的 Deploy-to-Cloudflare 按钮），仓库根 `wrangler.toml` 与
-`package.json` 的 `build` / `deploy` 是按钮合同。构建镜像有 Node 没有 Rust；
-Build 命令用 `sh scripts/install-workers-toolchain.sh`，Deploy 命令用
-`sh scripts/workers-builds-deploy.sh`。这些脚本安装 Rust 1.97.1、
-`wasm32-unknown-unknown` 和 `worker-build` 0.8.5，构建 Console，并运行
-`wrangler deploy --keep-vars`。Dashboard 里的 Worker 名必须与
-`wrangler.toml` 一致（`sub-hub`）。
+本文件顶部的 Deploy-to-Cloudflare 按钮用的是仓库根 `wrangler.toml` 与
+`package.json` 的 `build` / `deploy`。Workers Builds 是另一条路径。不要在
+这里用 `pnpm run deploy`（`CI=true` 会拒绝）。
 
+| Field | Value |
+| --- | --- |
+| Worker name | `sub-hub` (must match `wrangler.toml`) |
+| Root directory | `crates/sub-hub-worker` |
+| Build command | `sh scripts/install-workers-toolchain.sh` |
+| Deploy command | `sh scripts/workers-builds-deploy.sh` (all). Conversion only: `sh scripts/workers-builds-deploy.sh worker` |
+| Non-production deploy | `sh scripts/workers-builds-deploy.sh preview` (add `worker` for Conversion only) |
+
+不要把上表的 Dashboard **Root directory** 改成 `.`，除非你同时改脚本路径。
 Workers Builds 不跑 `mise`。若镜像较旧，把 `NODE_VERSION` 和
 `PNPM_VERSION` 设进 **Build variables and secrets**（不要写进
 **Runtime variables and secrets**），钉与仓库根
 `mise.toml` 一致。不要添加 `.node-version` 或 `.nvmrc`。第一次构建成功后，
 按 [Runtime variables and secrets](#runtime-variables-and-secrets) 添加。
-Workers Builds 不会写入 `SUB_HUB_ACCESS_TOKEN`。不要在
-Workers Builds 上用 `pnpm run deploy`（`CI=true` 会拒绝）。仅
-Conversion 的 Git 使用 `sh scripts/workers-builds-deploy.sh worker`。仅
-Console 的 Git 是第二个 Worker，根目录为 `apps/console`。本机
-`pnpm run deploy` 仍是更简单的发布方式。
+Workers Builds 不会写入 `SUB_HUB_ACCESS_TOKEN`。仅 Console 的 Git 是第二个
+Worker，根目录为 `apps/console`。本机 `pnpm run deploy` 仍是更简单的发布方式。
 
 ## Web Console
 

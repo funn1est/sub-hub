@@ -20,8 +20,6 @@ test("parseGateArgv requires the release event fields", () => {
     parseGateArgv([
       "--event",
       "push",
-      "--ref-type",
-      "branch",
       "--ref-name",
       "main",
       "--current",
@@ -33,7 +31,6 @@ test("parseGateArgv requires the release event fields", () => {
     ]),
     {
       eventName: "push",
-      refType: "branch",
       refName: "main",
       currentVersion: "0.2.1",
       previousVersion: "0.2.0",
@@ -49,8 +46,6 @@ test("parseGateArgv requires the release event fields", () => {
       parseGateArgv([
         "--event",
         "push",
-        "--ref-type",
-        "branch",
         "--ref-name",
         "main",
         "--current",
@@ -62,13 +57,28 @@ test("parseGateArgv requires the release event fields", () => {
       ]),
     /unknown flag/,
   );
+  assert.throws(
+    () =>
+      parseGateArgv([
+        "--event",
+        "push",
+        "--ref-name",
+        "main",
+        "--current",
+        "0.2.1",
+        "--release-exists",
+        "false",
+        "--ref-type",
+        "tag",
+      ]),
+    /unknown flag/,
+  );
 });
 
 test("decideNativeRelease publishes a main push when the workspace version changes", () => {
   assert.deepEqual(
     decideNativeRelease({
       eventName: "push",
-      refType: "branch",
       refName: "main",
       currentVersion: "0.2.1",
       previousVersion: "0.2.0",
@@ -79,7 +89,6 @@ test("decideNativeRelease publishes a main push when the workspace version chang
   assert.deepEqual(
     decideNativeRelease({
       eventName: "push",
-      refType: "branch",
       refName: "main",
       currentVersion: "0.2.1",
       previousVersion: "0.2.1",
@@ -93,7 +102,6 @@ test("decideNativeRelease skips when that GitHub Release already exists", () => 
   assert.deepEqual(
     decideNativeRelease({
       eventName: "push",
-      refType: "branch",
       refName: "main",
       currentVersion: "0.2.1",
       previousVersion: "0.2.0",
@@ -101,47 +109,12 @@ test("decideNativeRelease skips when that GitHub Release already exists", () => 
     }),
     { publish: false, version: "0.2.1", reason: "release exists" },
   );
-  assert.deepEqual(
-    decideNativeRelease({
-      eventName: "push",
-      refType: "tag",
-      refName: "v0.2.1",
-      currentVersion: "0.2.1",
-      previousVersion: "",
-      releaseExists: true,
-    }),
-    { publish: false, version: "0.2.1", reason: "release exists" },
-  );
 });
 
-test("decideNativeRelease publishes a matching tag or dispatch when the release is missing", () => {
-  assert.deepEqual(
-    decideNativeRelease({
-      eventName: "push",
-      refType: "tag",
-      refName: "v0.2.1",
-      currentVersion: "0.2.1",
-      previousVersion: "",
-      releaseExists: false,
-    }),
-    { publish: true, version: "0.2.1", reason: "tag" },
-  );
-  assert.throws(
-    () =>
-      decideNativeRelease({
-        eventName: "push",
-        refType: "tag",
-        refName: "v0.2.0",
-        currentVersion: "0.2.1",
-        previousVersion: "",
-        releaseExists: false,
-      }),
-    /does not match/,
-  );
+test("decideNativeRelease publishes a dispatch when the release is missing", () => {
   assert.deepEqual(
     decideNativeRelease({
       eventName: "workflow_dispatch",
-      refType: "branch",
       refName: "main",
       currentVersion: "0.2.1",
       previousVersion: "0.2.1",
@@ -155,7 +128,6 @@ test("decideNativeRelease treats a missing previous version as a publish on main
   assert.deepEqual(
     decideNativeRelease({
       eventName: "push",
-      refType: "branch",
       refName: "main",
       currentVersion: "0.2.0",
       previousVersion: "",
@@ -166,7 +138,6 @@ test("decideNativeRelease treats a missing previous version as a publish on main
   assert.deepEqual(
     decideNativeRelease({
       eventName: "push",
-      refType: "branch",
       refName: "topic",
       currentVersion: "0.2.1",
       previousVersion: "0.2.0",
@@ -208,8 +179,6 @@ test("native-release-gate CLI writes GITHUB_OUTPUT", () => {
         path.join(here, "native-release-gate.mjs"),
         "--event",
         "push",
-        "--ref-type",
-        "branch",
         "--ref-name",
         "main",
         "--current",
@@ -238,10 +207,13 @@ test("Native release workflow publishes from a main version bump", () => {
     "utf8",
   );
   assert.match(workflow, /branches:\r?\n\s+- main/);
+  assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /scripts\/native-release-gate\.mjs/);
   assert.match(workflow, /workspace-version\.mjs --stdin/);
   assert.match(workflow, /needs\.gate\.outputs\.publish == 'true'/);
   assert.match(workflow, /--target "\$GITHUB_SHA"/);
+  assert.doesNotMatch(workflow, /tags:\r?\n\s+- ["']v\*/);
+  assert.doesNotMatch(workflow, /--ref-type/);
   assert.doesNotMatch(
     workflow,
     /github\.event_name == 'push' && github\.ref_type == 'tag'/,
