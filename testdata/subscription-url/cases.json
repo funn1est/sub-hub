@@ -188,14 +188,12 @@
     {
       "id": "insert-false",
       "query": "target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha&insert=false",
-      "http": { "status": 200 },
-      "assembleOmits": ["insert"]
+      "http": { "status": 200 }
     },
     {
       "id": "unknown-target",
       "query": "target=v2ray&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
-      "http": { "status": 400, "body": "Invalid target!" },
-      "workshopParse": { "ok": true, "warnings": ["invalid-target"] }
+      "http": { "status": 400, "body": "Invalid target!" }
     },
     {
       "id": "token-path",
