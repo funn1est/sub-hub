@@ -2,21 +2,13 @@ use http::{Method, StatusCode, header};
 use sub_hub_http::{AccessTokens, Application, HttpRequest, HttpResponse, SelfHosts};
 
 mod common;
-use common::{UnreachableRemote, VERSION_BODY};
+use common::{UnreachableRemote, VERSION_BODY, handle as anonymous};
 
 const TOKEN: &str = "deployer-token";
 const DIRECT_QUERY: &str = concat!(
     "target=clash&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef",
     "%40EXAMPLE.COM%3A443%23Alpha",
 );
-
-fn anonymous(request: HttpRequest<'_>) -> HttpResponse {
-    let application = Application::new(
-        UnreachableRemote,
-        SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
-    );
-    futures::executor::block_on(application.handle(request))
-}
 
 fn protected(request: HttpRequest<'_>) -> HttpResponse {
     let application = Application::new(
