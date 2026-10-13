@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { acl4ssrConfigUrl } from './acl4ssr-catalog.ts';
-import type { ConsoleChrome } from './persist.ts';
+import { PERSIST_KEY, subscribePersisted, type ConsoleChrome } from './persist.ts';
 import {
   createWorkshopSession,
   type SavedPreviewFile,
@@ -536,5 +536,46 @@ describe('createWorkshopSession', () => {
 
     session.actions.patch({ filename: 'out.yaml' });
     expect(view().preview.status).toBe('idle');
+  });
+
+  it('persists fields and chrome, and skips preview, probe, and repeated chrome', async () => {
+    const writes: string[] = [];
+    const storage = {
+      getItem: () => null,
+      setItem: (key: string, value: string) => {
+        if (key === PERSIST_KEY) {
+          writes.push(value);
+        }
+      },
+    };
+    const { session, view } = makeSession({
+      fields: { serviceOrigin: ORIGIN },
+      chrome: { locale: 'en', theme: 'system' },
+      fetch: (url) =>
+        url.endsWith('/version') ? response(200, VERSION_OK) : response(200, 'proxies: []'),
+    });
+    const stop = subscribePersisted(storage, session.getView, session.subscribe);
+
+    await flush();
+    await session.actions.preview();
+    session.actions.selectConfig('custom');
+    expect(writes).toEqual([]);
+    expect(view().preview.status).toBe('done');
+
+    session.actions.setLocale('zh');
+    session.actions.setLocale('zh');
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(writes[0] ?? '').locale).toBe('zh');
+    expect(writes[0]).not.toContain('proxies');
+
+    session.actions.setTheme('dark');
+    expect(writes).toHaveLength(2);
+    expect(JSON.parse(writes[1] ?? '').theme).toBe('dark');
+
+    session.actions.patch({ filename: 'out.yaml' });
+    expect(writes).toHaveLength(3);
+    expect(JSON.parse(writes[2] ?? '').filename).toBe('out.yaml');
+    expect(view().preview.status).toBe('idle');
+    stop();
   });
 });

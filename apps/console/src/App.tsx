@@ -9,11 +9,10 @@ import { Button } from '@/components/ui/button.tsx';
 import { toast } from '@/components/ui/toast.tsx';
 import { t } from '@/lib/i18n.ts';
 import {
-  composePersisted,
   defaultLocale,
   readPersisted,
+  subscribePersisted,
   workshopFieldsOf,
-  writePersisted,
   type Locale,
 } from '@/lib/persist.ts';
 import { createWorkshopSession, type WorkshopNotice } from '@/lib/workshop-session.ts';
@@ -65,13 +64,9 @@ export function App() {
   } = useRegisterSW({ immediate: true });
 
   React.useEffect(() => {
-    return session.subscribe(() => {
-      const next = session.getView();
-      writePersisted(
-        window.localStorage,
-        composePersisted(next.fields, { locale: next.locale, theme: next.theme }),
-      );
-    });
+    // Strict Mode runs the useState initializer twice and discards one session.
+    // Subscribe here so that discarded session cannot write localStorage when its probe finishes.
+    return subscribePersisted(window.localStorage, session.getView, session.subscribe);
   }, [session]);
 
   React.useEffect(() => {

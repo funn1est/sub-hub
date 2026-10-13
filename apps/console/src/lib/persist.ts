@@ -133,6 +133,31 @@ export function writePersisted(storage: StorageLike, state: PersistedWorkshop): 
   storage.setItem?.(PERSIST_KEY, serializePersisted(state));
 }
 
+/** Write when `fields`, `locale`, or `theme` change. Other session emits do not. */
+export function subscribePersisted(
+  storage: StorageLike,
+  getSnapshot: () => { fields: WorkshopFields; locale: Locale; theme: Theme },
+  subscribe: (listener: () => void) => () => void,
+): () => void {
+  const initial = getSnapshot();
+  let fields = initial.fields;
+  let locale = initial.locale;
+  let theme = initial.theme;
+  return subscribe(() => {
+    const next = getSnapshot();
+    if (fields === next.fields && locale === next.locale && theme === next.theme) {
+      return;
+    }
+    fields = next.fields;
+    locale = next.locale;
+    theme = next.theme;
+    writePersisted(
+      storage,
+      composePersisted(next.fields, { locale: next.locale, theme: next.theme }),
+    );
+  });
+}
+
 function isTheme(value: unknown): value is Theme {
   return typeof value === 'string' && (THEMES as readonly string[]).includes(value);
 }

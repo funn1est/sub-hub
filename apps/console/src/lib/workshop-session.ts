@@ -10,7 +10,7 @@ import {
   writeClipboardInBrowser,
 } from './browser-ports.ts';
 import { createWorkshopProbe } from './workshop-probe.ts';
-import type { ConsoleChrome, Locale, Theme } from './persist.ts';
+import { defaultPersisted, type ConsoleChrome, type Locale, type Theme } from './persist.ts';
 import { subscriptionMediaType } from './service-contract.ts';
 import { runPreview, type PreviewState, type VersionState } from './preview.ts';
 import {
@@ -93,7 +93,7 @@ export function createWorkshopSession(options: {
 
   const listeners = new Set<() => void>();
   let fields = withSourceFloor(options.initialFields);
-  let chrome: ConsoleChrome = options.initialChrome ?? { locale: 'en', theme: 'system' };
+  let chrome: ConsoleChrome = options.initialChrome ?? defaultChrome();
   let pickingCustom = false;
   let preview: PreviewState = { status: 'idle' };
   let previewSeq = 0;
@@ -310,4 +310,9 @@ function sourcePiecesFromPaste(raw: string): string[] {
 
 function withSourceFloor(fields: WorkshopFields): WorkshopFields {
   return fields.sources.length > 0 ? fields : { ...fields, sources: [''] };
+}
+
+function defaultChrome(): ConsoleChrome {
+  const { locale, theme } = defaultPersisted();
+  return { locale, theme };
 }

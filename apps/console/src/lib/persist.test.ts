@@ -7,6 +7,7 @@ import {
   PERSIST_KEY,
   readPersisted,
   serializePersisted,
+  subscribePersisted,
   workshopFieldsOf,
   writePersisted,
   type PersistedWorkshop,
@@ -133,7 +134,7 @@ describe('persist', () => {
     expect(loaded.expand).toBe(true);
   });
 
-  it("writes a flat PersistedWorkshop blob, not Zustand's {state, version} wrapper", () => {
+  it('writes a flat PersistedWorkshop blob without a state or version wrapper', () => {
     const storage = memoryStorage();
     writePersisted(storage, sample);
     const raw = storage.data.get(PERSIST_KEY);
@@ -183,5 +184,57 @@ describe('persist', () => {
     writePersisted(storage, { ...sample, configUrl: classic });
     expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? '').configUrl).toBe(classic);
     expect(workshopFieldsOf(readPersisted(storage)).configUrl).toBe(classic);
+  });
+
+  it('subscribePersisted writes only when fields, locale, or theme change', () => {
+    const storage = memoryStorage();
+    let writes = 0;
+    const setItem = storage.setItem;
+    storage.setItem = (key, value) => {
+      writes += 1;
+      setItem(key, value);
+    };
+    const fields = workshopFieldsOf(sample);
+    let snapshot = { fields, locale: sample.locale, theme: sample.theme };
+    const listeners = new Set<() => void>();
+    const stop = subscribePersisted(
+      storage,
+      () => snapshot,
+      (listener) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    );
+    const emit = () => {
+      for (const listener of listeners) {
+        listener();
+      }
+    };
+
+    emit();
+    expect(writes).toBe(0);
+
+    snapshot = { ...snapshot, locale: 'en' };
+    emit();
+    emit();
+    expect(writes).toBe(1);
+    expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? '').locale).toBe('en');
+
+    snapshot = { ...snapshot, theme: 'dark' };
+    emit();
+    expect(writes).toBe(2);
+    expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? '').theme).toBe('dark');
+
+    snapshot = { ...snapshot, fields: { ...fields, filename: 'out.yaml' } };
+    emit();
+    expect(writes).toBe(3);
+    expect(JSON.parse(storage.data.get(PERSIST_KEY) ?? '').filename).toBe('out.yaml');
+
+    stop();
+    snapshot = { ...snapshot, locale: 'zh' };
+    emit();
+    expect(writes).toBe(3);
   });
 });
