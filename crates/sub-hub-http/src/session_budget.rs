@@ -1,12 +1,12 @@
-pub(crate) const MAX_UNIQUE_REMOTE_RESOURCES: usize = 40;
-pub(crate) const MAX_ACTIVE_RESOURCES: usize = 4;
-pub(crate) const MAX_TOTAL_DECODED_BYTES: usize = 16 * 1024 * 1024;
-pub(crate) const MAX_SESSION_ATTEMPTS: usize = 48;
+const MAX_UNIQUE_REMOTE_RESOURCES: usize = 40;
+const MAX_ACTIVE_RESOURCES: usize = 4;
+const MAX_TOTAL_DECODED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SESSION_ATTEMPTS: usize = 48;
 /// One fetch plus three followed redirects.
-pub(crate) const ATTEMPTS_PER_RESOURCE: usize = 4;
-pub(crate) const MAX_REDIRECTS: usize = 3;
-pub(crate) const SESSION_DEADLINE_MILLIS: u64 = 30_000;
-pub(crate) const FETCH_DEADLINE_MILLIS: u64 = 10_000;
+const ATTEMPTS_PER_RESOURCE: usize = 4;
+const MAX_REDIRECTS: usize = 3;
+const SESSION_DEADLINE_MILLIS: u64 = 30_000;
+const FETCH_DEADLINE_MILLIS: u64 = 10_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SessionBudget {
