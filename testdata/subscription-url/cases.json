@@ -137,7 +137,7 @@
       }
     },
     {
-      "id": "mihomo-token",
+      "id": "anonymous-mihomo",
       "query": "target=mihomo&url=vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha",
       "http": { "status": 200 },
       "workshop": {
