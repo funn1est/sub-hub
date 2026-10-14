@@ -5,25 +5,12 @@ use serde::Deserialize;
 use sub_hub_http::{Application, CorsOrigins, HttpRequest, SelfHosts};
 
 mod common;
-use common::UnreachableRemote;
+use common::{UnreachableRemote, handle};
 
 const GOLDEN: &str = include_str!("../../../testdata/subscription-url/cases.json");
 const VLESS: &str =
     "vless%3A%2F%2F01234567-89ab-cdef-0123-456789abcdef%40example.com%3A443%23Alpha";
 const SS: &str = "ss%3A%2F%2Faes-128-gcm%3Apassword%40example.com%3A8388%23Alpha";
-
-fn handle(path: &str, query: &str) -> sub_hub_http::HttpResponse {
-    handle_on(
-        Application::new(
-            UnreachableRemote,
-            SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
-        ),
-        Method::GET,
-        path,
-        query,
-        None,
-    )
-}
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_on(
@@ -129,7 +116,11 @@ fn subscription_url_golden_matches_the_http_adapter() {
     let file = load();
     assert!(!file.cases.is_empty());
     for case in file.cases {
-        let response = handle(&case.path, &case.query);
+        let response = handle(HttpRequest::new(
+            Method::GET,
+            &case.path,
+            (!case.query.is_empty()).then_some(case.query.as_str()),
+        ));
         assert_eq!(
             response.status(),
             StatusCode::from_u16(case.http.status).expect("status"),
@@ -156,7 +147,7 @@ fn get_contract_tables_match_the_http_adapter() {
     assert_eq!(contract.get_target_limit_bytes, 8192);
     assert!(contract.query_keys.contains(&"insert".to_owned()));
 
-    let version = handle(&contract.version_path, "");
+    let version = handle(HttpRequest::new(Method::GET, &contract.version_path, None));
     assert_eq!(version.status(), StatusCode::OK);
     let body = std::str::from_utf8(version.body()).expect("utf-8");
     assert!(
@@ -168,7 +159,11 @@ fn get_contract_tables_match_the_http_adapter() {
     );
 
     for sample in contract.error_samples {
-        let response = handle(&sample.path, &sample.query);
+        let response = handle(HttpRequest::new(
+            Method::GET,
+            &sample.path,
+            (!sample.query.is_empty()).then_some(sample.query.as_str()),
+        ));
         assert_eq!(
             std::str::from_utf8(response.body()).expect("utf-8"),
             sample.body,
@@ -186,7 +181,7 @@ fn get_contract_tables_match_the_http_adapter() {
         let Some(query) = sample.query.as_deref() else {
             continue;
         };
-        let response = handle("/sub", query);
+        let response = handle(HttpRequest::new(Method::GET, "/sub", Some(query)));
         assert_eq!(
             response.status(),
             StatusCode::from_u16(sample.status).expect("status"),
@@ -204,7 +199,11 @@ fn get_contract_tables_match_the_http_adapter() {
     }
 
     for sample in contract.percent_decode {
-        let response = handle("/sub", &format!("target=clash&url={}", sample.encoded));
+        let response = handle(HttpRequest::new(
+            Method::GET,
+            "/sub",
+            Some(&format!("target=clash&url={}", sample.encoded)),
+        ));
         match sample.decoded {
             None => {
                 assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -250,7 +249,11 @@ fn get_contract_target_headers_match_the_http_adapter() {
         } else {
             VLESS
         };
-        let response = handle("/sub", &format!("target={target}&url={probe}"));
+        let response = handle(HttpRequest::new(
+            Method::GET,
+            "/sub",
+            Some(&format!("target={target}&url={probe}")),
+        ));
         assert_eq!(response.status(), StatusCode::OK, "{target}");
         let filename = contract.filenames.get(target).expect("filename");
         let media_type = contract.media_types.get(target).expect("media type");
