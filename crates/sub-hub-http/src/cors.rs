@@ -21,7 +21,7 @@ pub struct CorsOrigins {
 
 impl CorsOrigins {
     #[must_use]
-    pub const fn empty() -> Self {
+    pub(crate) const fn empty() -> Self {
         Self {
             origins: Vec::new(),
         }
@@ -70,7 +70,6 @@ impl CorsOrigins {
     }
 }
 
-/// Origin header used for CORS: exactly one value, no `@`.
 #[must_use]
 pub fn request_origin(headers: &http::HeaderMap) -> Option<String> {
     let mut values = headers.get_all(header::ORIGIN).iter();
