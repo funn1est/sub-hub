@@ -48,7 +48,7 @@ export function parseCutArgv(argv) {
   return { version, dryRun, push, fetch };
 }
 
-export function runGit(args, { cwd, env = process.env, allowFailure = false } = {}) {
+function runGit(args, { cwd, env = process.env, allowFailure = false } = {}) {
   const result = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
