@@ -65,9 +65,6 @@ pub(crate) fn hysteria2_singbox_ports(ports: &Hysteria2Ports) -> Option<Vec<Stri
     )
 }
 
-/// Renders an endpoint host with a bare (bracket-free) IPv6 form.
-///
-/// Used by targets whose host field is standalone (Mihomo, sing-box, Loon, Egern).
 pub(crate) fn render_host_plain(host: &Host) -> String {
     match host {
         Host::Domain(domain) => domain.clone(),
@@ -127,7 +124,9 @@ pub(crate) fn policy_member_token(
             .iter()
             .any(|candidate| *candidate == name)
             .then(|| name.clone())),
-        PolicyMemberV1::UnexpandedAll => Ok(None),
+        PolicyMemberV1::UnexpandedAll => {
+            unreachable!("UnexpandedAll is classified by walk_group_members")
+        }
     }
 }
 
