@@ -1,5 +1,6 @@
-# Deploy-to-Cloudflare / Workers Builds when the clone root is this
-# repository. Layout `all`: Conversion plus same-origin Console.
+# Deploy-to-Cloudflare button contract. This file plus repository-root
+# package.json `build` and `deploy`. Layout `all`: Conversion plus
+# same-origin Console.
 # Local maintainer publish stays `cd crates/sub-hub-worker && pnpm run deploy`
 # (that crate wrangler.toml). Do not add Cloudflare account fields or
 # KV / D1 / R2 / Secrets Store bindings.
