@@ -232,6 +232,79 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
     );
     assert_redacted(hysteria2_debug_representations());
     assert_redacted(tuic_debug_representations());
+    assert_redacted(capability_subtype_debug_representations());
+}
+
+fn capability_subtype_debug_representations() -> Vec<String> {
+    let uuid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    let pbk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    let ss = parse_share_uri(
+        "ss://aes-128-gcm:CANARY_PASSWORD@canary-host.example:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dcanary-host.example#CANARY_REMARK",
+    )
+    .expect("valid canary SS obfs node");
+    let NodeProtocol::Shadowsocks(ss_protocol) = &ss.protocol else {
+        panic!("expected Shadowsocks")
+    };
+    let obfs = ss_protocol.obfs().expect("obfs");
+
+    let vless_ws = parse_share_uri(&format!(
+        "vless://{uuid}@canary-host.example:443?type=ws&path=%2FCANARY_QUERY_VALUE&host=canary-host.example&security=tls&sni=canary-host.example&alpn=CANARY_QUERY_VALUE&fp=chrome#CANARY_REMARK"
+    ))
+    .expect("valid canary VLESS ws tls");
+    let NodeProtocol::Vless(vless) = &vless_ws.protocol else {
+        panic!("expected VLESS")
+    };
+    let VlessSecurity::Tls(tls) = vless.security() else {
+        panic!("expected TLS")
+    };
+
+    let vless_reality = parse_share_uri(&format!(
+        "vless://{uuid}@canary-host.example:443?security=reality&fp=chrome&pbk={pbk}&sid=0a1b#CANARY_REMARK"
+    ))
+    .expect("valid canary VLESS reality");
+    let NodeProtocol::Vless(reality) = &vless_reality.protocol else {
+        panic!("expected VLESS")
+    };
+    let VlessSecurity::Reality(options) = reality.security() else {
+        panic!("expected Reality")
+    };
+
+    let trojan = parse_share_uri(&format!(
+        "trojan://CANARY_PASSWORD@canary-host.example:443?security=reality&fp=chrome&pbk={pbk}&sid=0a1b#CANARY_REMARK"
+    ))
+    .expect("valid canary Trojan");
+    let NodeProtocol::Trojan(trojan_protocol) = &trojan.protocol else {
+        panic!("expected Trojan")
+    };
+
+    let json = r#"{"ps":"CANARY_REMARK","add":"canary-host.example","port":443,"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","net":"ws","host":"canary-host.example","path":"/CANARY_QUERY_VALUE","tls":"tls","sni":"canary-host.example","alpn":"CANARY_QUERY_VALUE"}"#;
+    let vmess = parse_share_uri(&format!(
+        "vmess://{}",
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes())
+    ))
+    .expect("valid canary VMess ws tls");
+    let NodeProtocol::Vmess(vmess_protocol) = &vmess.protocol else {
+        panic!("expected VMess")
+    };
+
+    vec![
+        format!("{:?}", ss.endpoint.host()),
+        format!("{obfs:?}"),
+        format!("{:?}", vless_ws.endpoint.host()),
+        format!("{:?}", vless.transport()),
+        format!("{:?}", vless.security()),
+        format!("{tls:?}"),
+        format!("{:?}", vless_reality.endpoint.host()),
+        format!("{:?}", reality.security()),
+        format!("{options:?}"),
+        format!("{:?}", options.tls()),
+        format!("{:?}", trojan.endpoint.host()),
+        format!("{:?}", trojan_protocol.security()),
+        format!("{:?}", vmess.endpoint.host()),
+        format!("{:?}", vmess_protocol.transport()),
+        format!("{:?}", vmess_protocol.security()),
+    ]
 }
 
 fn hysteria2_debug_representations() -> [String; 5] {

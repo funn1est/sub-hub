@@ -105,7 +105,7 @@ impl fmt::Debug for VlessId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum VlessTransport {
     Tcp,
     WebSocket {
@@ -125,6 +125,16 @@ impl VlessTransport {
             Self::WebSocket { .. } => VlessTransportKind::WebSocket,
             Self::Grpc { .. } => VlessTransportKind::Grpc,
         }
+    }
+}
+
+impl fmt::Debug for VlessTransport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Tcp => "Tcp",
+            Self::WebSocket { .. } => "WebSocket",
+            Self::Grpc { .. } => "Grpc",
+        })
     }
 }
 
@@ -149,7 +159,7 @@ pub(crate) enum GrpcMode {
     Gun,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum VlessSecurity {
     None,
     Tls(TlsOptions),
@@ -166,6 +176,16 @@ impl VlessSecurity {
     }
 }
 
+impl fmt::Debug for VlessSecurity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::None => "None",
+            Self::Tls(_) => "Tls",
+            Self::Reality(_) => "Reality",
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum VlessSecurityKind {
     None,
@@ -179,7 +199,7 @@ impl VlessSecurityKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TlsOptions {
     server_name: String,
     alpn: Option<Vec<String>>,
@@ -223,7 +243,13 @@ impl TlsOptions {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+impl fmt::Debug for TlsOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("TlsOptions([REDACTED])")
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct RealityOptions {
     tls: TlsOptions,
     public_key: RealityPublicKey,
@@ -253,6 +279,12 @@ impl RealityOptions {
 
     pub(crate) const fn short_id(&self) -> Option<&RealityShortId> {
         self.short_id.as_ref()
+    }
+}
+
+impl fmt::Debug for RealityOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RealityOptions([REDACTED])")
     }
 }
 
