@@ -12,7 +12,8 @@ use crate::node::{
     vless::{
         ClientFingerprint, GrpcMode, VlessTransport,
         share::{
-            build_tls_options, is_canonical_uuid, parse_alpn, parse_fingerprint, require_nonempty,
+            build_tls_options, is_canonical_uuid, parse_alpn, parse_fingerprint,
+            parse_udp_enable_flag, require_nonempty,
         },
     },
 };
@@ -207,7 +208,7 @@ fn collect_fields(object: &serde_json::Map<String, Value>) -> Result<Fields, Nod
                 parse_insecure(&json_flag_token(value)?)?;
             }
             "mux" => parse_mux_off(&json_flag_token(value)?)?,
-            "udp" => parse_udp_enable(&json_flag_token(value)?)?,
+            "udp" => parse_udp_enable_flag(&json_flag_token(value)?)?,
             "spx" => {}
             "vcn" | "pcs" => {
                 if !json_string(value)?.is_empty() {
@@ -250,16 +251,6 @@ fn parse_insecure(value: &str) -> Result<(), NodeRejection> {
 
 fn parse_mux_off(value: &str) -> Result<(), NodeRejection> {
     parse_insecure(value)
-}
-
-fn parse_udp_enable(value: &str) -> Result<(), NodeRejection> {
-    match value {
-        "1" | "true" => Ok(()),
-        "0" | "false" => Err(NodeRejection::Unsupported(
-            UnsupportedCapability::ProtocolOption,
-        )),
-        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
-    }
 }
 
 fn json_flag_token(value: &Value) -> Result<String, NodeRejection> {
