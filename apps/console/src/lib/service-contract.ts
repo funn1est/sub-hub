@@ -12,7 +12,6 @@ export const TARGETS = ['clash', 'mihomo', 'quanx', 'singbox', 'loon', 'egern', 
 
 export type Target = (typeof TARGETS)[number];
 
-/** HTTP 414 when GET/HEAD request-target length is greater than this. */
 export const GET_TARGET_LIMIT_BYTES = 8192;
 
 export const QUERY_KEYS = [
@@ -89,7 +88,6 @@ export function fallbackDownloadName(target: Target): string {
   }
 }
 
-/** HTTP `subscription_response_for`: sing-box is JSON, every other target is text. */
 export function subscriptionMediaType(target: Target): string {
   switch (target) {
     case 'singbox':
