@@ -309,7 +309,7 @@ struct MihomoRenderedGroup {
 
 #[derive(Serialize)]
 #[serde(untagged)]
-pub(crate) enum MihomoProxy<'a> {
+enum MihomoProxy<'a> {
     Vless(MihomoVlessProxy<'a>),
     Shadowsocks(MihomoShadowsocksProxy<'a>),
     Trojan(MihomoTrojanProxy<'a>),
@@ -332,7 +332,7 @@ impl MihomoProxy<'_> {
 }
 
 #[derive(Serialize)]
-pub(crate) struct MihomoTuicProxy<'a> {
+struct MihomoTuicProxy<'a> {
     name: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
@@ -374,7 +374,7 @@ impl<'a> MihomoTuicProxy<'a> {
 }
 
 #[derive(Serialize)]
-pub(crate) struct MihomoHysteria2Proxy<'a> {
+struct MihomoHysteria2Proxy<'a> {
     name: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
@@ -420,7 +420,7 @@ impl<'a> MihomoHysteria2Proxy<'a> {
 }
 
 #[derive(Serialize)]
-pub(crate) struct MihomoVlessProxy<'a> {
+struct MihomoVlessProxy<'a> {
     name: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
@@ -511,7 +511,7 @@ impl<'a> MihomoVlessProxy<'a> {
 }
 
 #[derive(Serialize)]
-pub(crate) struct MihomoShadowsocksProxy<'a> {
+struct MihomoShadowsocksProxy<'a> {
     name: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
@@ -534,7 +534,7 @@ struct MihomoObfsPluginOpts<'a> {
 }
 
 #[derive(Serialize)]
-pub(crate) struct MihomoTrojanProxy<'a> {
+struct MihomoTrojanProxy<'a> {
     name: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
@@ -558,7 +558,7 @@ pub(crate) struct MihomoTrojanProxy<'a> {
 }
 
 #[derive(Serialize)]
-pub(crate) struct MihomoVmessProxy<'a> {
+struct MihomoVmessProxy<'a> {
     name: &'a str,
     #[serde(rename = "type")]
     kind: &'static str,
