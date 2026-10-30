@@ -85,13 +85,11 @@ export type WorkshopDisplay = {
 export type AssembledTarget = {
   target: ClientTarget;
   url: string;
-  getTarget: string;
   overLimit: boolean;
 };
 
 export type Assembled = {
   url: string | null;
-  getTarget: string | null;
   overLimit: boolean;
   previewable: boolean;
   clashInstall: boolean;
@@ -176,7 +174,6 @@ function sourceRowInvalid(source: string): boolean {
 
 const emptyAssembled: Assembled = {
   url: null,
-  getTarget: null,
   overLimit: false,
   previewable: false,
   clashInstall: false,
@@ -252,7 +249,6 @@ function assembledFrom(input: {
     return {
       target,
       url: `${input.origin}${getTarget}`,
-      getTarget,
       overLimit: new TextEncoder().encode(getTarget).length > GET_TARGET_LIMIT_BYTES,
     };
   };
@@ -260,7 +256,6 @@ function assembledFrom(input: {
   const installable = !primary.overLimit;
   return {
     url: primary.url,
-    getTarget: primary.getTarget,
     overLimit: primary.overLimit,
     previewable: installable,
     clashInstall: installable && input.target === 'clash',
