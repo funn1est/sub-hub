@@ -2,7 +2,7 @@ use super::{InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_share
 use crate::node::{
     Host, NodeNameInput, NodeProtocol,
     trojan::TrojanSecurity,
-    vless::{ClientFingerprint, GrpcMode, RealityShortId, TlsOptions, VlessTransport},
+    vless::{ClientFingerprint, RealityShortId, TlsOptions, VlessTransport},
 };
 
 const PBK: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -166,7 +166,6 @@ fn trojan_ws_and_grpc_require_tls_or_reality() {
         grpc.transport(),
         &VlessTransport::Grpc {
             service_name: Some("svc".into()),
-            mode: GrpcMode::Gun,
         }
     );
 
