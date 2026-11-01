@@ -159,7 +159,7 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
                 obfs_password = Some(vless::nonempty_owned(pair.value.clone())?);
             }
             "sni" => sni = Some(vless::nonempty_owned(pair.value.clone())?),
-            "insecure" | "allowInsecure" => parse_insecure_flag(pair.value.as_ref())?,
+            "insecure" | "allowInsecure" => vless::parse_insecure_off_flag(pair.value.as_ref())?,
             "pinSHA256" => pin_sha256 = Some(parse_pin_sha256(pair.value.as_ref())?),
             "ech" => {
                 return Err(NodeRejection::Unsupported(
@@ -199,16 +199,6 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
         obfs,
         pin_sha256,
     })
-}
-
-fn parse_insecure_flag(value: &str) -> Result<(), NodeRejection> {
-    match value {
-        "0" | "false" => Ok(()),
-        "1" | "true" => Err(NodeRejection::Unsupported(
-            UnsupportedCapability::ProtocolOption,
-        )),
-        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
-    }
 }
 
 fn parse_pin_sha256(value: &str) -> Result<[u8; 32], NodeRejection> {
