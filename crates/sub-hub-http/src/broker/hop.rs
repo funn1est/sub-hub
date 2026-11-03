@@ -12,7 +12,6 @@ use crate::remote_https::{
 pub(crate) enum HeaderObservation {
     Absent,
     One(Vec<u8>),
-    Invalid,
 }
 
 impl fmt::Debug for HeaderObservation {
@@ -20,7 +19,6 @@ impl fmt::Debug for HeaderObservation {
         formatter.write_str(match self {
             Self::Absent => "absent",
             Self::One(_) => "present",
-            Self::Invalid => "invalid",
         })
     }
 }
@@ -68,7 +66,7 @@ impl RemoteResponse {
         self.subscription_user_info = if value.len() <= MAX_SUBSCRIPTION_USER_INFO_BYTES {
             HeaderObservation::One(value)
         } else {
-            HeaderObservation::Invalid
+            HeaderObservation::Absent
         };
         self
     }
@@ -436,7 +434,6 @@ mod tests {
             "present"
         );
         assert_eq!(format!("{:?}", HeaderObservation::Absent), "absent");
-        assert_eq!(format!("{:?}", HeaderObservation::Invalid), "invalid");
     }
 
     #[test]
@@ -459,8 +456,8 @@ mod tests {
         assert!(!redirect_debug.contains(LOCATION));
         assert!(!redirect_debug.contains("secret-canary"));
 
-        let invalid = RemoteResponse::body(StatusCode::OK, Vec::new())
+        let overlong = RemoteResponse::body(StatusCode::OK, Vec::new())
             .with_subscription_user_info(vec![b'a'; MAX_SUBSCRIPTION_USER_INFO_BYTES + 1]);
-        assert!(format!("{invalid:?}").contains("subscription_user_info: invalid"));
+        assert_eq!(overlong.subscription_user_info, HeaderObservation::Absent);
     }
 }
