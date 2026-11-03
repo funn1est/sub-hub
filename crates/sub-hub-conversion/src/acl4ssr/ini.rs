@@ -524,9 +524,9 @@ fn validate_group_cycles(
         states[index] = 1;
         for member in &groups[index].members {
             if let GroupMember::LiteralRef(TargetRef::Group(name)) = member {
-                let target = *indices
-                    .get(name.as_str())
-                    .ok_or(Acl4SsrPreparationError::Internal)?;
+                let target = *indices.get(name.as_str()).expect(
+                    "resolve_target only emits TargetRef::Group for names in group_indices",
+                );
                 visit(target, groups, indices, states)?;
             }
         }
