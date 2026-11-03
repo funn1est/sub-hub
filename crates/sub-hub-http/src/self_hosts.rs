@@ -13,7 +13,7 @@ pub struct SelfHosts {
 
 impl SelfHosts {
     #[must_use]
-    pub const fn empty() -> Self {
+    const fn empty() -> Self {
         Self { hosts: Vec::new() }
     }
 

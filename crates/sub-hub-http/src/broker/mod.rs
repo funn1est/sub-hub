@@ -17,10 +17,10 @@ pub(crate) use hop::HeaderObservation;
 pub use hop::{HopHeaderBag, RemoteResponse, append_hop_chunk, complete_https_hop};
 
 pub struct RemoteAttempt {
-    pub(crate) url: Url,
-    pub(crate) deadline_millis: u64,
-    pub(crate) max_body_bytes: usize,
-    pub(crate) capture_subscription_user_info: bool,
+    url: Url,
+    deadline_millis: u64,
+    max_body_bytes: usize,
+    capture_subscription_user_info: bool,
 }
 
 impl RemoteAttempt {
@@ -106,12 +106,12 @@ pub(crate) struct RemoteResource {
 }
 
 pub(crate) struct BrokerSession<'a, A> {
-    pub(super) adapter: &'a A,
-    pub(super) self_hosts: &'a SelfHosts,
-    pub(super) inbound_host: String,
+    adapter: &'a A,
+    self_hosts: &'a SelfHosts,
+    inbound_host: String,
     pub(crate) budget: SessionBudget,
-    pub(super) total_deadline_millis: u64,
-    pub(super) attempts: AtomicUsize,
+    total_deadline_millis: u64,
+    attempts: AtomicUsize,
 }
 
 impl<'a, A: RemoteAdapter> BrokerSession<'a, A> {

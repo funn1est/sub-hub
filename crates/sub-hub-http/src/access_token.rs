@@ -45,7 +45,7 @@ pub struct AccessTokens {
 
 impl AccessTokens {
     #[must_use]
-    pub const fn empty() -> Self {
+    pub(crate) const fn empty() -> Self {
         Self { tokens: Vec::new() }
     }
 
