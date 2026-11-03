@@ -142,9 +142,10 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
     let psk = "AAECAwQFBgcICQoLDA0ODw==";
     let sid = "0a1b";
 
-    let ss =
-        parse_share_uri("ss://aes-128-gcm:CANARY_PASSWORD@canary-host.example:8388#CANARY_REMARK")
-            .expect("valid canary SS node");
+    let ss = parse_share_uri(
+        "ss://aes-128-gcm:CANARY_PASSWORD@canary-host.example:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dcanary-host.example#CANARY_REMARK",
+    )
+    .expect("valid canary SS node");
     let NodeProtocol::Shadowsocks(ss_protocol) = &ss.protocol else {
         panic!("expected Shadowsocks")
     };
@@ -152,6 +153,8 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
         format!("{ss:?}"),
         format!("{:?}", ss.protocol),
         format!("{ss_protocol:?}"),
+        format!("{:?}", ss.endpoint.host()),
+        format!("{:?}", ss_protocol.obfs()),
         format!("{:?}", ss_protocol.credential()),
     ];
 
@@ -166,11 +169,12 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
         format!("{ss_2022:?}"),
         format!("{:?}", ss_2022.protocol),
         format!("{ss_2022_protocol:?}"),
+        format!("{:?}", ss_2022.endpoint.host()),
         format!("{:?}", ss_2022_protocol.credential()),
     ];
 
     let reality = parse_share_uri(&format!(
-        "vless://{uuid}@canary-host.example:443?security=reality&fp=chrome&pbk={pbk}&sid={sid}#CANARY_REMARK"
+        "vless://{uuid}@canary-host.example:443?type=grpc&serviceName=CANARY_QUERY_VALUE&security=reality&fp=chrome&pbk={pbk}&sid={sid}#CANARY_REMARK"
     ))
     .expect("valid canary Reality node");
     let NodeProtocol::Vless(vless) = &reality.protocol else {
@@ -184,6 +188,9 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
         format!("{reality:?}"),
         format!("{:?}", reality.protocol),
         format!("{vless:?}"),
+        format!("{:?}", reality.endpoint.host()),
+        format!("{:?}", vless.transport()),
+        format!("{:?}", vless.security()),
         format!("{:?}", vless.id()),
         format!("{:?}", options.public_key()),
         format!("{short_id:?}"),
@@ -200,10 +207,26 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
         format!("{trojan:?}"),
         format!("{:?}", trojan.protocol),
         format!("{trojan_protocol:?}"),
+        format!("{:?}", trojan.endpoint.host()),
+        format!("{:?}", trojan_protocol.transport()),
+        format!("{:?}", trojan_protocol.security()),
         format!("{:?}", trojan_protocol.password()),
     ];
 
-    let json_v2 = r#"{"ps":"CANARY_REMARK","add":"canary-host.example","port":443,"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}"#;
+    assert_redacted(
+        ss_representations
+            .into_iter()
+            .chain(ss_2022_representations)
+            .chain(secret_representations)
+            .chain(trojan_representations),
+    );
+    assert_redacted(vmess_debug_representations());
+    assert_redacted(hysteria2_debug_representations());
+    assert_redacted(tuic_debug_representations());
+}
+
+fn vmess_debug_representations() -> [String; 7] {
+    let json_v2 = r#"{"ps":"CANARY_REMARK","add":"canary-host.example","port":443,"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","net":"ws","host":"canary-host.example","path":"/CANARY_QUERY_VALUE","tls":"tls","sni":"canary-host.example","alpn":"CANARY_QUERY_VALUE","fp":"chrome"}"#;
     let share = parse_share_uri(&format!(
         "vmess://{}",
         base64::Engine::encode(
@@ -215,26 +238,18 @@ fn successful_node_debug_output_redacts_credentials_and_metadata() {
     let NodeProtocol::Vmess(protocol) = &share.protocol else {
         panic!("expected VMess")
     };
-    let vmess_representations = [
+    [
         format!("{share:?}"),
         format!("{:?}", share.protocol),
         format!("{protocol:?}"),
+        format!("{:?}", share.endpoint.host()),
+        format!("{:?}", protocol.transport()),
+        format!("{:?}", protocol.security()),
         format!("{:?}", protocol.id()),
-    ];
-
-    assert_redacted(
-        ss_representations
-            .into_iter()
-            .chain(ss_2022_representations)
-            .chain(secret_representations)
-            .chain(trojan_representations)
-            .chain(vmess_representations),
-    );
-    assert_redacted(hysteria2_debug_representations());
-    assert_redacted(tuic_debug_representations());
+    ]
 }
 
-fn hysteria2_debug_representations() -> [String; 5] {
+fn hysteria2_debug_representations() -> [String; 6] {
     let hysteria2 = parse_share_uri(
         "hysteria2://CANARY_PASSWORD@canary-host.example:443/?obfs=salamander&obfs-password=CANARY_PASSWORD#CANARY_REMARK",
     )
@@ -246,12 +261,13 @@ fn hysteria2_debug_representations() -> [String; 5] {
         format!("{hysteria2:?}"),
         format!("{:?}", hysteria2.protocol),
         format!("{hysteria2_protocol:?}"),
+        format!("{:?}", hysteria2.endpoint.host()),
         format!("{:?}", hysteria2_protocol.auth()),
         format!("{:?}", hysteria2_protocol.obfs()),
     ]
 }
 
-fn tuic_debug_representations() -> [String; 5] {
+fn tuic_debug_representations() -> [String; 6] {
     let tuic = parse_share_uri(
         "tuic://aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:CANARY_PASSWORD@canary-host.example:443#CANARY_REMARK",
     )
@@ -263,6 +279,7 @@ fn tuic_debug_representations() -> [String; 5] {
         format!("{tuic:?}"),
         format!("{:?}", tuic.protocol),
         format!("{tuic_protocol:?}"),
+        format!("{:?}", tuic.endpoint.host()),
         format!("{:?}", tuic_protocol.id()),
         format!("{:?}", tuic_protocol.password()),
     ]
