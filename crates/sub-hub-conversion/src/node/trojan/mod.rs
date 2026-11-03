@@ -39,15 +39,7 @@ impl TrojanNode {
     }
 
     fn invariants_hold(&self) -> bool {
-        let transport_is_valid = match self.transport() {
-            VlessTransport::Tcp => true,
-            VlessTransport::WebSocket { path, host } => {
-                !path.is_empty() && host.as_ref().is_none_or(|value| !value.is_empty())
-            }
-            VlessTransport::Grpc { service_name, .. } => {
-                service_name.as_ref().is_none_or(|value| !value.is_empty())
-            }
-        };
+        let transport_is_valid = self.transport().invariants_hold();
         let security_is_valid = match self.security() {
             TrojanSecurity::Tls(options) => options.invariants_hold(),
             TrojanSecurity::Reality(options) => {
