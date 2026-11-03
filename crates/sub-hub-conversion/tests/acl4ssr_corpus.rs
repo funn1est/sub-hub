@@ -70,7 +70,6 @@ fn pinned_online_and_full_corpus_cross_the_opaque_conversion_seam() {
         14,
         1,
         0,
-        0,
         &ONLINE_OUTPUT,
     );
     verify_profile(
@@ -78,7 +77,6 @@ fn pinned_online_and_full_corpus_cross_the_opaque_conversion_seam() {
         "Clash/config/ACL4SSR_Online_Full_MultiMode.ini",
         31,
         9,
-        2,
         7,
         &FULL_OUTPUT,
     );
@@ -90,7 +88,6 @@ fn verify_profile(
     config_path: &str,
     expected_remote_count: usize,
     expected_omitted_count: u8,
-    _expected_legacy_hint_count: u8,
     expected_empty_count: u8,
     expected_output: &ExpectedOutputStructure,
 ) {
