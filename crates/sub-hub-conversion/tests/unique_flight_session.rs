@@ -1,6 +1,5 @@
 use sub_hub_conversion::{
-    MAX_CONFIG_BYTES, MAX_RULE_SET_BYTES, MAX_SUBSCRIPTION_INPUT_BYTES, OutputTarget,
-    UniqueFlightBodies, UniqueFlightDrive, UniqueFlightFetch, UniqueFlightFetchPlan,
+    OutputTarget, UniqueFlightBodies, UniqueFlightDrive, UniqueFlightFetch, UniqueFlightFetchPlan,
     UniqueFlightFillFailure, UniqueFlightHostFailure, UniqueFlightSessionV1,
 };
 use url::Url;
@@ -156,7 +155,7 @@ fn remote_subscription_fetches_first_seen_then_keep_pass() {
     let plan = fetch.plan(8);
     assert_eq!(plan_urls(&plan), vec![REMOTE]);
     assert!(!plan.capture_subscription_user_info);
-    assert_eq!(plan.max_body_bytes, MAX_SUBSCRIPTION_INPUT_BYTES);
+    assert_eq!(plan.max_body_bytes, 2_796_206);
     assert_eq!(plan.leftover_count, 1);
     let bytes = expect_document(fulfill_fetch(
         fetch,
@@ -211,7 +210,7 @@ fn config_without_rule_sets_is_one_unique_flight_then_keep_pass() {
     let plan = fetch.plan(8);
     assert_eq!(plan_urls(&plan), vec![CONFIG]);
     assert!(!plan.capture_subscription_user_info);
-    assert_eq!(plan.max_body_bytes, MAX_CONFIG_BYTES);
+    assert_eq!(plan.max_body_bytes, 256 * 1024);
     assert_eq!(plan.leftover_count, 1);
     let bytes = expect_document(fulfill_fetch(
         fetch,
@@ -237,7 +236,7 @@ fn rule_set_session_accepts_occurrences_and_fetches_first_seen() {
     assert_eq!(accepted, [FIRST_LIST, SECOND_LIST]);
     let plan = fetch.plan(8);
     assert_eq!(plan_urls(&plan), vec![FIRST_LIST, SECOND_LIST]);
-    assert_eq!(plan.max_body_bytes, MAX_RULE_SET_BYTES);
+    assert_eq!(plan.max_body_bytes, 4 * 1024 * 1024);
     assert_eq!(plan.leftover_count, 2);
     assert!(!plan.capture_subscription_user_info);
 }
