@@ -3,12 +3,7 @@ import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
-import {
-  chromeFromPersistRaw,
-  resolveDocumentLang,
-  resolveTheme,
-  themeColorMetas,
-} from './theme-chrome.ts';
+import { resolveTheme, themeColorMetas } from './theme-chrome.ts';
 
 type ThemeColorShot = { content: string; media: string | null };
 
@@ -22,40 +17,12 @@ const bootPath = resolve(import.meta.dirname, '../../public/theme-boot.js');
 const indexPath = resolve(import.meta.dirname, '../../index.html');
 const headersPath = resolve(import.meta.dirname, '../../public/_headers');
 
-describe('chromeFromPersistRaw', () => {
-  it('reads only top-level theme and locale from the persist blob', () => {
-    expect(chromeFromPersistRaw(null)).toEqual({ theme: 'system', locale: undefined });
-    expect(chromeFromPersistRaw('not-json')).toEqual({ theme: 'system', locale: undefined });
-    expect(chromeFromPersistRaw('{"theme":"dark","locale":"zh"}')).toEqual({
-      theme: 'dark',
-      locale: 'zh',
-    });
-    expect(chromeFromPersistRaw('{"theme":"neon","locale":"de"}')).toEqual({
-      theme: 'system',
-      locale: undefined,
-    });
-    expect(chromeFromPersistRaw('{"state":{"theme":"dark","locale":"zh"}}')).toEqual({
-      theme: 'system',
-      locale: undefined,
-    });
-  });
-});
-
 describe('resolveTheme', () => {
   it('honors an explicit theme and otherwise follows prefers-color-scheme', () => {
     expect(resolveTheme('dark', false)).toBe('dark');
     expect(resolveTheme('light', true)).toBe('light');
     expect(resolveTheme('system', true)).toBe('dark');
     expect(resolveTheme('system', false)).toBe('light');
-  });
-});
-
-describe('resolveDocumentLang', () => {
-  it('uses a stored locale and otherwise follows navigator.language', () => {
-    expect(resolveDocumentLang('zh', 'en-US')).toBe('zh-CN');
-    expect(resolveDocumentLang('en', 'zh-CN')).toBe('en');
-    expect(resolveDocumentLang(undefined, 'zh-CN')).toBe('zh-CN');
-    expect(resolveDocumentLang(undefined, 'en-US')).toBe('en');
   });
 });
 
@@ -107,6 +74,51 @@ describe('theme-boot.js', () => {
     ).toEqual({
       lang: 'zh-CN',
       className: ['dark'],
+      themeColors: [
+        { content: '#fafafa', media: '(prefers-color-scheme: light)' },
+        { content: '#0a0a0a', media: '(prefers-color-scheme: dark)' },
+      ],
+    });
+
+    expect(
+      runThemeBoot(source, {
+        raw: 'not-json',
+        prefersDark: false,
+        language: 'en-US',
+      }),
+    ).toEqual({
+      lang: 'en',
+      className: ['light'],
+      themeColors: [
+        { content: '#fafafa', media: '(prefers-color-scheme: light)' },
+        { content: '#0a0a0a', media: '(prefers-color-scheme: dark)' },
+      ],
+    });
+
+    expect(
+      runThemeBoot(source, {
+        raw: '{"theme":"neon","locale":"de"}',
+        prefersDark: true,
+        language: 'en-US',
+      }),
+    ).toEqual({
+      lang: 'en',
+      className: ['dark'],
+      themeColors: [
+        { content: '#fafafa', media: '(prefers-color-scheme: light)' },
+        { content: '#0a0a0a', media: '(prefers-color-scheme: dark)' },
+      ],
+    });
+
+    expect(
+      runThemeBoot(source, {
+        raw: '{"state":{"theme":"dark","locale":"zh"},"version":0}',
+        prefersDark: false,
+        language: 'zh-CN',
+      }),
+    ).toEqual({
+      lang: 'zh-CN',
+      className: ['light'],
       themeColors: [
         { content: '#fafafa', media: '(prefers-color-scheme: light)' },
         { content: '#0a0a0a', media: '(prefers-color-scheme: dark)' },
