@@ -105,7 +105,7 @@ impl fmt::Debug for VlessId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum VlessTransport {
     Tcp,
     WebSocket {
@@ -124,6 +124,24 @@ impl VlessTransport {
             Self::Tcp => VlessTransportKind::Tcp,
             Self::WebSocket { .. } => VlessTransportKind::WebSocket,
             Self::Grpc { .. } => VlessTransportKind::Grpc,
+        }
+    }
+}
+
+impl fmt::Debug for VlessTransport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tcp => formatter.write_str("Tcp"),
+            Self::WebSocket { host, .. } => formatter
+                .debug_struct("WebSocket")
+                .field("path", &"[REDACTED]")
+                .field("host", &host.as_ref().map(|_| "[REDACTED]"))
+                .finish(),
+            Self::Grpc { service_name, mode } => formatter
+                .debug_struct("Grpc")
+                .field("service_name", &service_name.as_ref().map(|_| "[REDACTED]"))
+                .field("mode", mode)
+                .finish(),
         }
     }
 }
@@ -179,7 +197,7 @@ impl VlessSecurityKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TlsOptions {
     server_name: String,
     alpn: Option<Vec<String>>,
@@ -220,6 +238,17 @@ impl TlsOptions {
                         .iter()
                         .all(|value| !value.is_empty() && !value.chars().any(char::is_whitespace))
             })
+    }
+}
+
+impl fmt::Debug for TlsOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TlsOptions")
+            .field("server_name", &"[REDACTED]")
+            .field("alpn", &self.alpn().map(|_| "[REDACTED]"))
+            .field("fingerprint", &self.fingerprint())
+            .finish()
     }
 }
 
