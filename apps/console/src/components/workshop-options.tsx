@@ -14,6 +14,7 @@ import {
   ComboboxList,
   ComboboxSeparator,
   ComboboxTrigger,
+  useComboboxFilter,
 } from '@/components/ui/combobox.tsx';
 import {
   Field,
@@ -29,7 +30,6 @@ import { capabilityHint, t, targetHint } from '@/lib/i18n.ts';
 import type { Locale } from '@/lib/persist.ts';
 import {
   configChoiceLabel,
-  configChoiceMatches,
   type ConfigChoice,
   type ConfigChoiceGroup,
 } from '@/lib/workshop-config.ts';
@@ -67,6 +67,7 @@ export function WorkshopOptions({
   const [moreOpen, setMoreOpen] = React.useState(() =>
     moreOptionsRevealed(fields, filenameInvalid),
   );
+  const { contains } = useComboboxFilter();
   const moreExpanded = moreOpen || filenameInvalid;
 
   return (
@@ -110,7 +111,7 @@ export function WorkshopOptions({
               actions.selectConfig(item.id);
             }}
             itemToStringLabel={configChoiceLabel}
-            filter={configChoiceMatches}
+            filter={(item, query) => contains(item, query, (choice) => choice.search)}
           >
             <ComboboxTrigger
               id="config-preset"
