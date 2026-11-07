@@ -3,10 +3,7 @@ import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "astro/config"
 
 export default defineConfig({
-  site:
-    process.env.ASTRO_SITE ??
-    process.env.CF_PAGES_URL ??
-    "http://127.0.0.1:4321",
+  site: process.env.ASTRO_SITE ?? "http://127.0.0.1:4321",
   trailingSlash: "always",
   i18n: {
     defaultLocale: "en",
