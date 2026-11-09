@@ -53,7 +53,7 @@ impl VmessNode {
             VlessTransport::WebSocket { path, host } => {
                 !path.is_empty() && host.as_ref().is_none_or(|value| !value.is_empty())
             }
-            VlessTransport::Grpc { service_name, .. } => {
+            VlessTransport::Grpc { service_name } => {
                 service_name.as_ref().is_none_or(|value| !value.is_empty())
             }
         };

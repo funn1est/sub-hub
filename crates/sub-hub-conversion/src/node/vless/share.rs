@@ -10,9 +10,8 @@ use crate::node::{
 };
 
 use super::{
-    ClientFingerprint, GrpcMode, RealityOptions, RealityPublicKey, RealityShortId, TlsOptions,
-    VlessFlow, VlessId, VlessNode, VlessSecurity, VlessSecurityKind, VlessTransport,
-    VlessTransportKind,
+    ClientFingerprint, RealityOptions, RealityPublicKey, RealityShortId, TlsOptions, VlessFlow,
+    VlessId, VlessNode, VlessSecurity, VlessSecurityKind, VlessTransport, VlessTransportKind,
 };
 
 pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
@@ -52,7 +51,6 @@ pub(crate) struct StreamQueryBase {
     pub path: Option<String>,
     pub host: Option<String>,
     pub service_name: Option<String>,
-    pub mode: Option<GrpcMode>,
     pub server_name: Option<String>,
     pub alpn: Option<Vec<String>>,
     pub fingerprint: Option<ClientFingerprint>,
@@ -68,7 +66,6 @@ impl StreamQueryBase {
             path: None,
             host: None,
             service_name: None,
-            mode: None,
             server_name: None,
             alpn: None,
             fingerprint: None,
@@ -160,9 +157,8 @@ pub(crate) fn apply_shared_stream_query_pair(
         }
         "mode" => {
             require_nonempty(&value)?;
-            let mode = parse_grpc_mode(&value)?;
+            parse_grpc_mode(&value)?;
             require_compatible(context.transport_is(VlessTransportKind::Grpc))?;
-            parameters.mode = Some(mode);
         }
         "sni" => {
             let value = nonempty_owned(value)?;
@@ -278,9 +274,9 @@ fn parse_security_kind(value: &str) -> Result<VlessSecurityKind, NodeRejection> 
     }
 }
 
-pub(crate) fn parse_grpc_mode(value: &str) -> Result<GrpcMode, NodeRejection> {
+fn parse_grpc_mode(value: &str) -> Result<(), NodeRejection> {
     match value {
-        "gun" => Ok(GrpcMode::Gun),
+        "gun" => Ok(()),
         _ => Err(NodeRejection::Unsupported(
             UnsupportedCapability::TransportOption,
         )),
@@ -363,7 +359,6 @@ fn build_components(
                 path,
                 host,
                 service_name,
-                mode,
                 server_name,
                 alpn,
                 fingerprint,
@@ -379,10 +374,7 @@ fn build_components(
             path: path.unwrap_or_else(|| "/".into()),
             host,
         },
-        VlessTransportKind::Grpc => VlessTransport::Grpc {
-            service_name,
-            mode: mode.unwrap_or(GrpcMode::Gun),
-        },
+        VlessTransportKind::Grpc => VlessTransport::Grpc { service_name },
     };
 
     let security = match security_kind {

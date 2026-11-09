@@ -1,7 +1,7 @@
 use super::{InvalidNodeReason, NodeRejection, UnsupportedCapability, parse_share_uri, rejection};
 use crate::node::{
     Host, NodeNameInput, NodeProtocol,
-    vless::{ClientFingerprint, GrpcMode, TlsOptions, VlessTransport},
+    vless::{ClientFingerprint, TlsOptions, VlessTransport},
     vmess::{VmessCipher, VmessSecurity},
 };
 use base64::{
@@ -123,7 +123,6 @@ fn vmess_ws_tls_and_grpc_are_typed() {
         grpc.transport(),
         &VlessTransport::Grpc {
             service_name: Some("svc".into()),
-            mode: GrpcMode::Gun,
         }
     );
 }
