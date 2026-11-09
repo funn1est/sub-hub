@@ -482,7 +482,6 @@ fn compiled_strategy(group: &Group) -> Result<GroupStrategyV1, Acl4SsrRenderErro
     }
     let payload = group.payload.as_ref().ok_or(Acl4SsrRenderError::Internal)?;
     Ok(match group.kind {
-        GroupType::Select => GroupStrategyV1::Select,
         GroupType::UrlTest => GroupStrategyV1::UrlTest {
             url: payload.health.declared.clone(),
             interval: payload.probe.interval,
@@ -496,6 +495,7 @@ fn compiled_strategy(group: &Group) -> Result<GroupStrategyV1, Acl4SsrRenderErro
             url: payload.health.declared.clone(),
             interval: payload.probe.interval,
         },
+        GroupType::Select => unreachable!("Select returns before payload"),
     })
 }
 
