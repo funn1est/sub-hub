@@ -68,6 +68,7 @@ function LocaleMenu({
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
         {locale === 'zh' ? '中文' : 'EN'}
+        <span className="sr-only">{label}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-36">
         <DropdownMenuGroup>
