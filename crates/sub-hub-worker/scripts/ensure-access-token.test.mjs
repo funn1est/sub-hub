@@ -13,7 +13,7 @@ import {
   splitArgv,
 } from "./ensure-access-token.mjs";
 
-test("parseList accepts S15 values and comma or newline lists", () => {
+test("parseList accepts a valid token and comma or newline lists", () => {
   assert.deepEqual(parseList("deployer-token"), ["deployer-token"]);
   assert.deepEqual(parseList("alpha,bravo"), ["alpha", "bravo"]);
   assert.deepEqual(parseList("alpha\nbravo\n"), ["alpha", "bravo"]);

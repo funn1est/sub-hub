@@ -3,7 +3,7 @@ use std::fmt;
 use url::Host;
 
 /// Maximum number of unique self-host aliases in one binding.
-pub const MAX_SELF_HOSTS: usize = 16;
+const MAX_SELF_HOSTS: usize = 16;
 
 /// Bounded set of deployment hostnames that remote loading must never target.
 #[derive(Clone)]

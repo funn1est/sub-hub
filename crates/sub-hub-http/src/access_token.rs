@@ -5,13 +5,12 @@ use subtle::ConstantTimeEq;
 const MIN_TOKEN_BYTES: usize = 1;
 const MAX_TOKEN_BYTES: usize = 128;
 /// Maximum number of unique deployer tokens in one binding.
-pub const MAX_ACCESS_TOKENS: usize = 8;
+const MAX_ACCESS_TOKENS: usize = 8;
 /// Maximum UTF-8 byte length of a present `SUB_HUB_ACCESS_TOKEN` blob.
-pub const MAX_ACCESS_TOKEN_LIST_BYTES: usize = 2048;
+const MAX_ACCESS_TOKEN_LIST_BYTES: usize = 2048;
 
-/// A single deployer access token used as the `/sub/:token` path segment.
 #[derive(Clone)]
-pub(crate) struct AccessToken {
+struct AccessToken {
     value: String,
 }
 
@@ -28,7 +27,7 @@ impl AccessToken {
         }
     }
 
-    pub(crate) fn matches(&self, provided: &str) -> bool {
+    fn matches(&self, provided: &str) -> bool {
         constant_time_eq(self.value.as_bytes(), provided.as_bytes())
     }
 
@@ -175,8 +174,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_list_accepts_s15_single_token_and_comma_or_newline_lists() {
-        let single = AccessTokens::parse_list("deployer-token").expect("S15 value");
+    fn parse_list_accepts_valid_token_and_comma_or_newline_lists() {
+        let single = AccessTokens::parse_list("deployer-token").expect("valid token");
         assert!(!single.is_empty());
         assert!(single.authorizes(Some("deployer-token")));
 
