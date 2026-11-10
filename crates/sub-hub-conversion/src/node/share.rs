@@ -1,5 +1,3 @@
-//! Share-URI scheme dispatch. Protocol parse lives beside the Node IR.
-
 #[cfg(test)]
 mod tests;
 
