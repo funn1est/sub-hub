@@ -5,14 +5,6 @@ use http::StatusCode;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RemoteHttpsError;
 
-impl fmt::Display for RemoteHttpsError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("invalid remote https response")
-    }
-}
-
-impl std::error::Error for RemoteHttpsError {}
-
 const MAX_REDIRECT_LOCATION_BYTES: usize = 8_192;
 pub(crate) const MAX_SUBSCRIPTION_USER_INFO_BYTES: usize = 256;
 
