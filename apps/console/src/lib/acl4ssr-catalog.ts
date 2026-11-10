@@ -52,7 +52,6 @@ export type Acl4ssrPreset = {
 export type Acl4ssrConfigFile = Acl4ssrPreset['file'];
 export type Acl4ssrEffectId = Acl4ssrPreset['effect'];
 
-/** Combobox group order: key order of `ACL4SSR_PRESETS`. */
 export const ACL4SSR_FAMILIES = Object.keys(ACL4SSR_PRESETS) as Acl4ssrFamily[];
 
 export function acl4ssrListed(): readonly Acl4ssrPreset[] {
