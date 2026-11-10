@@ -257,6 +257,7 @@ pub(crate) struct RealityOptions {
     tls: TlsOptions,
     public_key: RealityPublicKey,
     short_id: Option<RealityShortId>,
+    support_x25519mlkem768: bool,
 }
 
 impl RealityOptions {
@@ -264,11 +265,13 @@ impl RealityOptions {
         tls: TlsOptions,
         public_key: RealityPublicKey,
         short_id: Option<RealityShortId>,
+        support_x25519mlkem768: bool,
     ) -> Self {
         Self {
             tls,
             public_key,
             short_id,
+            support_x25519mlkem768,
         }
     }
 
@@ -282,6 +285,10 @@ impl RealityOptions {
 
     pub(crate) const fn short_id(&self) -> Option<&RealityShortId> {
         self.short_id.as_ref()
+    }
+
+    pub(crate) const fn supports_x25519mlkem768(&self) -> bool {
+        self.support_x25519mlkem768
     }
 }
 

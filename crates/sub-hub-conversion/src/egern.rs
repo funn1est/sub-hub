@@ -266,6 +266,10 @@ fn vless_proxy(
     vless: &crate::node::vless::VlessNode,
     tag: &str,
 ) -> Option<VlessProxy> {
+    if matches!(vless.security(), VlessSecurity::Reality(options) if options.supports_x25519mlkem768())
+    {
+        return None;
+    }
     if matches!(
         (vless.transport(), vless.security()),
         (VlessTransport::WebSocket { .. }, VlessSecurity::Reality(_))

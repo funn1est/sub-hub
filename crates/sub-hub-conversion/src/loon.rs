@@ -264,6 +264,10 @@ fn render_vless_line(
     if matches!(vless.transport(), VlessTransport::Grpc { .. }) {
         return None;
     }
+    if matches!(vless.security(), VlessSecurity::Reality(options) if options.supports_x25519mlkem768())
+    {
+        return None;
+    }
     let has_vision = matches!(vless.flow(), Some(VlessFlow::Vision));
     let has_reality = matches!(vless.security(), VlessSecurity::Reality(_));
     if has_vision != has_reality {

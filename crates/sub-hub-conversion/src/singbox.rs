@@ -84,7 +84,7 @@ fn encode_node(node: &ProxyNode) -> Result<(String, Outbound<'_>), NodeKeep> {
 
 fn node_outbound<'a>(node: &'a ProxyNode, tag: &'a str) -> Option<Outbound<'a>> {
     Some(match node.protocol() {
-        NodeProtocol::Vless(vless) => Outbound::Vless(vless_outbound(node, vless, tag)),
+        NodeProtocol::Vless(vless) => Outbound::Vless(vless_outbound(node, vless, tag)?),
         NodeProtocol::Shadowsocks(shadowsocks) => {
             Outbound::Shadowsocks(shadowsocks_outbound(node, shadowsocks, tag))
         }
@@ -229,7 +229,11 @@ fn vless_outbound<'a>(
     node: &'a ProxyNode,
     vless: &'a crate::node::vless::VlessNode,
     tag: &'a str,
-) -> VlessOutbound<'a> {
+) -> Option<VlessOutbound<'a>> {
+    if matches!(vless.security(), VlessSecurity::Reality(options) if options.supports_x25519mlkem768())
+    {
+        return None;
+    }
     let transport = stream_transport(vless.transport());
     let tls = match vless.security() {
         VlessSecurity::None => None,
@@ -246,7 +250,7 @@ fn vless_outbound<'a>(
             Some(Reality::from_options(options)),
         )),
     };
-    VlessOutbound {
+    Some(VlessOutbound {
         kind: "vless",
         tag,
         server: render_host_plain(node.endpoint().host()),
@@ -257,7 +261,7 @@ fn vless_outbound<'a>(
         }),
         tls,
         transport,
-    }
+    })
 }
 
 fn tls_object<'a>(

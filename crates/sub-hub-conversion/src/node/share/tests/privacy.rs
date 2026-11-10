@@ -64,6 +64,12 @@ fn invalid_rejection_output_redacts_attacker_controlled_values() {
         ),
         (
             format!(
+                "vless://{uuid}@canary-host.example:443?support-x25519mlkem768=CANARY_QUERY_VALUE#CANARY_REMARK"
+            ),
+            NodeRejection::Invalid(InvalidNodeReason::ParameterValue),
+        ),
+        (
+            format!(
                 "vless://{uuid}@canary-host.example:443?type=tcp&type=CANARY_QUERY_VALUE#CANARY_REMARK"
             ),
             NodeRejection::Invalid(InvalidNodeReason::DuplicateParameter),

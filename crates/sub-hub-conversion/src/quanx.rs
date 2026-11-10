@@ -151,6 +151,10 @@ fn render_vless_line(
     if matches!(vless.transport(), VlessTransport::Grpc { .. }) {
         return None;
     }
+    if matches!(vless.security(), VlessSecurity::Reality(options) if options.supports_x25519mlkem768())
+    {
+        return None;
+    }
     if matches!(vless.flow(), Some(VlessFlow::Vision))
         && !matches!(vless.security(), VlessSecurity::Reality(_))
     {

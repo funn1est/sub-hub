@@ -107,6 +107,35 @@ grpc-opts:
 }
 
 #[test]
+fn vless_reality_support_x25519mlkem768_is_reality_opts() {
+    let actual = rendered_yaml(
+        b"vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443?encryption=none&security=reality&sni=cdn.example&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b&type=tcp&support-x25519mlkem768=true#Pq",
+    );
+    let expected: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        r"
+name: Pq
+type: vless
+server: example.com
+port: 443
+uuid: 01234567-89ab-cdef-0123-456789abcdef
+udp: true
+encryption: none
+network: tcp
+tls: true
+servername: cdn.example
+client-fingerprint: chrome
+reality-opts:
+  public-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  short-id: 0a1b
+  support-x25519mlkem768: true
+",
+    )
+    .expect("expected YAML");
+
+    assert_eq!(actual["proxies"][0], expected);
+}
+
+#[test]
 fn shadowsocks_empty_query_fragment_is_the_proxy_name() {
     let actual = rendered_yaml(b"ss://aes-256-gcm:password@example.com:8388?#Alpha");
 

@@ -723,6 +723,11 @@ struct MihomoRealityOptions {
     public_key: String,
     #[serde(rename = "short-id", skip_serializing_if = "Option::is_none")]
     short_id: Option<String>,
+    #[serde(
+        rename = "support-x25519mlkem768",
+        skip_serializing_if = "Option::is_none"
+    )]
+    support_x25519mlkem768: Option<bool>,
 }
 
 impl MihomoRealityOptions {
@@ -730,6 +735,7 @@ impl MihomoRealityOptions {
         Self {
             public_key: reality_public_key_base64(options),
             short_id: reality_short_id_hex(options),
+            support_x25519mlkem768: options.supports_x25519mlkem768().then_some(true),
         }
     }
 }

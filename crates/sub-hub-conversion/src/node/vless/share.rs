@@ -208,13 +208,19 @@ pub(crate) fn apply_shared_stream_query_pair(
 struct Parameters {
     base: StreamQueryBase,
     flow: Option<VlessFlow>,
+    support_x25519mlkem768: bool,
 }
 
 fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
     let mut base = StreamQueryBase::new(VlessSecurityKind::None);
     let mut flow = None;
+    let mut support_x25519mlkem768 = false;
     let Some(query) = query else {
-        return Ok(Parameters { base, flow });
+        return Ok(Parameters {
+            base,
+            flow,
+            support_x25519mlkem768,
+        });
     };
     let pairs = scan_query(query)?;
     let context =
@@ -240,12 +246,33 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
                 require_compatible(context.flow_is_compatible(parsed))?;
                 flow = Some(parsed);
             }
+            "support-x25519mlkem768" => {
+                support_x25519mlkem768 = parse_x25519mlkem768_flag(&value, &context)?;
+            }
             _ if apply_shared_stream_query_pair(&mut base, &context, key, value)? => {}
             _ => return Err(unsupported_parameter(key)),
         }
     }
 
-    Ok(Parameters { base, flow })
+    Ok(Parameters {
+        base,
+        flow,
+        support_x25519mlkem768,
+    })
+}
+
+fn parse_x25519mlkem768_flag(
+    value: &str,
+    context: &ParameterContext,
+) -> Result<bool, NodeRejection> {
+    match value {
+        "0" | "false" => Ok(false),
+        "1" | "true" => {
+            require_compatible(context.security_is(VlessSecurityKind::Reality))?;
+            Ok(true)
+        }
+        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
+    }
 }
 
 fn unsupported_parameter(key: &str) -> NodeRejection {
@@ -371,6 +398,7 @@ fn build_components(
                 short_id,
             },
         flow,
+        support_x25519mlkem768,
     } = parameters;
 
     let transport = match transport_kind {
@@ -433,6 +461,7 @@ fn build_components(
                 build_tls_options(server_name, alpn, endpoint, fingerprint)?,
                 public_key,
                 short_id,
+                support_x25519mlkem768,
             ))
         }
     };
