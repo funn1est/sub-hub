@@ -401,17 +401,7 @@ fn build_components(
         support_x25519mlkem768,
     } = parameters;
 
-    let transport = match transport_kind {
-        VlessTransportKind::Tcp => VlessTransport::Tcp,
-        VlessTransportKind::WebSocket => VlessTransport::WebSocket {
-            path: path.unwrap_or_else(|| "/".into()),
-            host,
-        },
-        VlessTransportKind::Grpc => VlessTransport::Grpc {
-            service_name,
-            mode: mode.unwrap_or(GrpcMode::Gun),
-        },
-    };
+    let transport = build_vless_transport(transport_kind, path, host, service_name, mode);
 
     let security = match security_kind {
         VlessSecurityKind::None => {
@@ -467,6 +457,26 @@ fn build_components(
     };
 
     Ok((transport, security, flow))
+}
+
+pub(crate) fn build_vless_transport(
+    transport_kind: VlessTransportKind,
+    path: Option<String>,
+    host: Option<String>,
+    service_name: Option<String>,
+    mode: Option<GrpcMode>,
+) -> VlessTransport {
+    match transport_kind {
+        VlessTransportKind::Tcp => VlessTransport::Tcp,
+        VlessTransportKind::WebSocket => VlessTransport::WebSocket {
+            path: path.unwrap_or_else(|| "/".into()),
+            host,
+        },
+        VlessTransportKind::Grpc => VlessTransport::Grpc {
+            service_name,
+            mode: mode.unwrap_or(GrpcMode::Gun),
+        },
+    }
 }
 
 pub(crate) fn build_tls_options(
