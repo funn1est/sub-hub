@@ -51,7 +51,7 @@ impl VlessNode {
             VlessTransport::WebSocket { path, host } => {
                 !path.is_empty() && host.as_ref().is_none_or(|value| !value.is_empty())
             }
-            VlessTransport::Grpc { service_name, .. } => {
+            VlessTransport::Grpc { service_name } => {
                 service_name.as_ref().is_none_or(|value| !value.is_empty())
             }
         };
@@ -108,14 +108,8 @@ impl fmt::Debug for VlessId {
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum VlessTransport {
     Tcp,
-    WebSocket {
-        path: String,
-        host: Option<String>,
-    },
-    Grpc {
-        service_name: Option<String>,
-        mode: GrpcMode,
-    },
+    WebSocket { path: String, host: Option<String> },
+    Grpc { service_name: Option<String> },
 }
 
 impl VlessTransport {
@@ -160,11 +154,6 @@ impl VlessTransportKind {
             (Self::WebSocket, VlessSecurityKind::Reality)
         )
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum GrpcMode {
-    Gun,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
