@@ -3,10 +3,11 @@ use crate::node::{
     UnsupportedCapability, percent,
     uri::{parse_authority_uri, parse_endpoint, scan_query},
     vless::{
-        ClientFingerprint, RealityOptions, VlessSecurityKind, VlessTransport, VlessTransportKind,
+        ClientFingerprint, RealityOptions, VlessSecurityKind, VlessTransport,
         share::{
             ParameterContext, ShortIdParameter, StreamQueryBase, apply_shared_stream_query_pair,
-            build_tls_options, nonempty_owned, require_compatible, require_nonempty,
+            build_tls_options, build_vless_transport, nonempty_owned, require_compatible,
+            require_nonempty,
         },
     },
 };
@@ -109,14 +110,7 @@ fn build_components(
         peer,
     } = parameters;
 
-    let transport = match transport_kind {
-        VlessTransportKind::Tcp => VlessTransport::Tcp,
-        VlessTransportKind::WebSocket => VlessTransport::WebSocket {
-            path: path.unwrap_or_else(|| "/".into()),
-            host,
-        },
-        VlessTransportKind::Grpc => VlessTransport::Grpc { service_name },
-    };
+    let transport = build_vless_transport(transport_kind, path, host, service_name);
 
     let server_name = match (server_name, peer) {
         (Some(sni), Some(peer)) if sni != peer => {
