@@ -106,7 +106,7 @@ pub(crate) fn parse_query(raw_query: Option<&str>) -> Result<SubQuery, QueryErro
 
 /// Download-name stem: 1..=64 bytes, no path / Windows reserved characters,
 /// not `.` or `..`. HTTP appends the target extension.
-pub(crate) fn parse_filename_stem(value: &str) -> Option<String> {
+fn parse_filename_stem(value: &str) -> Option<String> {
     if value.is_empty() || value.len() > 64 || value == "." || value == ".." {
         return None;
     }
