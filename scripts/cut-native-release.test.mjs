@@ -10,7 +10,6 @@ import {
   confirmReleaseVersion,
   cutNativeRelease,
   parseCutArgv,
-  runGit,
 } from "./cut-native-release.mjs";
 import { readWorkspaceVersion } from "./workspace-version.mjs";
 
@@ -290,8 +289,7 @@ test("cutNativeRelease does not write when the version is not confirmed", () => 
   }
 });
 
-test("runGit is the default git runner", () => {
-  assert.equal(typeof runGit, "function");
+test("--help prints usage", () => {
   const help = spawnSync(
     process.execPath,
     [path.join(here, "cut-native-release.mjs"), "--help"],
