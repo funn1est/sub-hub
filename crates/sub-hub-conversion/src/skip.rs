@@ -19,7 +19,7 @@ impl SkipCountsV1 {
     }
 
     #[must_use]
-    pub const fn total(self) -> u32 {
+    const fn total(self) -> u32 {
         self.parse
             .saturating_add(self.capability)
             .saturating_add(self.name)
