@@ -82,7 +82,7 @@ fn parse_parameters(query: Option<&str>) -> Result<Parameters, NodeRejection> {
                 parameters.udp_relay = parse_udp_relay(pair.value.as_ref())?;
             }
             "allow_insecure" | "allowInsecure" | "disable_sni" => {
-                parse_refused_flag(pair.value.as_ref())?;
+                vless::parse_insecure_off_flag(pair.value.as_ref())?;
             }
             "udp_over_stream" => {
                 return Err(NodeRejection::Unsupported(
@@ -118,16 +118,6 @@ fn parse_udp_relay(value: &str) -> Result<TuicUdpRelay, NodeRejection> {
     match value {
         "native" => Ok(TuicUdpRelay::Native),
         "quic" => Ok(TuicUdpRelay::Quic),
-        _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
-    }
-}
-
-fn parse_refused_flag(value: &str) -> Result<(), NodeRejection> {
-    match value {
-        "0" | "false" => Ok(()),
-        "1" | "true" => Err(NodeRejection::Unsupported(
-            UnsupportedCapability::ProtocolOption,
-        )),
         _ => Err(NodeRejection::Invalid(InvalidNodeReason::ParameterValue)),
     }
 }
