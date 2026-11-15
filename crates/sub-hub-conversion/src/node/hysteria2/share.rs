@@ -1,12 +1,9 @@
-use std::{
-    net::{Ipv4Addr, Ipv6Addr},
-    num::NonZeroU16,
-};
+use std::num::NonZeroU16;
 
 use crate::node::{
-    Endpoint, Host, InvalidNodeReason, NodeProtocol, NodeRejection, ProxyNodeDraft,
+    Endpoint, InvalidNodeReason, NodeProtocol, NodeRejection, ProxyNodeDraft,
     UnsupportedCapability, percent,
-    uri::{parse_authority_uri_optional, scan_query},
+    uri::{parse_authority_uri_optional, parse_host_and_port_suffix, scan_query},
     vless::share as vless,
 };
 
@@ -37,8 +34,9 @@ pub(crate) fn parse(input: &str) -> Result<ProxyNodeDraft, NodeRejection> {
 
 fn parse_auth(userinfo: Option<&str>) -> Result<Hysteria2Auth, NodeRejection> {
     let Some(userinfo) = userinfo else {
-        return Hysteria2Auth::new(String::new())
-            .ok_or(NodeRejection::Invalid(InvalidNodeReason::Credential));
+        return Ok(
+            Hysteria2Auth::new(String::new()).expect("empty auth has no ASCII control characters")
+        );
     };
     let decoded = if let Some((username, password)) = userinfo.split_once(':') {
         let username = percent::decode(username)
@@ -56,36 +54,7 @@ fn parse_auth(userinfo: Option<&str>) -> Result<Hysteria2Auth, NodeRejection> {
 
 fn parse_hysteria2_authority(input: &str) -> Result<(Endpoint, Hysteria2Ports), NodeRejection> {
     let invalid = || NodeRejection::Invalid(InvalidNodeReason::Endpoint);
-    let (host, port) = if let Some(bracketed) = input.strip_prefix('[') {
-        let (address, suffix) = bracketed.split_once(']').ok_or_else(invalid)?;
-        if address.contains('%') {
-            return Err(invalid());
-        }
-        let address = address.parse::<Ipv6Addr>().map_err(|_| invalid())?;
-        let port = if suffix.is_empty() {
-            None
-        } else {
-            Some(suffix.strip_prefix(':').ok_or_else(invalid)?)
-        };
-        (Host::Ipv6(address), port)
-    } else if let Some((host, port)) = input.rsplit_once(':') {
-        if host.contains(':') {
-            return Err(invalid());
-        }
-        let host = if let Ok(address) = host.parse::<Ipv4Addr>() {
-            Host::Ipv4(address)
-        } else {
-            Host::Domain(host.to_owned())
-        };
-        (host, Some(port))
-    } else {
-        let host = if let Ok(address) = input.parse::<Ipv4Addr>() {
-            Host::Ipv4(address)
-        } else {
-            Host::Domain(input.to_owned())
-        };
-        (host, None)
-    };
+    let (host, port) = parse_host_and_port_suffix(input)?;
 
     let ports = match port {
         None => Hysteria2Ports::Single(NonZeroU16::new(443).expect("443 is nonzero")),
