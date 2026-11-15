@@ -79,18 +79,17 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
         }
 
         if let Some((failed_unique_index, error)) = selected_failure {
-            return match dense_bodies_prefix(loaded, failed_unique_index) {
-                Some(prefix) => UniqueFetchBatch::Failed {
-                    loaded: prefix,
-                    host: error,
-                },
-                None => UniqueFetchBatch::Misaligned,
+            return UniqueFetchBatch::Failed {
+                loaded: dense_bodies_prefix(loaded, failed_unique_index),
+                host: error,
             };
         }
-        match loaded.into_iter().collect::<Option<Vec<_>>>() {
-            Some(responses) => UniqueFetchBatch::Complete(responses),
-            None => UniqueFetchBatch::Misaligned,
-        }
+        UniqueFetchBatch::Complete(
+            loaded
+                .into_iter()
+                .map(|slot| slot.expect("batch scheduler fills every slot before Complete"))
+                .collect(),
+        )
     }
 
     async fn load_indexed_remote(
@@ -107,14 +106,14 @@ impl<A: RemoteAdapter> BrokerSession<'_, A> {
     }
 }
 
-fn dense_bodies_prefix(
-    loaded: Vec<Option<super::RemoteResponse>>,
-    end: usize,
-) -> Option<Vec<Vec<u8>>> {
+fn dense_bodies_prefix(loaded: Vec<Option<super::RemoteResponse>>, end: usize) -> Vec<Vec<u8>> {
     loaded
         .into_iter()
         .take(end)
-        .map(|slot| slot.map(|response| response.body))
+        .map(|slot| {
+            slot.expect("batch scheduler keeps a dense prefix before the selected failure")
+                .body
+        })
         .collect()
 }
 
@@ -134,13 +133,7 @@ mod dense_prefix_tests {
         let loaded = vec![Some(slot(b"a")), Some(slot(b"b")), None];
         assert_eq!(
             dense_bodies_prefix(loaded, 2),
-            Some(vec![b"a".to_vec(), b"b".to_vec()])
+            vec![b"a".to_vec(), b"b".to_vec()]
         );
-    }
-
-    #[test]
-    fn hole_before_failed_index_is_misaligned() {
-        let loaded = vec![Some(slot(b"a")), None, Some(slot(b"c"))];
-        assert_eq!(dense_bodies_prefix(loaded, 2), None);
     }
 }

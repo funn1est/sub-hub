@@ -83,10 +83,6 @@ async fn complete_fetch<A: RemoteAdapter>(
         UniqueFetchBatch::Failed { loaded, host } => {
             finish_fetch(fetch, UniqueFlightBodies::Failed { loaded, host }, broker)
         }
-        UniqueFetchBatch::Misaligned => {
-            drop(fetch);
-            UniqueFlightDrive::Ended(Err(UniqueFlightFillFailure::Internal))
-        }
     }
 }
 
