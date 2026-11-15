@@ -278,6 +278,10 @@ impl fmt::Debug for Acl4SsrRuleSetRequestV1 {
 pub(crate) enum Acl4SsrPreparationError {
     InvalidConfig,
     ConversionLimit,
+    #[expect(
+        dead_code,
+        reason = "closed-error slot; group-index lookup is now an invariant"
+    )]
     Internal,
 }
 
