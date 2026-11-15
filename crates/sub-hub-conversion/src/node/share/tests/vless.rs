@@ -851,3 +851,57 @@ fn vless_parameter_semantics_precede_global_compatibility() {
         NodeRejection::Invalid(InvalidNodeReason::IncompatibleParameter)
     );
 }
+
+#[test]
+fn vless_support_x25519mlkem768_is_a_reality_flag() {
+    let uuid = "01234567-89ab-cdef-0123-456789abcdef";
+    let pbk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let base = format!("vless://{uuid}@example.com:443");
+    let reality = format!(
+        "{base}?encryption=none&security=reality&sni=cdn.example&fp=chrome&pbk={pbk}&sid=0a1b&type=tcp"
+    );
+    let omitted = parse_share_uri(&reality).expect("Reality without the flag");
+    for uri in [
+        format!("{reality}&support-x25519mlkem768=0"),
+        format!("{reality}&support-x25519mlkem768=false"),
+        format!("{reality}&support-x25519mlkem768=%66alse"),
+    ] {
+        assert_eq!(
+            parse_share_uri(&uri).expect("explicit off is unwritten"),
+            omitted,
+            "fixture: {uri}"
+        );
+    }
+
+    for uri in [
+        format!("{reality}&support-x25519mlkem768=1"),
+        format!("{reality}&support-x25519mlkem768=true"),
+        format!("{reality}&support-x25519mlkem768=%74rue"),
+    ] {
+        let node = parse_share_uri(&uri).expect("enabled flag");
+        let NodeProtocol::Vless(vless) = node.protocol else {
+            panic!("expected VLESS")
+        };
+        let VlessSecurity::Reality(options) = vless.security() else {
+            panic!("expected Reality")
+        };
+        assert!(options.supports_x25519mlkem768(), "fixture: {uri}");
+    }
+
+    assert_eq!(
+        rejection(&format!("{base}?support-x25519mlkem768=true")),
+        NodeRejection::Invalid(InvalidNodeReason::IncompatibleParameter)
+    );
+    assert_eq!(
+        rejection(&format!("{base}?security=tls&support-x25519mlkem768=1")),
+        NodeRejection::Invalid(InvalidNodeReason::IncompatibleParameter)
+    );
+    assert_eq!(
+        rejection(&format!("{reality}&support-x25519mlkem768=")),
+        NodeRejection::Invalid(InvalidNodeReason::ParameterValue)
+    );
+    assert_eq!(
+        rejection(&format!("{reality}&support-x25519mlkem768=yes")),
+        NodeRejection::Invalid(InvalidNodeReason::ParameterValue)
+    );
+}

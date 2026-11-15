@@ -345,10 +345,6 @@ export function targetHint(locale: Locale, target: ClientTarget): string {
   return extra !== undefined ? `Imported by: ${list}. ${extra}` : `Imported by: ${list}.`;
 }
 
-export function clientTargetLabel(locale: Locale, target: ClientTarget): string {
-  return messages[locale].client[target].label;
-}
-
 export function capabilityHint(locale: Locale, target: ClientTarget): string {
   return messages[locale].client[target].capability;
 }

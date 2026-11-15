@@ -5,7 +5,6 @@ import { Alert, AlertTitle } from '@/components/ui/alert.tsx';
 import { Badge } from '@/components/ui/badge.tsx';
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -19,20 +18,17 @@ export function SectionCard({
   icon,
   title,
   description,
-  action,
   children,
 }: {
   icon: React.ReactNode;
   title: string;
   description?: string;
-  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <Card>
       <CardHeader className="border-b">
         <SectionHeading icon={icon} title={title} description={description} />
-        {action ? <CardAction>{action}</CardAction> : null}
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>

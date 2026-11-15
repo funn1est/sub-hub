@@ -105,7 +105,7 @@ impl fmt::Debug for VlessId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum VlessTransport {
     Tcp,
     WebSocket {
@@ -124,6 +124,24 @@ impl VlessTransport {
             Self::Tcp => VlessTransportKind::Tcp,
             Self::WebSocket { .. } => VlessTransportKind::WebSocket,
             Self::Grpc { .. } => VlessTransportKind::Grpc,
+        }
+    }
+}
+
+impl fmt::Debug for VlessTransport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tcp => formatter.write_str("Tcp"),
+            Self::WebSocket { host, .. } => formatter
+                .debug_struct("WebSocket")
+                .field("path", &"[REDACTED]")
+                .field("host", &host.as_ref().map(|_| "[REDACTED]"))
+                .finish(),
+            Self::Grpc { service_name, mode } => formatter
+                .debug_struct("Grpc")
+                .field("service_name", &service_name.as_ref().map(|_| "[REDACTED]"))
+                .field("mode", mode)
+                .finish(),
         }
     }
 }
@@ -179,7 +197,7 @@ impl VlessSecurityKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TlsOptions {
     server_name: String,
     alpn: Option<Vec<String>>,
@@ -223,11 +241,23 @@ impl TlsOptions {
     }
 }
 
+impl fmt::Debug for TlsOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TlsOptions")
+            .field("server_name", &"[REDACTED]")
+            .field("alpn", &self.alpn().map(|_| "[REDACTED]"))
+            .field("fingerprint", &self.fingerprint())
+            .finish()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RealityOptions {
     tls: TlsOptions,
     public_key: RealityPublicKey,
     short_id: Option<RealityShortId>,
+    support_x25519mlkem768: bool,
 }
 
 impl RealityOptions {
@@ -235,11 +265,13 @@ impl RealityOptions {
         tls: TlsOptions,
         public_key: RealityPublicKey,
         short_id: Option<RealityShortId>,
+        support_x25519mlkem768: bool,
     ) -> Self {
         Self {
             tls,
             public_key,
             short_id,
+            support_x25519mlkem768,
         }
     }
 
@@ -253,6 +285,10 @@ impl RealityOptions {
 
     pub(crate) const fn short_id(&self) -> Option<&RealityShortId> {
         self.short_id.as_ref()
+    }
+
+    pub(crate) const fn supports_x25519mlkem768(&self) -> bool {
+        self.support_x25519mlkem768
     }
 }
 

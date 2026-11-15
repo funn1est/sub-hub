@@ -55,6 +55,10 @@ export function configChoiceGroups(copy: Messages): ConfigChoiceGroup[] {
   ];
 }
 
+export function configChoiceLabel(item: ConfigChoice): string {
+  return item.detail ? `${item.label} · ${item.detail}` : item.label;
+}
+
 export function selectedConfigChoice(
   groups: readonly ConfigChoiceGroup[],
   id: ConfigSelectionId,

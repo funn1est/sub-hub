@@ -6,11 +6,11 @@ use crate::{
     node::{NodeProtocol, ProxyNode},
     policy::{CompiledPolicyV1, CompiledRuleV1, GroupStrategyV1, IpVersion, RuleMatcherV1},
     render::{
-        AdapterRenderError, NodeKeep, RenderedTargetV1, WalkedGroupItem, bounded_text_sections,
-        encode_hex, hysteria2_has_pin, is_safe_field as ini_safe_field, keep_named,
-        keep_tagged_or_unexpanded, map_compiled_rules, policy_member_token, reject_when_empty,
-        render_host_plain, reserved_group_tag, reserved_node_tag, shadowsocks_method,
-        shadowsocks_password, shared_probe_url, walk_group_members,
+        AdapterRenderError, NodeKeep, RenderedTargetV1, SpelledRule, WalkedGroupItem,
+        bounded_text_sections, encode_hex, hysteria2_has_pin, is_safe_field as ini_safe_field,
+        keep_named, keep_tagged_or_unexpanded, map_compiled_rules, policy_member_token,
+        reject_when_empty, render_host_plain, reserved_group_tag, reserved_node_tag,
+        shadowsocks_method, shadowsocks_password, shared_probe_url, unspelled, walk_group_members,
     },
 };
 
@@ -112,15 +112,13 @@ fn render_trojan_line(
     if matches!(trojan.transport(), VlessTransport::Grpc { .. }) {
         return None;
     }
-    if matches!(trojan.security(), TrojanSecurity::Reality(_)) {
-        return None;
-    }
     let password = trojan.password().expose();
     if !is_safe_field(password) {
         return None;
     }
-    let TrojanSecurity::Tls(options) = trojan.security() else {
-        return None;
+    let options = match trojan.security() {
+        TrojanSecurity::Tls(options) => options,
+        TrojanSecurity::Reality(_) => return None,
     };
     if !is_safe_field(options.server_name()) {
         return None;
@@ -263,27 +261,25 @@ fn push_alpn(fields: &mut Vec<String>, alpn: Option<&[String]>) -> Option<()> {
 }
 
 fn push_ws(fields: &mut Vec<String>, transport: &VlessTransport) -> Option<()> {
-    match transport {
-        VlessTransport::Tcp => Some(()),
-        VlessTransport::WebSocket {
-            path,
-            host: ws_host,
-        } => {
-            if !is_safe_field(path) {
-                return None;
-            }
-            fields.push("ws=true".to_owned());
-            fields.push(format!("ws-path={path}"));
-            if let Some(ws_host) = ws_host {
-                if !is_safe_field(ws_host) {
-                    return None;
-                }
-                fields.push(format!("ws-headers=Host:{ws_host}"));
-            }
-            Some(())
-        }
-        VlessTransport::Grpc { .. } => None,
+    let VlessTransport::WebSocket {
+        path,
+        host: ws_host,
+    } = transport
+    else {
+        return Some(());
+    };
+    if !is_safe_field(path) {
+        return None;
     }
+    fields.push("ws=true".to_owned());
+    fields.push(format!("ws-path={path}"));
+    if let Some(ws_host) = ws_host {
+        if !is_safe_field(ws_host) {
+            return None;
+        }
+        fields.push(format!("ws-headers=Host:{ws_host}"));
+    }
+    Some(())
 }
 
 fn render_groups(
@@ -386,7 +382,7 @@ fn render_rules(
 fn spell_rule(
     rule: &CompiledRuleV1,
     valid_nodes: &[&str],
-) -> Result<Option<String>, AdapterRenderError> {
+) -> Result<SpelledRule<String>, AdapterRenderError> {
     let Some(policy) = policy_member_token(
         rule.target(),
         "DIRECT",
@@ -395,7 +391,7 @@ fn spell_rule(
         valid_nodes,
     )?
     else {
-        return Ok(None);
+        return Ok(unspelled(rule));
     };
     let line = match rule.matcher() {
         RuleMatcherV1::Domain(value) if is_safe_field(value) => {
@@ -430,14 +426,14 @@ fn spell_rule(
         {
             format!("URL-REGEX,{value},{policy}")
         }
-        RuleMatcherV1::UrlRegex(_)
-        | RuleMatcherV1::ProcessName(_)
-        | RuleMatcherV1::Domain(_)
+        RuleMatcherV1::UrlRegex(_) => return Ok(SpelledRule::OmitUrlRegex),
+        RuleMatcherV1::ProcessName(_) => return Ok(SpelledRule::Drop),
+        RuleMatcherV1::Domain(_)
         | RuleMatcherV1::DomainSuffix(_)
         | RuleMatcherV1::DomainKeyword(_)
-        | RuleMatcherV1::IpCidr { .. } => return Ok(None),
+        | RuleMatcherV1::IpCidr { .. } => return Ok(unspelled(rule)),
     };
-    Ok(Some(line))
+    Ok(SpelledRule::Keep(line))
 }
 
 #[cfg(test)]

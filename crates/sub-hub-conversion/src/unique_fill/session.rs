@@ -11,8 +11,6 @@ use crate::{
     SubscriptionPreparationError, subscription_prepare::RemoteSourceFailureV1,
 };
 
-/// Unique-flight fill session: bind → fill → prefix / grammar-beats-budget →
-/// prepare / decoded accounts → Keep-pass.
 pub struct UniqueFlightSessionV1 {
     state: SessionState,
     stage: Stage,
@@ -21,7 +19,6 @@ pub struct UniqueFlightSessionV1 {
 struct SessionState {
     sources: Vec<String>,
     config_canonical: Option<Url>,
-    /// Session-wide first-seen Unique remotes. Fill plans index into this ledger.
     unique_remotes: UniqueUrls,
     unique_remote_cap: usize,
     target: OutputTarget,
@@ -46,19 +43,15 @@ struct RuleSetFetch {
     loaded: Vec<Vec<u8>>,
 }
 
-/// Move-only Unique-flight fill progress. HTTP drives [`Self::Fetch`].
 pub enum UniqueFlightDrive {
     Fetch(UniqueFlightFetch),
     Ended(Result<RenderedConfig, UniqueFlightFillFailure>),
 }
 
-/// One unique fetch. Leftover first-seen count stays on [`UniqueFlightFetchPlan`]
-/// so Session budget attempt preflight does not name the resource kind.
 pub struct UniqueFlightFetch {
     session: Box<UniqueFlightSessionV1>,
 }
 
-/// Hop HTTP should fetch now, plus leftover count for attempt preflight.
 pub struct UniqueFlightFetchPlan<'a> {
     ledger: &'a UniqueUrls,
     url_indices: &'a [SessionUrlIndex],
@@ -68,7 +61,6 @@ pub struct UniqueFlightFetchPlan<'a> {
 }
 
 impl UniqueFlightFetchPlan<'_> {
-    /// First-seen hop URLs for this take, in fetch order. Indices came from this ledger.
     #[must_use]
     pub fn urls(&self) -> impl ExactSizeIterator<Item = &Url> + '_ {
         self.url_indices
@@ -77,7 +69,6 @@ impl UniqueFlightFetchPlan<'_> {
     }
 }
 
-/// Unique bodies HTTP returns after a fetch hop.
 #[derive(Clone)]
 pub enum UniqueFlightBodies {
     Complete(Vec<Vec<u8>>),
@@ -87,17 +78,13 @@ pub enum UniqueFlightBodies {
     },
 }
 
-/// Closed host fetch outcome when a unique hop fails. Session maps this into
-/// [`UniqueFlightFillFailure`] unless a loaded prefix already beats it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UniqueFlightHostFailure {
     Failure,
     Timeout,
-    /// Outbound accept rejected the URL (policy or port).
     Rejected,
 }
 
-/// Closed Unique-flight fill failure. HTTP maps this onto GET once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UniqueFlightFillFailure {
     InvalidInput,
@@ -161,11 +148,6 @@ impl UniqueFlightFillFailure {
 }
 
 impl UniqueFlightSessionV1 {
-    /// Bind subscription occurrences. Config is one Unique flight on the same plan.
-    ///
-    /// `decoded_byte_cap` and `unique_remote_cap` are Session budget caps. The
-    /// session owns both running tallies and whether the subscription hop may
-    /// capture Subscription user-info; HTTP does not feed counts per step.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
     pub fn start<'a, I>(
@@ -586,8 +568,6 @@ impl UniqueFlightFetch {
         }
     }
 
-    /// Completes this hop. HTTP always supplies `accept_outbound`; the session
-    /// calls it only when the hop still needs Outbound accept.
     #[must_use]
     pub fn fulfill(
         self,

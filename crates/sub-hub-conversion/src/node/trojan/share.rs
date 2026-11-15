@@ -166,6 +166,7 @@ fn build_components(
                 )?,
                 public_key,
                 short_id,
+                false,
             ))
         }
     };

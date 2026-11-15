@@ -2,18 +2,10 @@
 
 use http::Method;
 use proptest::prelude::*;
-use sub_hub_http::{Application, HttpRequest, HttpResponse, SelfHosts};
+use sub_hub_http::HttpRequest;
 
 mod common;
-use common::UnreachableRemote;
-
-fn handle(request: HttpRequest<'_>) -> HttpResponse {
-    let application = Application::new(
-        UnreachableRemote,
-        SelfHosts::new(std::iter::empty::<String>()).expect("empty self-hosts"),
-    );
-    futures::executor::block_on(application.handle(request))
-}
+use common::handle;
 
 proptest! {
     #[test]

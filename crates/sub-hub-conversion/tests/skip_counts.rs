@@ -53,6 +53,51 @@ fn builtin_facade_dispatches_every_released_target() {
 }
 
 #[test]
+fn reality_x25519mlkem768_is_kept_only_on_mihomo() {
+    const NODE: &str = "vless://01234567-89ab-cdef-0123-456789abcdef@example.com:443?encryption=none&security=reality&sni=cdn.example&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0a1b&support-x25519mlkem768=true#Pq";
+
+    let mihomo = common::render_direct(&[NODE], OutputTarget::Mihomo).expect("mihomo keeps it");
+    let mihomo_text = std::str::from_utf8(mihomo.as_bytes()).expect("utf8");
+    assert!(mihomo_text.contains("support-x25519mlkem768: true"));
+    assert!(mihomo_text.contains("name: Pq"));
+    assert_eq!(
+        mihomo.skip_counts(),
+        SkipCountsV1 {
+            parse: 0,
+            capability: 0,
+            name: 0,
+        }
+    );
+
+    for target in [
+        OutputTarget::Quanx,
+        OutputTarget::Singbox,
+        OutputTarget::Loon,
+        OutputTarget::Egern,
+        OutputTarget::Surge,
+    ] {
+        let skipped = common::render_direct(&[NODE], target).expect_err("no spellable node");
+        assert!(
+            matches!(skipped, UniqueFlightFillFailure::NoValidNodes { .. }),
+            "{target:?} produced {skipped:?}"
+        );
+    }
+
+    let kept = common::render_direct(&[NODE, VLESS], OutputTarget::Singbox).expect("plain vless");
+    assert_eq!(
+        kept.skip_counts(),
+        SkipCountsV1 {
+            parse: 0,
+            capability: 1,
+            name: 0,
+        }
+    );
+    let text = std::str::from_utf8(kept.as_bytes()).expect("utf8");
+    assert!(!text.contains("support-x25519mlkem768"));
+    assert!(text.contains("Alpha"));
+}
+
+#[test]
 fn mihomo_keeps_supported_nodes_and_counts_parse_skips() {
     let config =
         common::render_direct(&[ANYTLS, VLESS], OutputTarget::Mihomo).expect("mihomo keeps vless");
