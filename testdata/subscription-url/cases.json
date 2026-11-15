@@ -55,14 +55,14 @@
       "surge": "attachment; filename=\"sub-hub-surge.conf\""
     },
     "percentDecode": [
-      { "id": "literal-plus", "encoded": "a+b", "decoded": "a+b" },
-      { "id": "percent-plus", "encoded": "a%2Bb", "decoded": "a+b" },
-      { "id": "uppercase-hex", "encoded": "a%2bB", "decoded": "a+B" },
-      { "id": "nul", "encoded": "%00", "decoded": null },
-      { "id": "cr", "encoded": "%0D", "decoded": null },
-      { "id": "lf", "encoded": "%0A", "decoded": null },
-      { "id": "incomplete", "encoded": "%2", "decoded": null },
-      { "id": "bad-hex", "encoded": "%GG", "decoded": null }
+      { "encoded": "a+b", "decoded": "a+b" },
+      { "encoded": "a%2Bb", "decoded": "a+b" },
+      { "encoded": "a%2bB", "decoded": "a+B" },
+      { "encoded": "%00", "decoded": null },
+      { "encoded": "%0D", "decoded": null },
+      { "encoded": "%0A", "decoded": null },
+      { "encoded": "%2", "decoded": null },
+      { "encoded": "%GG", "decoded": null }
     ],
     "skipSamples": [
       {
