@@ -5,13 +5,7 @@ use axum::{
     http::{Request, Response, StatusCode, header, uri::Authority},
 };
 use std::{
-    fmt,
-    future::Future,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-    pin::Pin,
-    sync::Arc,
-    time::Instant,
+    fmt, future::Future, net::SocketAddr, path::PathBuf, pin::Pin, sync::Arc, time::Instant,
 };
 use sub_hub_http::{
     AccessTokens, Application, CorsOrigins, HopHeaderBag, HttpRequest, HttpResponse, RemoteAdapter,
@@ -97,31 +91,6 @@ impl NativeConfig {
             return Err(ConfigError);
         }
         Ok(())
-    }
-
-    #[must_use]
-    pub const fn bind_address(&self) -> SocketAddr {
-        self.bind_address
-    }
-
-    #[must_use]
-    pub fn self_hosts(&self) -> &[String] {
-        self.self_hosts.as_slice()
-    }
-
-    #[must_use]
-    pub fn access_tokens(&self) -> &AccessTokens {
-        &self.access_tokens
-    }
-
-    #[must_use]
-    pub fn cors_origins(&self) -> &CorsOrigins {
-        &self.cors_origins
-    }
-
-    #[must_use]
-    pub fn console_root(&self) -> Option<&Path> {
-        self.console_root.as_deref()
     }
 }
 
@@ -475,13 +444,13 @@ mod tests {
         let config = NativeConfig::from_environment_parts(None, None, None, None)
             .expect("loopback may start without a token");
         assert_eq!(
-            config.bind_address(),
+            config.bind_address,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 25_500)
         );
-        assert!(config.self_hosts().is_empty());
-        assert!(config.access_tokens().is_empty());
-        assert!(config.cors_origins().is_empty());
-        assert!(config.console_root().is_none());
+        assert!(config.self_hosts.is_empty());
+        assert!(config.access_tokens.is_empty());
+        assert!(config.cors_origins.is_empty());
+        assert!(config.console_root.is_none());
     }
 
     #[test]
@@ -514,8 +483,8 @@ mod tests {
             None,
         )
         .expect("public bind with tokens");
-        assert!(!config.access_tokens().is_empty());
-        assert_eq!(config.self_hosts(), ["host.example"]);
+        assert!(!config.access_tokens.is_empty());
+        assert_eq!(config.self_hosts.as_slice(), ["host.example"]);
     }
 
     #[test]
@@ -563,7 +532,7 @@ mod tests {
                 Some("https://console.example"),
             )
             .expect("one origin")
-            .cors_origins()
+            .cors_origins
             .is_empty()
         );
     }
@@ -576,7 +545,7 @@ mod tests {
                 .clone()
                 .with_console_root_value(None)
                 .expect("unset")
-                .console_root()
+                .console_root
                 .is_none()
         );
         assert!(config.clone().with_console_root_value(Some("")).is_err());
@@ -600,7 +569,7 @@ mod tests {
         let enabled = config
             .with_console_root_value(Some(crate_dir))
             .expect("directory");
-        let configured = enabled.console_root().expect("configured");
+        let configured = enabled.console_root.expect("configured");
         assert!(configured.is_dir());
         assert_eq!(
             configured,
