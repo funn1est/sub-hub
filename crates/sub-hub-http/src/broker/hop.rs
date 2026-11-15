@@ -84,11 +84,7 @@ impl RemoteResponse {
     }
 
     #[must_use]
-    pub(crate) fn finish_https_hop(
-        status: StatusCode,
-        hop: HttpsHopHeaders,
-        body: Vec<u8>,
-    ) -> Self {
+    fn finish_https_hop(status: StatusCode, hop: HttpsHopHeaders, body: Vec<u8>) -> Self {
         match hop {
             HttpsHopHeaders::Redirect { location } => Self::redirect(status, location),
             HttpsHopHeaders::Unsuccessful => Self::body(status, Vec::new()),
@@ -105,12 +101,12 @@ impl RemoteResponse {
     }
 }
 
-pub(crate) enum HttpsHopOutcome {
+enum HttpsHopOutcome {
     Complete(RemoteResponse),
     ReadBody(HttpsHopPending),
 }
 
-pub(crate) struct HttpsHopPending {
+struct HttpsHopPending {
     status: StatusCode,
     hop: HttpsHopHeaders,
     max_body_bytes: usize,
@@ -183,7 +179,7 @@ where
         .collect()
 }
 
-pub(crate) fn begin_https_hop<L, E, C, U, LV, EV, CV, UV>(
+fn begin_https_hop<L, E, C, U, LV, EV, CV, UV>(
     status: StatusCode,
     location_values: L,
     content_encoding_values: E,

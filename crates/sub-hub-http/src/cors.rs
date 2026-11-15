@@ -5,9 +5,9 @@ use http::{HeaderValue, header};
 use crate::response::HttpResponse;
 
 /// Maximum number of unique Console origins in one binding.
-pub const MAX_CORS_ORIGINS: usize = 8;
+const MAX_CORS_ORIGINS: usize = 8;
 /// Maximum UTF-8 byte length of a present `SUB_HUB_CORS_ORIGINS` blob.
-pub const MAX_CORS_ORIGIN_LIST_BYTES: usize = 2048;
+const MAX_CORS_ORIGIN_LIST_BYTES: usize = 2048;
 
 const EXPOSE_HEADERS: HeaderValue = HeaderValue::from_static(
     "content-disposition, profile-update-interval, subscription-userinfo, x-subconverter-result, x-subconverter-omitted-rules, x-subconverter-skipped",
