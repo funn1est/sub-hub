@@ -23,11 +23,9 @@ pub(super) struct Config {
     pub(super) groups: Vec<Group>,
 }
 
-pub(super) enum Directive {
-    Ruleset {
-        target: TargetRef,
-        source: RuleSource,
-    },
+pub(super) struct Directive {
+    pub(super) target: TargetRef,
+    pub(super) source: RuleSource,
 }
 
 #[derive(Clone)]
@@ -146,7 +144,7 @@ impl Config {
                 section_seen = true;
                 continue;
             }
-            if !section_seen || line.contains('\0') {
+            if !section_seen {
                 return Err(Acl4SsrPreparationError::InvalidConfig);
             }
             let (key, value) = line
@@ -469,7 +467,7 @@ fn resolve_config(unresolved: Vec<UnresolvedDirective>) -> Result<Config, Acl4Ss
                     RuleSource::Final => final_seen = true,
                     RuleSource::Remote(_) => {}
                 }
-                directives.push(Directive::Ruleset {
+                directives.push(Directive {
                     target: resolve_target(target)?,
                     source,
                 });
