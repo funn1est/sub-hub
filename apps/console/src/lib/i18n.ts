@@ -53,7 +53,6 @@ export const messages = {
     showToken: 'Show token',
     hideToken: 'Hide token',
     versionChecking: 'Checking /version…',
-    versionOk: 'Conversion Service',
     versionIssue: 'Unreachable',
     versionOther: 'This origin is not a Sub Hub Conversion Service.',
     versionUnreachable:
@@ -199,7 +198,6 @@ export const messages = {
     showToken: '显示 token',
     hideToken: '隐藏 token',
     versionChecking: '正在检查 /version…',
-    versionOk: 'Conversion Service',
     versionIssue: '无法连接',
     versionOther: '这个 origin 不是 Sub Hub Conversion Service。',
     versionUnreachable:
